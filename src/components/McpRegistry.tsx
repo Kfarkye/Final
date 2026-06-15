@@ -225,7 +225,7 @@ const PRELOADED_SERVERS: McpServer[] = [
     icon: 'custom',
     type: 'Official',
     transport: 'SSE',
-    commandOrUrl: 'https://mcp.googleapis.com/v1/spanner/sse',
+    commandOrUrl: '/api/mcp/spanner',
     tools: [
       {
         name: 'list_instances',

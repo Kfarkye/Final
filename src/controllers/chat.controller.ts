@@ -43,6 +43,8 @@ export const chatController = {
           targetUrl = `http://localhost:${PORT}/api/mcp/linear`;
         } else if (["execute_javascript"].includes(name)) {
           targetUrl = `http://localhost:${PORT}/api/mcp/notebook`;
+        } else if (["list_instances", "list_databases", "get_database_ddl", "execute_sql"].includes(name)) {
+          targetUrl = `http://localhost:${PORT}/api/mcp/spanner`;
         }
 
         if (!targetUrl) {
@@ -66,6 +68,9 @@ export const chatController = {
           }
           if (req.headers["x-user-id"]) {
             headers["x-user-id"] = req.headers["x-user-id"] as string;
+          }
+          if (connectionId) {
+            headers["x-connection-id"] = connectionId;
           }
           
           // Pass authorization details for Linear if available

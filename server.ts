@@ -13,6 +13,7 @@ import { gitController } from "./src/controllers/git.controller";
 import stripeMcpRoutes from "./src/routes/stripeMcpRoutes";
 import linearMcpRoutes from "./src/routes/linearMcpRoutes";
 import notebookMcpRoutes from "./src/routes/notebookMcpRoutes";
+import spannerMcpRoutes from "./src/routes/spannerMcpRoutes";
 
 // Middleware & Managers
 import { chatRateLimiter, validateChatPayload } from './lib/middleware/chat-security';
@@ -44,6 +45,7 @@ app.post("/api/truth/chat", chatRateLimiter, validateChatPayload, chatController
 app.use("/api/mcp/stripe", stripeMcpRoutes);
 app.use("/api/mcp/linear", linearMcpRoutes);
 app.use("/api/mcp/notebook", notebookMcpRoutes);
+app.use("/api/mcp/spanner", spannerMcpRoutes);
 
 // --- Git Workspace Routes ---
 app.post("/api/git/provision", gitController.provisionWorkspace);
