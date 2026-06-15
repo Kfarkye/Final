@@ -21,7 +21,7 @@ export const chatController = {
         const result = await toolRegistry.execute(name, args, { googleAccessToken, ai, openai, anthropic, xai, connectionId });
         
         const isNotSupportedNatively = result && result.error && (
-          result.error.includes("not supported natively on this server") ||
+          result.error.includes("not registered in the tool registry") ||
           result.error.includes("Local execution not supported")
         );
 
@@ -30,6 +30,7 @@ export const chatController = {
         }
 
         // 2. Fallback to HTTP forward for remote/gateway MCP servers (Stripe, Linear, Notebook, or Custom MCP servers)
+        // Note: Spanner tools execute natively via spanner.tools.ts and never reach this fallback.
         const mcpServers = req.body.mcpServers || [];
         const server = mcpServers.find((s: any) => 
           (s.status === 'Connected' || s.status === 'Active') && 
@@ -48,8 +49,6 @@ export const chatController = {
           targetUrl = `http://localhost:${PORT}/api/mcp/linear`;
         } else if (["execute_javascript"].includes(name)) {
           targetUrl = `http://localhost:${PORT}/api/mcp/notebook`;
-        } else if (["list_instances", "list_databases", "get_database_ddl", "execute_sql"].includes(name)) {
-          targetUrl = `http://localhost:${PORT}/api/mcp/spanner`;
         }
 
         if (!targetUrl) {

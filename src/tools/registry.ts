@@ -35,7 +35,7 @@ class ToolRegistry {
     
     if (!tool) {
       logger.warn({ msg: "Attempted to execute missing tool", toolName: name });
-      return { error: `Tool '${name}' is registered but not supported natively on this server.` };
+      return { error: `Tool '${name}' is not registered in the tool registry.` };
     }
 
     // 🛡️ RUNTIME VALIDATION BOUNDARY 🛡️
