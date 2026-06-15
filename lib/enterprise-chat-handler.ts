@@ -382,7 +382,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         while (runCount < 3) {
           const stream = await deps.anthropic.messages.stream({
             model: modelConfigs.claude || "claude-opus-4-8",
-            max_tokens: 1024,
+            max_tokens: 16384,
             system: systemPrompt,
             messages: currentMessages,
             tools: claudeTools.length > 0 ? claudeTools : undefined
