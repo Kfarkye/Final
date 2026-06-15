@@ -9,15 +9,12 @@ import GitWorkspaceHub from './components/GitWorkspaceHub';
 import WorkspaceModeToggle from './components/WorkspaceModeToggle';
 import McpRegistry, { PRELOADED_SERVERS } from './components/McpRegistry';
 import ApiHub from './components/ApiHub';
-import { TruthWorkspaceLayout } from './components/TruthWorkspaceLayout';
 import { logAuditAction } from './lib/audit';
 
 import ExportDialog from './components/ExportDialog';
 import AuditDialog from './components/AuditDialog';
 import SettingsDialog from './components/SettingsDialog';
 import { MimeRenderer } from './components/MimeRenderer';
-import { DropdownMenu } from './components/DropdownMenu';
-import { Terminal, Cpu, GitBranch } from 'lucide-react';
 
 import { useFileAttachment } from './components/attachments/useFileAttachment';
 import { FileChip } from './components/attachments/FileChip';
@@ -70,7 +67,7 @@ export default function ChatClient() {
   const [sharedModel, setSharedModel] = useState<string>('gemini');
   const [topic, setTopic] = useState('Normal');
   const [isTyping, setIsTyping] = useState(false);
-
+  const [showMenu, setShowMenu] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -89,31 +86,7 @@ export default function ChatClient() {
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
-  const [workspaceSubTab, setWorkspaceSubTab] = useState<'google' | 'git' | 'context'>('git');
-
-  const [isSandboxActive, setIsSandboxActive] = useState(() => {
-    const saved = localStorage.getItem('isSandboxActive');
-    return saved !== null ? saved === 'true' : true;
-  });
-  const [isGcpProxyLive, setIsGcpProxyLive] = useState(() => {
-    const saved = localStorage.getItem('isGcpProxyLive');
-    return saved !== null ? saved === 'true' : true;
-  });
-  const [activeWorkspace, setActiveWorkspace] = useState(() => {
-    return localStorage.getItem('activeWorkspace') || 'reverie-core';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('isSandboxActive', String(isSandboxActive));
-  }, [isSandboxActive]);
-
-  useEffect(() => {
-    localStorage.setItem('isGcpProxyLive', String(isGcpProxyLive));
-  }, [isGcpProxyLive]);
-
-  useEffect(() => {
-    localStorage.setItem('activeWorkspace', activeWorkspace);
-  }, [activeWorkspace]);
+  const [workspaceSubTab, setWorkspaceSubTab] = useState<'google' | 'git'>('git');
 
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -638,118 +611,82 @@ export default function ChatClient() {
             <span className="hidden lg:inline">API Hub</span>
           </button>
 
-          <DropdownMenu>
-            <DropdownMenu.Trigger asChild>
-              <button className="p-2 text-zinc-400 hover:text-white transition-colors outline-none cursor-pointer" title="Options">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-              </button>
-            </DropdownMenu.Trigger>
-
-            <DropdownMenu.Content align="end">
-              <DropdownMenu.Label>Options</DropdownMenu.Label>
-              
-              {(currentUser?.role === 'Admin' || currentUser?.role === 'Editor') && (
-                <DropdownMenu.Item 
-                  onClick={() => setShowExport(true)}
+          <button onClick={() => setShowMenu(!showMenu)} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Options">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+          </button>
+          
+          <AnimatePresence>
+            {showMenu && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 top-12 w-56 bg-zinc-950/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/40 overflow-hidden py-2 z-30"
+              >
+                {(currentUser?.role === 'Admin' || currentUser?.role === 'Editor') && (
+                  <button 
+                    onClick={() => {
+                      setShowExport(true);
+                      setShowMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                  >
+                    Export Conversation
+                  </button>
+                )}
+                {currentUser?.role === 'Admin' && (
+                  <button 
+                    onClick={() => {
+                      setShowAudit(true);
+                      setShowMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                  >
+                    Enterprise Audit Logs
+                  </button>
+                )}
+                <button 
+                  onClick={() => {
+                    setShowSettings(true);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
                 >
-                  Export Conversation
-                </DropdownMenu.Item>
-              )}
-              
-              {currentUser?.role === 'Admin' && (
-                <DropdownMenu.Item 
-                  onClick={() => setShowAudit(true)}
-                >
-                  Enterprise Audit Logs
-                </DropdownMenu.Item>
-              )}
-
-              <DropdownMenu.Item 
-                onClick={() => setShowSettings(true)}
-              >
-                Settings
-              </DropdownMenu.Item>
-
-              <DropdownMenu.Item 
-                onClick={() => {
-                  const confirm = window.confirm("Clear conversation history?");
-                  if (confirm) setTurns([]);
-                }}
-              >
-                Clear History
-              </DropdownMenu.Item>
-
-              <DropdownMenu.Separator />
-
-              {/* Switch Workspace Sub-menu */}
-              <DropdownMenu.Sub>
-                <DropdownMenu.SubTrigger className="group">
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-zinc-500 group-data-[highlighted]:text-cyan-400 transition-colors" />
-                    <span>Switch Workspace</span>
-                  </div>
-                </DropdownMenu.SubTrigger>
-                <DropdownMenu.SubContent>
-                  <DropdownMenu.RadioGroup value={activeWorkspace} onValueChange={setActiveWorkspace}>
-                    <DropdownMenu.RadioItem value="reverie-core">
-                      <span>reverie-core</span>
-                    </DropdownMenu.RadioItem>
-                    <DropdownMenu.RadioItem value="aura-governance">
-                      <span>aura-governance</span>
-                    </DropdownMenu.RadioItem>
-                    <DropdownMenu.RadioItem value="sandbox-playground">
-                      <span>sandbox-playground</span>
-                    </DropdownMenu.RadioItem>
-                  </DropdownMenu.RadioGroup>
-                </DropdownMenu.SubContent>
-              </DropdownMenu.Sub>
-
-              <DropdownMenu.Separator />
-
-              {/* Interactive Checkbox Items */}
-              <DropdownMenu.CheckboxItem 
-                checked={isSandboxActive} 
-                onCheckedChange={setIsSandboxActive}
-                className="group"
-              >
-                <div className="flex items-center gap-2">
-                  <Terminal className="h-4 w-4 text-zinc-500 group-data-[highlighted]:text-cyan-400 transition-colors" />
-                  <span>Sandbox Active</span>
-                </div>
-              </DropdownMenu.CheckboxItem>
-
-              <DropdownMenu.CheckboxItem 
-                checked={isGcpProxyLive} 
-                onCheckedChange={setIsGcpProxyLive}
-                className="group"
-              >
-                <div className="flex items-center gap-2">
-                  <Cpu className="h-4 w-4 text-zinc-500 group-data-[highlighted]:text-cyan-400 transition-colors" />
-                  <span>GCP Multi-Sync Link</span>
-                </div>
-              </DropdownMenu.CheckboxItem>
-
-              <DropdownMenu.Separator />
-
-              <DropdownMenu.Item 
-                destructive
-                onClick={async () => {
-                  const confirm = window.confirm("End session?");
-                  if (confirm) {
-                    try {
-                      await signOut(auth);
-                    } catch (e) {
-                      console.error(e);
+                  Settings
+                </button>
+                <button 
+                  onClick={() => {
+                    const confirm = window.confirm("Clear conversation history?");
+                    if (confirm) {
+                      setTurns([]);
+                      setShowMenu(false);
                     }
-                    sessionStorage.removeItem('truthConfig');
-                    navigate('/');
-                  }
-                }}
-              >
-                End Session
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu>
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                >
+                  Clear History
+                </button>
+                <button 
+                  onClick={async () => {
+                    const confirm = window.confirm("End session?");
+                    if (confirm) {
+                      try {
+                        await signOut(auth);
+                      } catch (e) {
+                         console.error(e);
+                      }
+                      sessionStorage.removeItem('truthConfig');
+                      navigate('/');
+                    }
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  End Session
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
@@ -784,6 +721,7 @@ export default function ChatClient() {
         {/* Chat Area */}
         <main 
           className="flex-1 overflow-y-auto px-4 py-10 flex flex-col space-y-12"
+          onClick={() => showMenu && setShowMenu(false)}
         >
           <div className="max-w-[1400px] w-full mx-auto flex flex-col space-y-12">
             {turns.length === 0 && (
@@ -889,29 +827,7 @@ export default function ChatClient() {
               <div className="w-[380px] h-full flex flex-col">
                 {activeRightTab === 'workspace' ? (
                   <div className="h-full flex flex-col overflow-hidden">
-                    {/* Workspace Sub-Tab Toggle */}
-                    <div className="px-6 pt-5 pb-1 flex-shrink-0 bg-black flex flex-col gap-3">
-                      <div className="flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-900 text-[10px] uppercase font-bold tracking-wider">
-                        <button
-                          onClick={() => setWorkspaceSubTab('git')}
-                          className={`flex-1 py-1.5 rounded-md transition-all font-sans ${workspaceSubTab === 'git' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                        >
-                          Git Repo
-                        </button>
-                        <button
-                          onClick={() => setWorkspaceSubTab('google')}
-                          className={`flex-1 py-1.5 rounded-md transition-all font-sans ${workspaceSubTab === 'google' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                        >
-                          Google
-                        </button>
-                        <button
-                          onClick={() => setWorkspaceSubTab('context')}
-                          className={`flex-1 py-1.5 rounded-md transition-all font-sans ${workspaceSubTab === 'context' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                        >
-                          Context
-                        </button>
-                      </div>
-                    </div>
+                    <WorkspaceModeToggle mode={workspaceSubTab} onToggle={setWorkspaceSubTab} />
                     
                     <div className="flex-1 overflow-hidden">
                       {workspaceSubTab === 'git' ? (
@@ -921,17 +837,10 @@ export default function ChatClient() {
                             setInputVal(prev => prev + (prev ? '\n\n' : '') + text);
                           }} 
                         />
-                      ) : workspaceSubTab === 'google' ? (
+                      ) : (
                         <WorkspaceHub onInsertContext={(text) => {
                           setInputVal(prev => prev + (prev ? '\n\n' : '') + text);
                         }} />
-                      ) : (
-                        <TruthWorkspaceLayout 
-                          onInsertContext={(text) => {
-                            setInputVal(prev => prev + (prev ? '\n\n' : '') + text);
-                          }}
-                          onClose={() => setWorkspaceOpen(false)}
-                        />
                       )}
                     </div>
                   </div>
