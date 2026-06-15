@@ -1,0 +1,260 @@
+contracts:
+  # ═══════════════════════════════════════════════════════════════════════
+  # ALWAYS-ON: Minimal core tools included in every request
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: core
+    name: Core System
+    always: true
+    tools:
+      - get_current_time
+      - run_script
+      - execute_javascript
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # WEB RESEARCH & SCRAPING
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: web-research
+    name: Web Research & Scraping
+    keywords:
+      - search
+      - fetch
+      - scrape
+      - website
+      - url
+      - research
+      - article
+      - news
+      - browse
+      - link
+      - sitemap
+      - robots
+      - rss
+      - xml
+      - markdown
+      - html
+      - web
+      - google
+      - source
+      - cite
+      - find online
+      - look up
+    tools:
+      - search_web
+      - fetch_html
+      - fetch_json
+      - fetch_text
+      - fetch_headers
+      - fetch_rss
+      - fetch_sitemap
+      - fetch_robots
+      - fetch_url_batch
+      - http_request
+      - fetch_xml
+      - fetch_markdown
+      - extract_page
+      - research_sources
+      - research_report
+      - fetch_readable
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GOOGLE WORKSPACE (Drive, Gmail, Calendar)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: google-workspace
+    name: Google Workspace
+    keywords:
+      - email
+      - gmail
+      - drive
+      - calendar
+      - event
+      - meeting
+      - schedule
+      - document
+      - file
+      - inbox
+      - unread
+      - draft
+      - send email
+      - availability
+      - appointment
+      - google doc
+      - spreadsheet
+    tools:
+      - search_drive
+      - read_drive_file
+      - create_drive_file
+      - list_unread_emails
+      - get_email_thread
+      - send_email_draft
+      - get_upcoming_events
+      - create_calendar_event
+      - check_availability
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # CLOUD SPANNER DATABASE
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: spanner
+    name: Cloud Spanner Database
+    always: true
+    keywords:
+      - spanner
+      - database
+      - sql
+      - query
+      - table
+      - schema
+      - ddl
+      - instance
+      - clearspace
+      - core-db
+      - select
+      - insert
+      - update
+      - delete
+      - db
+    tools:
+      - list_instances
+      - list_databases
+      - get_database_ddl
+      - execute_sql
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STRIPE & PAYMENTS
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: payments
+    name: Stripe & Payments
+    keywords:
+      - stripe
+      - payment
+      - balance
+      - subscription
+      - customer
+      - billing
+      - revenue
+      - charge
+      - invoice
+      - plan
+      - pricing
+    tools:
+      - balance_read
+      - customers_search
+      - subscriptions_cancel
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # LINEAR PROJECT MANAGEMENT
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: project-management
+    name: Linear Project Management
+    keywords:
+      - linear
+      - issue
+      - ticket
+      - task
+      - bug
+      - feature request
+      - backlog
+      - sprint
+      - kanban
+    tools:
+      - issue_list
+      - issue_create
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GCP INFRASTRUCTURE (Pub/Sub, Storage, Logging, Error Reporting)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: gcp-infra
+    name: GCP Infrastructure
+    keywords:
+      - pubsub
+      - pub/sub
+      - storage
+      - bucket
+      - gcs
+      - logging
+      - logs
+      - error reporting
+      - cloud run
+      - gcp
+      - project
+      - cloud
+      - infrastructure
+      - object
+      - topic
+      - subscription
+      - message
+    tools:
+      - list_pubsub_topics
+      - get_pubsub_topic
+      - list_pubsub_subscriptions
+      - get_pubsub_subscription
+      - publish_pubsub_message
+      - list_storage_buckets
+      - list_storage_objects
+      - get_storage_object_metadata
+      - read_storage_text
+      - write_storage_text
+      - create_storage_bucket
+      - list_cloud_log_entries
+      - list_cloud_log_names
+      - get_cloud_run_service_logs
+      - list_error_groups
+      - search_gcp_projects
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GIT OPERATIONS
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: git
+    name: Git Operations
+    keywords:
+      - git
+      - commit
+      - diff
+      - status
+      - repo
+      - branch
+      - push
+      - pull
+      - merge
+      - changelog
+    tools:
+      - run_git_status
+      - get_git_diff
+      - view_git_commits
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # SEO & INDEXING
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: seo-indexing
+    name: SEO & Indexing
+    keywords:
+      - index
+      - seo
+      - crawl
+      - google search console
+      - indexing
+      - sitemap
+    tools:
+      - submit_url_for_indexing
+      - check_url_indexing_status
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # HTML ARTIFACT BUILDER
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: artifacts
+    name: HTML Artifact Builder
+    keywords:
+      - artifact
+      - dashboard
+      - html
+      - page
+      - deploy
+      - website
+      - build
+      - create page
+      - status page
+      - landing page
+      - template
+    tools:
+      - create_html_artifact
+      - deploy_html_artifact
+      - list_html_artifacts
