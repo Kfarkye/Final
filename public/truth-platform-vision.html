@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Truth | Unified MCP Workspace & Execution Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f5f7ff',
+                            100: '#ebf0ff',
+                            200: '#d6e0ff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            900: '#1e3a8a',
+                            navy: '#0B0F19',
+                            slateDark: '#161F30',
+                            accentCyan: '#06b6d4',
+                            accentPurple: '#a855f7'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #0B0F19; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #334155; }
+    </style>
+</head>
+<body class="bg-brand-navy text-slate-100 min-h-screen flex flex-col overflow-hidden">
+
+    <!-- TOP HEADER -->
+    <header class="bg-brand-slateDark border-b border-slate-800 px-6 py-4 flex items-center justify-between z-10">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-accentCyan to-brand-accentPurple flex items-center justify-center shadow-lg shadow-cyan-500/10 animate-pulse">
+                <i data-lucide="shield" class="w-6 h-6 text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                    TRUTH PLATFORM <span class="text-xs bg-brand-accentCyan/20 text-brand-accentCyan px-2 py-0.5 rounded border border-brand-accentCyan/30">V1.5 PRODUCTION</span>
+                </h1>
+                <p class="text-xs text-slate-400">Unified Multi-Tenant MCP Gateway, Workspace Virtualization & Execution Engine</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-4 text-xs">
+            <div class="flex items-center bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-md gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span class="text-slate-300 font-medium">GCP CLOUD RUN:</span>
+                <span class="text-slate-400 font-mono">reverie-us-central1 (Healthy)</span>
+            </div>
+            <div class="flex items-center bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-md gap-2">
+                <i data-lucide="database" class="w-3.5 h-3.5 text-brand-accentCyan"></i>
+                <span class="text-slate-300">SPANNER ACTIVE</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- SIDEBAR -->
+        <aside class="w-64 bg-brand-slateDark/80 border-r border-slate-800 flex flex-col justify-between py-6">
+            <div class="space-y-6 px-4">
+                <div class="space-y-1">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-3">Operational Console</span>
+                    <nav class="space-y-1 mt-2">
+                        <button onclick="switchTab('dashboard')" id="btn-dashboard" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium bg-brand-500/10 text-white border-l-4 border-brand-accentCyan">
+                            <i data-lucide="layout-dashboard" class="w-4 h-4"></i><span>System Overview</span>
+                        </button>
+                        <button onclick="switchTab('mcp-gateway')" id="btn-mcp-gateway" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                            <i data-lucide="toy-brick" class="w-4 h-4"></i><span>MCP Core Gateway</span>
+                        </button>
+                        <button onclick="switchTab('git-workspace')" id="btn-git-workspace" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                            <i data-lucide="git-branch" class="w-4 h-4"></i><span>Git Virtualizer</span>
+                        </button>
+                        <button onclick="switchTab('notebook')" id="btn-notebook" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                            <i data-lucide="terminal" class="w-4 h-4"></i><span>Execution Sandbox</span>
+                        </button>
+                    </nav>
+                </div>
+                <div class="space-y-1">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-3">Enterprise Standards</span>
+                    <nav class="space-y-1 mt-2">
+                        <button onclick="switchTab('knowledge')" id="btn-knowledge" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                            <i data-lucide="library" class="w-4 h-4"></i><span>Discovery & Entity URN</span>
+                        </button>
+                        <button onclick="switchTab('deployment')" id="btn-deployment" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                            <i data-lucide="cloud-lightning" class="w-4 h-4"></i><span>Serverless & Firebase</span>
+                        </button>
+                        <button onclick="switchTab('artifacts')" id="btn-artifacts" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800">
+                            <i data-lucide="file-code" class="w-4 h-4"></i><span>HTML5 Artifacts</span>
+                        </button>
+                    </nav>
+                </div>
+                <div class="space-y-1">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-3">Developer Credentials</span>
+                    <div class="grid grid-cols-2 gap-2 p-2">
+                        <a href="https://dashboard.stripe.com/apikeys" target="_blank" class="flex flex-col items-center justify-center p-2 bg-slate-900/50 hover:bg-slate-900 border border-slate-800 rounded-lg text-center transition group">
+                            <i data-lucide="credit-card" class="w-5 h-5 text-indigo-400 mb-1 group-hover:scale-110 transition"></i>
+                            <span class="text-[10px] text-slate-300 font-medium">Stripe Keys</span>
+                        </a>
+                        <a href="https://linear.app/settings/api" target="_blank" class="flex flex-col items-center justify-center p-2 bg-slate-900/50 hover:bg-slate-900 border border-slate-800 rounded-lg text-center transition group">
+                            <i data-lucide="check-square" class="w-5 h-5 text-purple-400 mb-1 group-hover:scale-110 transition"></i>
+                            <span class="text-[10px] text-slate-300 font-medium">Linear OAuth</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 border-t border-slate-800 pt-4 text-center">
+                <span class="text-[10px] text-slate-500 font-mono block">ORCHESTRATOR VERSION 1.5.0</span>
+                <span class="text-[10px] text-slate-600 block mt-1">&copy; 2026 TRUTH ARCHITECTURE</span>
+            </div>
+        </aside>
+
+        <!-- MAIN -->
+        <main class="flex-1 bg-brand-navy p-6 overflow-y-auto custom-scrollbar flex flex-col space-y-6">
+
+            <!-- TAB 1: DASHBOARD -->
+            <div id="tab-dashboard" class="tab-content space-y-6">
+                <div class="bg-gradient-to-r from-brand-slateDark to-slate-900 p-6 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <h2 class="text-2xl font-bold tracking-tight text-white">Truth Cluster Status Panel</h2>
+                        <p class="text-sm text-slate-400">Monitoring global MCP configurations, secure subprocess pools, and cloud run limits.</p>
+                    </div>
+                    <button onclick="triggerSystemAudit()" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white font-semibold text-xs rounded-lg shadow-lg shadow-brand-500/20 transition flex items-center gap-2">
+                        <i data-lucide="shield-alert" class="w-4 h-4"></i><span>Run Security Diagnostics</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="bg-brand-slateDark p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center"><i data-lucide="git-pull-request" class="w-5 h-5 text-emerald-400"></i></div>
+                            <div><span class="text-xs text-slate-400 block font-medium">Git Virtualizer</span><span class="text-sm font-bold text-white font-mono">14 Active Contexts</span></div>
+                        </div>
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    </div>
+                    <div class="bg-brand-slateDark p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center"><i data-lucide="credit-card" class="w-5 h-5 text-indigo-400"></i></div>
+                            <div><span class="text-xs text-slate-400 block font-medium">Stripe Gateway</span><span class="text-sm font-bold text-white font-mono">SDK-Direct Mode</span></div>
+                        </div>
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    </div>
+                    <div class="bg-brand-slateDark p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center"><i data-lucide="check-square" class="w-5 h-5 text-purple-400"></i></div>
+                            <div><span class="text-xs text-slate-400 block font-medium">Linear Agile Sync</span><span class="text-sm font-bold text-white font-mono">OAuth Scoped</span></div>
+                        </div>
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    </div>
+                    <div class="bg-brand-slateDark p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-lg bg-brand-accentCyan/10 flex items-center justify-center"><i data-lucide="terminal" class="w-5 h-5 text-brand-accentCyan"></i></div>
+                            <div><span class="text-xs text-slate-400 block font-medium">Execution Sandbox</span><span class="text-sm font-bold text-white font-mono">isolated-vm Engine</span></div>
+                        </div>
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-7 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col h-[400px]">
+                        <div class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-3 h-3 rounded-full bg-rose-500"></div>
+                                <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+                                <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                                <span class="text-xs font-mono text-slate-400 ml-2">Truth Sandbox Log Console</span>
+                            </div>
+                            <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">LIVE</span>
+                        </div>
+                        <div id="log-terminal" class="p-4 flex-1 overflow-y-auto font-mono text-xs text-slate-300 space-y-2 custom-scrollbar">
+                            <p class="text-slate-500">[2026-06-15T14:10:01Z] Initializing Truth Multi-Service Architecture cluster...</p>
+                            <p class="text-brand-accentCyan">[2026-06-15T14:10:03Z] Mounting Express routes under authenticated base /api/mcp...</p>
+                            <p class="text-emerald-400">[2026-06-15T14:10:04Z] Stripe SDK Gateway integrated. Direct SDK execution active.</p>
+                            <p class="text-emerald-400">[2026-06-15T14:10:04Z] Linear Task Sync service mounted using @linear/sdk.</p>
+                            <p class="text-emerald-400">[2026-06-15T14:10:05Z] Notebook Sandbox initialized via isolated-vm (64MB memory limit).</p>
+                            <p class="text-brand-accentCyan">[2026-06-15T14:10:05Z] 16 GCP Remote MCP tools registered (PubSub, Storage, Logging, ErrorReporting, ResourceMgr).</p>
+                            <p class="text-brand-accentPurple">[2026-06-15T14:10:06Z] HTML5 Artifact system online. Storage: gs://clearspace-artifacts/truth-artifacts/</p>
+                            <p class="text-slate-500">[2026-06-15T14:10:06Z] Verification check success. Cluster status 100% HEALTHY.</p>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-5 bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4">
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider">Operational Quick Actions</h3>
+                        <div class="grid grid-cols-1 gap-3">
+                            <button onclick="switchTab('mcp-gateway')" class="flex items-center justify-between p-3.5 bg-slate-900/50 hover:bg-slate-900 rounded-lg border border-slate-800 transition text-left group">
+                                <div class="flex items-center space-x-3">
+                                    <i data-lucide="toy-brick" class="w-5 h-5 text-brand-accentCyan"></i>
+                                    <div><span class="text-sm font-semibold text-white block">MCP Tool Playground</span><span class="text-xs text-slate-400">Test Stripe, Linear, and Sandbox tools live</span></div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 group-hover:translate-x-1 transition"></i>
+                            </button>
+                            <button onclick="switchTab('artifacts')" class="flex items-center justify-between p-3.5 bg-slate-900/50 hover:bg-slate-900 rounded-lg border border-slate-800 transition text-left group">
+                                <div class="flex items-center space-x-3">
+                                    <i data-lucide="file-code" class="w-5 h-5 text-brand-accentPurple"></i>
+                                    <div><span class="text-sm font-semibold text-white block">HTML5 Artifact Studio</span><span class="text-xs text-slate-400">Create, preview, and deploy HTML artifacts</span></div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 group-hover:translate-x-1 transition"></i>
+                            </button>
+                            <button onclick="switchTab('deployment')" class="flex items-center justify-between p-3.5 bg-slate-900/50 hover:bg-slate-900 rounded-lg border border-slate-800 transition text-left group">
+                                <div class="flex items-center space-x-3">
+                                    <i data-lucide="cloud-lightning" class="w-5 h-5 text-amber-400"></i>
+                                    <div><span class="text-sm font-semibold text-white block">Serverless Deploy Console</span><span class="text-xs text-slate-400">Cloud Run, Firebase, and GCS architecture</span></div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 group-hover:translate-x-1 transition"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: MCP GATEWAY -->
+            <div id="tab-mcp-gateway" class="tab-content hidden space-y-6">
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-2">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="toy-brick" class="w-5 h-5 text-brand-accentCyan"></i>
+                        <span>Platform-Direct Unified MCP Gateway</span>
+                    </h2>
+                    <p class="text-sm text-slate-400">Each service is mapped directly to its SDK — no HTTP gateway fallback, no OpenAPI overflow.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-5 bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4 flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Tool Call Dispatcher</h3>
+                            <div>
+                                <label class="text-xs text-slate-400 block mb-1">Target Service</label>
+                                <select id="mcp-service-select" onchange="updateMcpTools()" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-accentCyan font-mono">
+                                    <option value="stripe">Stripe SDK-Direct</option>
+                                    <option value="linear">Linear @linear/sdk</option>
+                                    <option value="notebook">isolated-vm Sandbox</option>
+                                    <option value="gcp">GCP Remote MCP</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-400 block mb-1">Tool Name</label>
+                                <select id="mcp-tool-select" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-accentCyan font-mono"></select>
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-400 block mb-1">Arguments (JSON)</label>
+                                <textarea id="mcp-args-textarea" rows="4" class="w-full bg-slate-900 border border-slate-800 rounded p-3 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-accentCyan">{ "confirm": true }</textarea>
+                            </div>
+                        </div>
+                        <button onclick="dispatchMockMcpCall()" class="w-full py-3 bg-brand-500 hover:bg-brand-600 font-semibold text-xs text-white rounded-lg shadow-lg shadow-brand-500/20 transition flex items-center justify-center gap-2">
+                            <i data-lucide="play" class="w-4 h-4"></i><span>Execute Tool</span>
+                        </button>
+                    </div>
+
+                    <div class="lg:col-span-7 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col h-[400px]">
+                        <div class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+                            <span class="text-xs font-mono text-slate-400">JSON-RPC Request & Response</span>
+                            <span class="text-[10px] bg-brand-accentCyan/20 text-brand-accentCyan px-2 py-0.5 rounded font-mono">DIRECT SDK</span>
+                        </div>
+                        <div id="mcp-stream-log" class="p-4 flex-1 overflow-y-auto font-mono text-xs text-slate-300 space-y-4 custom-scrollbar">
+                            <span class="text-slate-500">/* Select a tool and click Execute... */</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 flex items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <h3 class="text-sm font-bold text-white flex items-center gap-2"><i data-lucide="credit-card" class="w-4 h-4 text-indigo-400"></i>Stripe Integration</h3>
+                            <p class="text-xs text-slate-400">Configure restricted keys with tailored write permissions.</p>
+                        </div>
+                        <a href="https://dashboard.stripe.com/apikeys" target="_blank" class="px-3.5 py-2 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-semibold text-xs rounded-lg hover:bg-indigo-500/30 transition flex items-center gap-1">Get Keys <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
+                    </div>
+                    <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 flex items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <h3 class="text-sm font-bold text-white flex items-center gap-2"><i data-lucide="check-square" class="w-4 h-4 text-purple-400"></i>Linear Credentials</h3>
+                            <p class="text-xs text-slate-400">Enable OAuth for multi-user project management.</p>
+                        </div>
+                        <a href="https://linear.app/settings/api" target="_blank" class="px-3.5 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 font-semibold text-xs rounded-lg hover:bg-purple-500/30 transition flex items-center gap-1">Get Client ID <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: GIT VIRTUALIZER -->
+            <div id="tab-git-workspace" class="tab-content hidden space-y-6">
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-2">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="git-branch" class="w-5 h-5 text-brand-accentCyan"></i>
+                        <span>Secure Dynamic Workspace Virtualizer</span>
+                    </h2>
+                    <p class="text-sm text-slate-400">Workspaces are provisioned dynamically per authenticated session — never globally mounted.</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-5 bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4">
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider">Provision Workspace</h3>
+                        <div><label class="text-xs text-slate-400 block mb-1">Repository URL</label><input id="git-repo-url" type="text" value="https://github.com/Kfarkye/Final" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-brand-accentCyan"></div>
+                        <div><label class="text-xs text-slate-400 block mb-1">OAuth Token</label><input id="git-token" type="password" value="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-brand-accentCyan"></div>
+                        <button onclick="provisionMockWorkspace()" class="w-full py-3 bg-brand-500 hover:bg-brand-600 font-semibold text-xs text-white rounded-lg shadow-lg shadow-brand-500/20 transition flex items-center justify-center gap-2">
+                            <i data-lucide="download-cloud" class="w-4 h-4"></i><span>Provision & Clone</span>
+                        </button>
+                    </div>
+                    <div class="lg:col-span-7 bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4">
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider">Path Sandbox Validation</h3>
+                        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-3">
+                            <div class="flex items-center gap-4 text-xs font-mono">
+                                <div class="bg-slate-900 border border-slate-800 px-3 py-2 rounded flex-1"><span class="text-rose-400">Input:</span><p class="text-white mt-1">/tmp/workspaces/usr_94821a/../../etc/passwd</p></div>
+                                <div class="text-brand-accentCyan font-bold text-lg">→</div>
+                                <div class="bg-slate-900 border border-rose-900/50 px-3 py-2 rounded flex-1 border-dashed"><span class="text-rose-500 font-semibold">REJECTED</span><p class="text-rose-400 mt-1">Path traversal blocked</p></div>
+                            </div>
+                        </div>
+                        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-3">
+                            <div class="flex items-center gap-4 text-xs font-mono">
+                                <div class="bg-slate-900 border border-slate-800 px-3 py-2 rounded flex-1"><span class="text-emerald-400">Input:</span><p class="text-white mt-1">/tmp/workspaces/usr_94821a/src/server.ts</p></div>
+                                <div class="text-brand-accentCyan font-bold text-lg">→</div>
+                                <div class="bg-slate-900 border border-emerald-900/50 px-3 py-2 rounded flex-1"><span class="text-emerald-500 font-semibold">ALLOWED</span><p class="text-emerald-400 mt-1">Path safe</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: NOTEBOOK SANDBOX -->
+            <div id="tab-notebook" class="tab-content hidden space-y-6">
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-2">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="terminal" class="w-5 h-5 text-brand-accentCyan"></i>
+                        <span>Isolated Execution Sandbox (isolated-vm)</span>
+                    </h2>
+                    <p class="text-sm text-slate-400">Scripts run inside isolated-vm with 64MB memory limit, 3s CPU timeout, no network, no filesystem.</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-6 bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4 flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-sm font-bold text-white uppercase tracking-wider">Write Script</h3>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="loadSnippet('safe')" class="px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold rounded hover:bg-emerald-500/30 transition">Safe</button>
+                                    <button onclick="loadSnippet('bypass')" class="px-2 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-semibold rounded hover:bg-rose-500/30 transition">Bypass Test</button>
+                                </div>
+                            </div>
+                            <textarea id="notebook-code" rows="8" class="w-full bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-200 font-mono focus:outline-none resize-none">// Fibonacci calculation
+const fib = (n) => n <= 1 ? n : fib(n-1) + fib(n-2);
+console.log("Fibonacci(10):", fib(10));</textarea>
+                        </div>
+                        <button onclick="executeSandboxCode()" class="w-full py-3 bg-brand-500 hover:bg-brand-600 font-semibold text-xs text-white rounded-lg shadow-lg shadow-brand-500/20 transition flex items-center justify-center gap-2">
+                            <i data-lucide="terminal" class="w-4 h-4"></i><span>Execute in Sandbox</span>
+                        </button>
+                    </div>
+                    <div class="lg:col-span-6 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col h-[350px] lg:h-auto">
+                        <div class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+                            <span class="text-xs font-mono text-slate-400">Console Output</span>
+                            <span class="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-mono">ISOLATED-VM</span>
+                        </div>
+                        <div id="sandbox-output" class="p-4 flex-1 overflow-y-auto font-mono text-xs text-slate-300 space-y-2 custom-scrollbar">
+                            <span class="text-slate-500">/* Output will appear here... */</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: DISCOVERY & URN -->
+            <div id="tab-knowledge" class="tab-content hidden space-y-6">
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-2">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="library" class="w-5 h-5 text-brand-accentCyan"></i>
+                        <span>Discovery & Entity URN Framework</span>
+                    </h2>
+                    <p class="text-sm text-slate-400">All documentation is cataloged using hierarchical URN definitions for semantic discoverability.</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-6 bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4 flex flex-col justify-between">
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider">YAML Frontmatter Linter</h3>
+                        <textarea id="markdown-linter-content" rows="10" class="w-full bg-slate-900 border border-slate-800 rounded p-3 text-xs text-slate-200 font-mono focus:outline-none resize-none">---
+canonical_id: "urn:truth:architecture:billing:stripe:mcp-integration-guide"
+title: "Stripe SDK-Direct Integration Guide"
+domain: "billing"
+subdomain: "stripe"
+technologies: ["stripe", "express", "mcp-protocol"]
+status: "active"
+owner: "billing-engineering-team"
+last_reviewed: "2026-06-15"
+---
+
+# Unified Stripe Integration Documentation
+Detailed specifications describing SDK mounts...</textarea>
+                        <button onclick="runFrontmatterLinter()" class="w-full py-3 bg-brand-500 hover:bg-brand-600 font-semibold text-xs text-white rounded-lg shadow-lg shadow-brand-500/20 transition flex items-center justify-center gap-2">
+                            <i data-lucide="check-check" class="w-4 h-4"></i><span>Run Linter</span>
+                        </button>
+                    </div>
+                    <div class="lg:col-span-6 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col h-[350px] lg:h-auto">
+                        <div class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+                            <span class="text-xs font-mono text-slate-400">Linter Output</span>
+                            <span class="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded font-mono">VALIDATION</span>
+                        </div>
+                        <div id="linter-terminal" class="p-4 flex-1 overflow-y-auto font-mono text-xs text-slate-300 space-y-3 custom-scrollbar">
+                            <p class="text-slate-500">/* Run the linter to validate frontmatter... */</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 6: SERVERLESS & FIREBASE -->
+            <div id="tab-deployment" class="tab-content hidden space-y-6">
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-2">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="cloud-lightning" class="w-5 h-5 text-brand-accentCyan"></i>
+                        <span>Serverless Architecture & Firebase Blueprint</span>
+                    </h2>
+                    <p class="text-sm text-slate-400">Cloud Run for containers, Cloud Storage for persistence, Firebase for auth — all serverless, all auto-scaling.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-3">
+                        <div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center"><i data-lucide="lock" class="w-5 h-5 text-yellow-400"></i></div>
+                        <h3 class="text-sm font-bold text-white">1. Firebase Auth Gateway</h3>
+                        <p class="text-xs text-slate-400 leading-relaxed">Validated JWT signatures on all actions. Identity forwarded as <code class="text-brand-accentCyan">x-user-id</code> context.</p>
+                    </div>
+                    <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-3">
+                        <div class="w-10 h-10 rounded-lg bg-brand-accentCyan/10 flex items-center justify-center"><i data-lucide="database" class="w-5 h-5 text-brand-accentCyan"></i></div>
+                        <h3 class="text-sm font-bold text-white">2. Cloud Storage Persistence</h3>
+                        <p class="text-xs text-slate-400 leading-relaxed">Artifacts stored in <code class="text-brand-accentCyan">gs://clearspace-artifacts</code>. HTML5 pages served via <code class="text-brand-accentCyan">/api/artifacts/:id</code>.</p>
+                    </div>
+                    <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-3">
+                        <div class="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center"><i data-lucide="zap" class="w-5 h-5 text-emerald-400"></i></div>
+                        <h3 class="text-sm font-bold text-white">3. Cloud Run Serverless</h3>
+                        <p class="text-xs text-slate-400 leading-relaxed">Ephemeral containers, scale-to-zero, instant cold starts. Service: <code class="text-brand-accentCyan">reverie-us-central1</code>.</p>
+                    </div>
+                </div>
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-4">
+                    <h3 class="text-sm font-bold text-white uppercase tracking-wider">Production Dockerfile Spec</h3>
+                    <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                        <pre class="text-xs font-mono text-slate-300 leading-relaxed">FROM node:22-slim AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:22-slim
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+RUN npm ci --omit=dev
+
+ENV NODE_ENV=production
+EXPOSE 5001
+CMD ["node", "dist/server.js"]</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 7: HTML5 ARTIFACTS -->
+            <div id="tab-artifacts" class="tab-content hidden space-y-6">
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800 space-y-2">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="file-code" class="w-5 h-5 text-brand-accentCyan"></i>
+                        <span>HTML5 Artifact Studio</span>
+                    </h2>
+                    <p class="text-sm text-slate-400">First-class HTML5 artifact creation, live preview, Cloud Storage persistence, and one-click serverless deploy.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-brand-slateDark p-5 rounded-xl border border-slate-800 space-y-3">
+                        <div class="w-10 h-10 rounded-lg bg-brand-accentPurple/10 flex items-center justify-center"><i data-lucide="plus" class="w-5 h-5 text-brand-accentPurple"></i></div>
+                        <h3 class="text-sm font-bold text-white">Create</h3>
+                        <p class="text-xs text-slate-400">AI generates full HTML5 → saved to <code class="text-brand-accentCyan">gs://clearspace-artifacts</code> → data URI returned for inline preview.</p>
+                    </div>
+                    <div class="bg-brand-slateDark p-5 rounded-xl border border-slate-800 space-y-3">
+                        <div class="w-10 h-10 rounded-lg bg-brand-accentCyan/10 flex items-center justify-center"><i data-lucide="eye" class="w-5 h-5 text-brand-accentCyan"></i></div>
+                        <h3 class="text-sm font-bold text-white">Preview</h3>
+                        <p class="text-xs text-slate-400">Rendered inline in <code class="text-brand-accentCyan">SecureIframe</code> with Copy, Download, and Source toggle actions.</p>
+                    </div>
+                    <div class="bg-brand-slateDark p-5 rounded-xl border border-slate-800 space-y-3">
+                        <div class="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center"><i data-lucide="rocket" class="w-5 h-5 text-emerald-400"></i></div>
+                        <h3 class="text-sm font-bold text-white">Deploy</h3>
+                        <p class="text-xs text-slate-400">One-click deployment to Cloud Run. Each artifact gets its own public URL and isolated service.</p>
+                    </div>
+                </div>
+                <div class="bg-slate-950 p-6 rounded-xl border border-slate-800 space-y-3">
+                    <h3 class="text-sm font-bold text-white uppercase tracking-wider">Artifact Pipeline</h3>
+                    <div class="flex items-center gap-3 text-xs font-mono overflow-x-auto py-2">
+                        <div class="bg-slate-900 border border-slate-800 px-4 py-3 rounded-lg text-center min-w-[120px]">
+                            <i data-lucide="message-square" class="w-5 h-5 text-brand-accentCyan mx-auto mb-1"></i>
+                            <span class="text-slate-300 block">User Prompt</span>
+                        </div>
+                        <span class="text-brand-accentCyan text-lg">→</span>
+                        <div class="bg-slate-900 border border-slate-800 px-4 py-3 rounded-lg text-center min-w-[140px]">
+                            <i data-lucide="cpu" class="w-5 h-5 text-brand-accentPurple mx-auto mb-1"></i>
+                            <span class="text-slate-300 block">LLM generates HTML</span>
+                        </div>
+                        <span class="text-brand-accentCyan text-lg">→</span>
+                        <div class="bg-slate-900 border border-slate-800 px-4 py-3 rounded-lg text-center min-w-[160px]">
+                            <i data-lucide="hard-drive" class="w-5 h-5 text-amber-400 mx-auto mb-1"></i>
+                            <span class="text-slate-300 block">create_html_artifact</span>
+                            <span class="text-slate-500 block text-[10px]">→ GCS + data URI</span>
+                        </div>
+                        <span class="text-brand-accentCyan text-lg">→</span>
+                        <div class="bg-slate-900 border border-slate-800 px-4 py-3 rounded-lg text-center min-w-[130px]">
+                            <i data-lucide="monitor" class="w-5 h-5 text-emerald-400 mx-auto mb-1"></i>
+                            <span class="text-slate-300 block">SecureIframe</span>
+                            <span class="text-slate-500 block text-[10px]">Live preview</span>
+                        </div>
+                        <span class="text-brand-accentCyan text-lg">→</span>
+                        <div class="bg-slate-900 border border-emerald-800 px-4 py-3 rounded-lg text-center min-w-[140px]">
+                            <i data-lucide="rocket" class="w-5 h-5 text-emerald-400 mx-auto mb-1"></i>
+                            <span class="text-emerald-300 block font-semibold">Deploy to Cloud Run</span>
+                            <span class="text-slate-500 block text-[10px]">Public URL</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-brand-slateDark p-6 rounded-xl border border-slate-800">
+                    <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-3">Available Tools</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-mono">
+                        <div class="bg-slate-900 p-3 rounded-lg border border-slate-800"><span class="text-brand-accentCyan font-semibold">create_html_artifact</span><p class="text-slate-400 mt-1 font-sans">Save HTML5 to GCS, return preview</p></div>
+                        <div class="bg-slate-900 p-3 rounded-lg border border-slate-800"><span class="text-emerald-400 font-semibold">deploy_html_artifact</span><p class="text-slate-400 mt-1 font-sans">Deploy to Cloud Run service</p></div>
+                        <div class="bg-slate-900 p-3 rounded-lg border border-slate-800"><span class="text-amber-400 font-semibold">list_html_artifacts</span><p class="text-slate-400 mt-1 font-sans">List all saved artifacts</p></div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- INTERACTIVE SCRIPT -->
+    <script>
+        const state = {
+            mcpTools: {
+                stripe: [
+                    { name: "balance_read", args: {} },
+                    { name: "customers_search", args: { query: "email:'user@example.com'" } },
+                    { name: "subscriptions_cancel", args: { subscriptionId: "sub_xxx", confirm: true } }
+                ],
+                linear: [
+                    { name: "issue_list", args: { limit: 10 } },
+                    { name: "issue_create", args: { title: "New feature", teamId: "team_xxx" } }
+                ],
+                notebook: [
+                    { name: "execute_javascript", args: { code: "console.log('Hello from sandbox')" } }
+                ],
+                gcp: [
+                    { name: "list_pubsub_topics", args: {} },
+                    { name: "list_storage_buckets", args: {} },
+                    { name: "list_cloud_log_entries", args: { filter: "severity>=ERROR" } },
+                    { name: "list_error_groups", args: {} },
+                    { name: "search_gcp_projects", args: {} }
+                ]
+            },
+            snippets: {
+                safe: `// Safe computation\nconst fib = (n) => n <= 1 ? n : fib(n-1) + fib(n-2);\nconsole.log("Fibonacci(10):", fib(10));`,
+                bypass: `// Prohibited — triggers security gate\ntry { process.kill(); } catch(e) {\n  console.log("[BLOCKED]", e.message);\n}`
+            }
+        };
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.className = "nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium text-slate-400 hover:text-white hover:bg-slate-800";
+            });
+            const activeBtn = document.getElementById(`btn-${tabId}`);
+            if (activeBtn) activeBtn.className = "nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm transition font-medium bg-brand-500/10 text-white border-l-4 border-brand-accentCyan";
+        }
+
+        function appendTerminalLog(msg, cls = "text-slate-300") {
+            const t = document.getElementById("log-terminal");
+            const p = document.createElement("p");
+            p.className = cls;
+            p.textContent = `[${new Date().toISOString()}] ${msg}`;
+            t.appendChild(p);
+            t.scrollTop = t.scrollHeight;
+        }
+
+        function triggerSystemAudit() {
+            const steps = [
+                ["Scanning active subprocess pools...", "text-slate-400"],
+                ["Verifying Stripe restricted-key scope...", "text-indigo-400"],
+                ["Validating Linear OAuth token freshness...", "text-purple-400"],
+                ["Checking isolated-vm memory limits (64MB)...", "text-brand-accentCyan"],
+                ["Auditing GCP Remote MCP endpoints (16 tools)...", "text-brand-accentCyan"],
+                ["Verifying HTML5 artifact storage (gs://clearspace-artifacts)...", "text-brand-accentPurple"],
+                ["All subsystems nominal. CLUSTER HEALTHY ✓", "text-emerald-400"]
+            ];
+            steps.forEach((s, i) => setTimeout(() => appendTerminalLog(s[0], s[1]), (i + 1) * 600));
+        }
+
+        function updateMcpTools() {
+            const service = document.getElementById("mcp-service-select").value;
+            const select = document.getElementById("mcp-tool-select");
+            select.innerHTML = "";
+            (state.mcpTools[service] || []).forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t.name;
+                opt.textContent = t.name;
+                select.appendChild(opt);
+            });
+            const tool = state.mcpTools[service]?.[0];
+            if (tool) document.getElementById("mcp-args-textarea").value = JSON.stringify(tool.args, null, 2);
+        }
+
+        function dispatchMockMcpCall() {
+            const service = document.getElementById("mcp-service-select").value;
+            const tool = document.getElementById("mcp-tool-select").value;
+            const args = document.getElementById("mcp-args-textarea").value;
+            const log = document.getElementById("mcp-stream-log");
+
+            const request = { jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name: tool, arguments: JSON.parse(args || "{}") } };
+            const mockResponse = { jsonrpc: "2.0", id: request.id, result: { success: true, tool, service, executedAt: new Date().toISOString(), pattern: "direct-sdk", note: "No HTTP gateway — executed natively via toolRegistry.execute()" } };
+
+            log.innerHTML = `<div class="space-y-3">
+                <p class="text-brand-accentCyan font-semibold">→ REQUEST</p>
+                <pre class="text-emerald-300 bg-slate-900 p-3 rounded-lg border border-slate-800 overflow-x-auto">${JSON.stringify(request, null, 2)}</pre>
+                <p class="text-brand-accentPurple font-semibold mt-4">← RESPONSE (${Math.floor(Math.random() * 80 + 20)}ms)</p>
+                <pre class="text-amber-300 bg-slate-900 p-3 rounded-lg border border-slate-800 overflow-x-auto">${JSON.stringify(mockResponse, null, 2)}</pre>
+            </div>`;
+        }
+
+        function provisionMockWorkspace() {
+            const repo = document.getElementById("git-repo-url").value;
+            appendTerminalLog(`Provisioning workspace for ${repo}...`, "text-brand-accentCyan");
+            setTimeout(() => appendTerminalLog("Workspace cloned to /tmp/workspaces/usr_94821a/repo ✓", "text-emerald-400"), 800);
+            setTimeout(() => appendTerminalLog("Path sandbox initialized. All traversal guards active.", "text-emerald-400"), 1200);
+        }
+
+        function loadSnippet(type) {
+            document.getElementById("notebook-code").value = state.snippets[type] || "";
+        }
+
+        function executeSandboxCode() {
+            const code = document.getElementById("notebook-code").value;
+            const output = document.getElementById("sandbox-output");
+            const isBypass = code.includes("process.kill") || code.includes("require(") || code.includes("Deno.");
+
+            if (isBypass) {
+                output.innerHTML = `<div class="space-y-2">
+                    <p class="text-rose-500 font-semibold">⚠ SECURITY GATE TRIGGERED</p>
+                    <p class="text-rose-400">Prohibited API access detected. Execution blocked by isolated-vm sandbox.</p>
+                    <p class="text-slate-500 mt-2">process, require, Deno, and fs are not available inside the sandbox.</p>
+                </div>`;
+            } else {
+                try {
+                    const logs = [];
+                    const mockConsole = { log: (...a) => logs.push(a.join(" ")), error: (...a) => logs.push("[ERROR] " + a.join(" ")) };
+                    const fn = new Function("console", code);
+                    fn(mockConsole);
+                    output.innerHTML = `<div class="space-y-2">
+                        <p class="text-emerald-400 font-semibold">✓ Execution Complete (${Math.floor(Math.random() * 50 + 5)}ms)</p>
+                        ${logs.map(l => `<p class="text-slate-300">› ${l}</p>`).join("")}
+                    </div>`;
+                } catch (e) {
+                    output.innerHTML = `<p class="text-rose-400">Runtime Error: ${e.message}</p>`;
+                }
+            }
+        }
+
+        function runFrontmatterLinter() {
+            const content = document.getElementById("markdown-linter-content").value;
+            const terminal = document.getElementById("linter-terminal");
+            const required = ["canonical_id", "title", "domain", "status", "owner"];
+            const match = content.match(/^---\n([\s\S]*?)\n---/);
+
+            if (!match) {
+                terminal.innerHTML = `<p class="text-rose-500 font-semibold">✗ No YAML frontmatter block detected.</p>`;
+                return;
+            }
+
+            const yaml = match[1];
+            const results = required.map(field => {
+                const found = yaml.includes(`${field}:`);
+                return `<p class="${found ? 'text-emerald-400' : 'text-rose-400'}">${found ? '✓' : '✗'} ${field}: ${found ? 'Present' : 'MISSING'}</p>`;
+            });
+
+            const urnMatch = yaml.match(/canonical_id:\s*"(urn:truth:[^"]+)"/);
+            const urnValid = urnMatch && urnMatch[1].split(":").length >= 4;
+
+            terminal.innerHTML = `<div class="space-y-2">
+                <p class="text-brand-accentCyan font-semibold">Frontmatter Validation Results:</p>
+                ${results.join("")}
+                <p class="mt-2 ${urnValid ? 'text-emerald-400' : 'text-rose-400'}">${urnValid ? '✓' : '✗'} URN Format: ${urnValid ? `Valid (${urnMatch[1]})` : 'Invalid or missing'}</p>
+                <p class="text-slate-500 mt-3">Scan completed at ${new Date().toISOString()}</p>
+            </div>`;
+        }
+
+        // Initialize
+        updateMcpTools();
+        lucide.createIcons();
+
+        // Simulated live log stream
+        const liveMessages = [
+            "Heartbeat OK — all 45 tools registered",
+            "GCP MCP endpoint latency: 42ms avg",
+            "HTML5 artifact cache: 0 pending deploys",
+            "Memory: 312MB / 512MB allocated",
+            "SSE connections: 3 active streams"
+        ];
+        setInterval(() => {
+            const msg = liveMessages[Math.floor(Math.random() * liveMessages.length)];
+            if (document.getElementById("tab-dashboard") && !document.getElementById("tab-dashboard").classList.contains("hidden")) {
+                appendTerminalLog(msg, "text-slate-500");
+            }
+        }, 8000);
+    </script>
+</body>
+</html>
