@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- CUSTOMIZE: Dashboard Title --> Dashboard</title>
+</head>
+<body>
+  <div class="t-page">
+    <header class="t-flex t-flex-between" style="margin-bottom: var(--t-space-xl)">
+      <div>
+        <h1 class="t-h1" style="margin-bottom: 4px"><!-- CUSTOMIZE: Dashboard Title --></h1>
+        <p class="t-body">Real-time operations console and system status dashboard</p>
+      </div>
+      <div class="t-flex t-flex-center" style="gap: 8px">
+        <span class="t-pulse"></span>
+        <span class="t-label" id="live-indicator">CONNECTING...</span>
+      </div>
+    </header>
+
+    <!-- STAT CARDS -->
+    <div class="t-grid t-grid-4" style="margin-bottom: var(--t-space-xl)">
+      <div class="t-card">
+        <h3 class="t-label" style="margin-bottom: var(--t-space-sm)">System Uptime</h3>
+        <div class="t-stat-value t-skeleton" id="stat-uptime" style="height: 36px; width: 120px">&nbsp;</div>
+        <p class="t-body" style="font-size: 11px; margin-top: 4px">Uptime since boot</p>
+      </div>
+      <div class="t-card">
+        <h3 class="t-label" style="margin-bottom: var(--t-space-sm)">Memory Allocation</h3>
+        <div class="t-stat-value t-skeleton" id="stat-memory" style="height: 36px; width: 140px">&nbsp;</div>
+        <p class="t-body" style="font-size: 11px; margin-top: 4px" id="stat-rss">Heap used vs total</p>
+      </div>
+      <div class="t-card">
+        <h3 class="t-label" style="margin-bottom: var(--t-space-sm)">Active Tools</h3>
+        <div class="t-stat-value t-skeleton" id="stat-tools" style="height: 36px; width: 60px">&nbsp;</div>
+        <p class="t-body" style="font-size: 11px; margin-top: 4px">Registered on registry</p>
+      </div>
+      <div class="t-card">
+        <h3 class="t-label" style="margin-bottom: var(--t-space-sm)">Process Environment</h3>
+        <div class="t-stat-value t-skeleton" id="stat-env" style="height: 36px; width: 100px; text-transform: uppercase">&nbsp;</div>
+        <p class="t-body" style="font-size: 11px; margin-top: 4px" id="stat-platform">Node runtime version</p>
+      </div>
+    </div>
+
+    <!-- MAIN VIEW GRID -->
+    <div class="t-grid t-grid-2" style="grid-template-columns: 2fr 1fr; margin-bottom: var(--t-space-xl)">
+      
+      <!-- LOG / TERMINAL -->
+      <div class="t-terminal">
+        <div class="t-terminal-header">
+          <div class="t-terminal-dots">
+            <span style="background: var(--t-rose)"></span>
+            <span style="background: var(--t-amber)"></span>
+            <span style="background: var(--t-emerald)"></span>
+          </div>
+          <span class="t-label" style="color: var(--t-text-muted)">system_event_stream.log</span>
+        </div>
+        <div class="t-terminal-body" id="console-stream">
+          <div class="t-skeleton" style="height: 14px; width: 80%; margin-bottom: 8px"></div>
+          <div class="t-skeleton" style="height: 14px; width: 95%; margin-bottom: 8px"></div>
+          <div class="t-skeleton" style="height: 14px; width: 60%; margin-bottom: 8px"></div>
+          <div class="t-skeleton" style="height: 14px; width: 75%"></div>
+        </div>
+      </div>
+
+      <!-- ACTIVE TOOLS LIST -->
+      <div class="t-card" style="max-height: 466px; display: flex; flex-direction: column">
+        <h2 class="t-h2" style="font-size: 16px; margin-bottom: var(--t-space-md)">Tool Registry</h2>
+        <div style="flex: 1; overflow-y: auto; padding-right: 4px" id="tool-registry-list">
+          <div class="t-skeleton" style="height: 40px; margin-bottom: 8px; border-radius: var(--t-radius-sm)"></div>
+          <div class="t-skeleton" style="height: 40px; margin-bottom: 8px; border-radius: var(--t-radius-sm)"></div>
+          <div class="t-skeleton" style="height: 40px; margin-bottom: 8px; border-radius: var(--t-radius-sm)"></div>
+          <div class="t-skeleton" style="height: 40px; border-radius: var(--t-radius-sm)"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <footer class="t-flex t-flex-between" style="border-top: 1px solid var(--t-border); padding-top: var(--t-space-md)">
+      <span class="t-body" style="font-size: 11px">Truth Dashboard Framework</span>
+      <span class="t-label" id="footer-update-time">—</span>
+    </footer>
+  </div>
+
+  <script>
+    const consoleStream = document.getElementById('console-stream');
+    const logs = [];
+
+    function addLog(message, type = 'info') {
+      const colors = {
+        info: 'var(--t-text-secondary)',
+        success: 'var(--t-emerald)',
+        warning: 'var(--t-amber)',
+        error: 'var(--t-rose)'
+      };
+      const timestamp = new Date().toLocaleTimeString();
+      logs.push(`<div style="color: ${colors[type]}; margin-bottom: 4px;"><span style="color: var(--t-text-muted)">[${timestamp}]</span> ${message}</div>`);
+      if (logs.length > 50) logs.shift();
+      consoleStream.innerHTML = logs.join('');
+      consoleStream.scrollTop = consoleStream.scrollHeight;
+    }
+
+    async function updateDashboard() {
+      try {
+        const res = await fetch('/api/system/status');
+        if (!res.ok) throw new Error('Status check failed');
+        const status = await res.json();
+
+        // Remove skeletons
+        document.getElementById('stat-uptime').classList.remove('t-skeleton');
+        document.getElementById('stat-memory').classList.remove('t-skeleton');
+        document.getElementById('stat-tools').classList.remove('t-skeleton');
+        document.getElementById('stat-env').classList.remove('t-skeleton');
+
+        // Update Stat Cards
+        document.getElementById('stat-uptime').textContent = status.uptimeFormatted;
+        document.getElementById('stat-memory').textContent = `${status.memory.heapUsedMB}/${status.memory.heapTotalMB} MB`;
+        document.getElementById('stat-rss').textContent = `${status.memory.rssMB} MB resident set size`;
+        document.getElementById('stat-tools').textContent = status.tools.count;
+        document.getElementById('stat-env').textContent = status.env;
+        document.getElementById('stat-platform').textContent = `Node ${status.node} (${status.platform})`;
+
+        // Live Indicator
+        document.getElementById('live-indicator').textContent = 'LIVE / ONLINE';
+        document.getElementById('live-indicator').style.color = 'var(--t-emerald)';
+
+        // Update Tool Registry Side List
+        const listDiv = document.getElementById('tool-registry-list');
+        const toolNames = status.tools.names || [];
+        listDiv.innerHTML = toolNames.slice(0, 15).map(name => `
+          <div style="padding: 8px 12px; border-bottom: 1px solid var(--t-border); display: flex; justify-content: space-between; align-items: center">
+            <span class="t-mono" style="color: var(--t-text-primary); font-size: 12px">${name}</span>
+            <span class="t-badge t-badge-cyan" style="font-size: 9px; padding: 2px 6px">Native</span>
+          </div>
+        `).join('') + (toolNames.length > 15 ? `<div class="t-body" style="font-size: 11px; text-align: center; margin-top: 8px; color: var(--t-text-muted)">+ ${toolNames.length - 15} more tools</div>` : '');
+
+        // Add Log Entry
+        addLog(`System status check completed. Memory RSS is ${status.memory.rssMB}MB.`, 'info');
+        if (status.memory.heapUsedMB / status.memory.heapTotalMB > 0.85) {
+          addLog(`High memory usage warning!`, 'warning');
+        }
+
+        document.getElementById('footer-update-time').textContent = `Updated: ${new Date().toLocaleTimeString()} • Interval: 10s`;
+      } catch (err) {
+        document.getElementById('live-indicator').textContent = 'CONNECTION ERROR';
+        document.getElementById('live-indicator').style.color = 'var(--t-rose)';
+        addLog(`System telemetry update failed: ${err.message}`, 'error');
+      }
+    }
+
+    // Initial load and logs
+    setTimeout(() => {
+      addLog('Initializing Truth System dashboard telemetry...', 'info');
+      addLog('Retrieving initial node system metrics...', 'info');
+      updateDashboard();
+      setInterval(updateDashboard, 10000);
+    }, 500);
+  </script>
+</body>
+</html>

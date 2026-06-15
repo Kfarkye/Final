@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- CUSTOMIZE: Table Title --> Registry Table</title>
+</head>
+<body>
+  <div class="t-page">
+    <header style="margin-bottom: var(--t-space-xl)">
+      <h1 class="t-h1" style="margin-bottom: 4px"><!-- CUSTOMIZE: Table Title --></h1>
+      <p class="t-body">Interactive registry and metadata browser for active tools</p>
+    </header>
+
+    <!-- SEARCH & CONTROLS -->
+    <div class="t-card" style="margin-bottom: var(--t-space-lg); padding: var(--t-space-md)">
+      <div class="t-flex t-flex-between" style="gap: var(--t-space-md)">
+        <div style="flex: 1; position: relative">
+          <input type="text" id="search-input" class="t-input" placeholder="Search registry items by name or description..." style="padding-left: 12px">
+        </div>
+        <div class="t-flex" style="gap: 8px" id="category-filters">
+          <button class="t-btn t-btn-primary" onclick="filterCategory('all')" id="btn-cat-all">All</button>
+          <button class="t-btn t-btn-ghost" onclick="filterCategory('gcp')" id="btn-cat-gcp">GCP</button>
+          <button class="t-btn t-btn-ghost" onclick="filterCategory('workspace')" id="btn-cat-workspace">Workspace</button>
+          <button class="t-btn t-btn-ghost" onclick="filterCategory('system')" id="btn-cat-system">System</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="t-card" style="padding: 0; overflow: hidden; margin-bottom: var(--t-space-xl)">
+      <table class="t-table" id="data-table-el">
+        <thead>
+          <tr>
+            <th style="width: 250px">Name</th>
+            <th>Description</th>
+            <th style="width: 150px; text-align: center">Classification</th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr>
+            <td class="t-mono"><div class="t-skeleton" style="height: 16px; width: 150px"></div></td>
+            <td><div class="t-skeleton" style="height: 16px; width: 90%"></div></td>
+            <td style="text-align: center"><div class="t-skeleton" style="height: 20px; width: 80px; margin: 0 auto; border-radius: 100px"></div></td>
+          </tr>
+          <tr>
+            <td class="t-mono"><div class="t-skeleton" style="height: 16px; width: 120px"></div></td>
+            <td><div class="t-skeleton" style="height: 16px; width: 75%"></div></td>
+            <td style="text-align: center"><div class="t-skeleton" style="height: 20px; width: 80px; margin: 0 auto; border-radius: 100px"></div></td>
+          </tr>
+          <tr>
+            <td class="t-mono"><div class="t-skeleton" style="height: 16px; width: 170px"></div></td>
+            <td><div class="t-skeleton" style="height: 16px; width: 85%"></div></td>
+            <td style="text-align: center"><div class="t-skeleton" style="height: 20px; width: 80px; margin: 0 auto; border-radius: 100px"></div></td>
+          </tr>
+          <tr>
+            <td class="t-mono"><div class="t-skeleton" style="height: 16px; width: 130px"></div></td>
+            <td><div class="t-skeleton" style="height: 16px; width: 80%"></div></td>
+            <td style="text-align: center"><div class="t-skeleton" style="height: 20px; width: 80px; margin: 0 auto; border-radius: 100px"></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="t-flex t-flex-between">
+      <span class="t-body" style="font-size: 12px" id="table-count">Loading tools...</span>
+      <span class="t-label" id="last-updated-label">—</span>
+    </footer>
+  </div>
+
+  <script>
+    let allTools = [];
+    let currentFilter = 'all';
+
+    function getClassification(name) {
+      name = name.toLowerCase();
+      if (name.includes('pubsub') || name.includes('storage') || name.includes('logging') || name.includes('error') || name.includes('gcp') || name.includes('indexing')) {
+        return { label: 'GCP Service', badge: 't-badge-green', cat: 'gcp' };
+      }
+      if (name.includes('drive') || name.includes('email') || name.includes('calendar') || name.includes('availability') || name.includes('thread')) {
+        return { label: 'Workspace', badge: 't-badge-cyan', cat: 'workspace' };
+      }
+      if (name.includes('git') || name.includes('script') || name.includes('time') || name.includes('system') || name.includes('sandbox') || name.includes('javascript')) {
+        return { label: 'System', badge: 't-badge-purple', cat: 'system' };
+      }
+      return { label: 'Application', badge: 't-badge-amber', cat: 'app' };
+    }
+
+    async function loadTableData() {
+      try {
+        const res = await fetch('/api/debug/tools');
+        if (!res.ok) throw new Error('Failed to fetch tool definitions');
+        const data = await res.json();
+        
+        allTools = data.tools || [];
+        renderTable();
+        
+        document.getElementById('last-updated-label').textContent = `Last loaded: ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        document.getElementById('table-body').innerHTML = `
+          <tr>
+            <td colspan="3" style="text-align: center; color: var(--t-rose); padding: var(--t-space-lg)">
+              ⚠ Error loading registry data: ${err.message}
+            </td>
+          </tr>`;
+      }
+    }
+
+    function renderTable() {
+      const query = document.getElementById('search-input').value.toLowerCase().trim();
+      const tbody = document.getElementById('table-body');
+      
+      const filtered = allTools.filter(t => {
+        const matchesQuery = t.name.toLowerCase().includes(query) || t.description.toLowerCase().includes(query);
+        const classification = getClassification(t.name);
+        const matchesCat = currentFilter === 'all' || classification.cat === currentFilter;
+        return matchesQuery && matchesCat;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="3" style="text-align: center; color: var(--t-text-muted); padding: var(--t-space-lg)">
+              No tools found matching current filters.
+            </td>
+          </tr>`;
+        document.getElementById('table-count').textContent = `Showing 0 of ${allTools.length} tools`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(t => {
+        const cls = getClassification(t.name);
+        return `
+          <tr>
+            <td class="t-mono" style="color: var(--t-text-primary); font-weight: 500">${t.name}</td>
+            <td class="t-body">${t.description || 'No description provided.'}</td>
+            <td style="text-align: center">
+              <span class="t-badge ${cls.badge}">${cls.label}</span>
+            </td>
+          </tr>`;
+      }).join('');
+
+      document.getElementById('table-count').textContent = `Showing ${filtered.length} of ${allTools.length} tools`;
+    }
+
+    function filterCategory(cat) {
+      currentFilter = cat;
+      
+      // Update buttons
+      const buttons = ['all', 'gcp', 'workspace', 'system'];
+      buttons.forEach(b => {
+        const btn = document.getElementById(`btn-cat-${b}`);
+        if (b === cat) {
+          btn.className = 't-btn t-btn-primary';
+        } else {
+          btn.className = 't-btn t-btn-ghost';
+        }
+      });
+
+      renderTable();
+    }
+
+    // Bind search handler
+    document.getElementById('search-input').addEventListener('input', renderTable);
+
+    // Initial load
+    setTimeout(loadTableData, 200);
+  </script>
+</body>
+</html>
