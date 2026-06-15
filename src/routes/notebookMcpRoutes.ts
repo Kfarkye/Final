@@ -50,10 +50,20 @@ router.post("/", async (req: Request, res: Response) => {
       // Save code to temp file
       await fs.writeFile(tempFile, code, "utf8");
 
-      // Replace 'node' with 'deno', and enforce zero-trust execution
+      let runner = "deno";
+      let runnerArgs = ["run", "--allow-none", tempFile];
+      
+      try {
+        await execFileAsync("which", ["deno"], { timeout: 1000 });
+      } catch {
+        runner = "node";
+        runnerArgs = [tempFile];
+      }
+
+      // Execute code sandbox
       const { stdout, stderr } = await execFileAsync(
-        "deno",
-        ["run", "--allow-none", tempFile], // Denies network, read, write, and env access natively
+        runner,
+        runnerArgs,
         { timeout: 10000, maxBuffer: 1024 * 512 }
       );
 

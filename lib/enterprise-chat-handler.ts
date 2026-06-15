@@ -22,6 +22,50 @@ function lowercaseSchemaTypes(schema: any): any {
   return newSchema;
 }
 
+function safeGeminiProperties(properties: any): any {
+  const gProps: any = {};
+  if (!properties || typeof properties !== 'object') return gProps;
+  
+  for (const key of Object.keys(properties)) {
+    const prop = properties[key];
+    let propType = "STRING";
+    
+    if (prop && typeof prop === 'object') {
+      if (typeof prop.type === 'string') {
+        propType = prop.type.toUpperCase();
+      } else if (Array.isArray(prop.anyOf)) {
+        const typeObj = prop.anyOf.find((x: any) => x && typeof x.type === 'string' && x.type !== "null");
+        if (typeObj) propType = typeObj.type.toUpperCase();
+      }
+      
+      // Map JSON schema types to Gemini API supported type enums
+      if (propType === "INTEGER") propType = "INTEGER";
+      else if (propType === "NUMBER") propType = "NUMBER";
+      else if (propType === "BOOLEAN") propType = "BOOLEAN";
+      else if (propType === "ARRAY") propType = "ARRAY";
+      else if (propType === "OBJECT") propType = "OBJECT";
+      else propType = "STRING";
+
+      gProps[key] = {
+        type: propType,
+        description: prop.description || ""
+      };
+      
+      if (prop.items && typeof prop.items === 'object') {
+        let itemType = "STRING";
+        if (typeof prop.items.type === 'string') {
+          itemType = prop.items.type.toUpperCase();
+        }
+        gProps[key].items = { type: itemType };
+      }
+    } else {
+      gProps[key] = { type: "STRING", description: "" };
+    }
+  }
+  return gProps;
+}
+
+
 export const enterpriseChatHandler = async (req: Request, res: Response, deps: any) => {
   const connectionId = `conn_${Math.random().toString(36).substring(2, 15)}`;
   
@@ -103,14 +147,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
               s.tools.forEach((t: any) => {
                 const canonical = deps.CANONICAL_TOOLS[t.name];
                 if (canonical) {
-                  const gProps: any = {};
-                  for (const key of Object.keys(canonical.properties)) {
-                    gProps[key] = {
-                      type: canonical.properties[key].type.toUpperCase(),
-                      description: canonical.properties[key].description
-                    };
-                    if (canonical.properties[key].items) gProps[key].items = { type: canonical.properties[key].items.type.toUpperCase() };
-                  }
+                  const gProps = safeGeminiProperties(canonical.properties);
                   activeMcpTools.push({
                     name: canonical.name,
                     description: canonical.description,
@@ -144,14 +181,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
         const searchTool = deps.CANONICAL_TOOLS['search_web'];
         if (searchTool && !mergedDecls.find((d: any) => d.name === searchTool.name)) {
-          const gProps: any = {};
-          for (const key of Object.keys(searchTool.properties || {})) {
-            gProps[key] = {
-              type: searchTool.properties[key].type.toUpperCase(),
-              description: searchTool.properties[key].description
-            };
-            if (searchTool.properties[key].items) gProps[key].items = { type: searchTool.properties[key].items.type.toUpperCase() };
-          }
+          const gProps = safeGeminiProperties(searchTool.properties || {});
           mergedDecls.push({
             name: searchTool.name,
             description: searchTool.description,
