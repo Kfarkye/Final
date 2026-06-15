@@ -38,7 +38,6 @@ function safeGeminiProperties(properties: any): any {
         if (typeObj) propType = typeObj.type.toUpperCase();
       }
       
-      // Map JSON schema types to Gemini API supported type enums
       if (propType === "INTEGER") propType = "INTEGER";
       else if (propType === "NUMBER") propType = "NUMBER";
       else if (propType === "BOOLEAN") propType = "BOOLEAN";
@@ -65,12 +64,45 @@ function safeGeminiProperties(properties: any): any {
   return gProps;
 }
 
+/** Detect abort-like errors from any SDK without hard-coding class names */
+function isAbortLikeError(err: any): boolean {
+  return (
+    err?.name === 'AbortError' ||
+    err?.code === 'ABORT_ERR' ||
+    /aborted|abort|cancelled|canceled|client disconnected/i.test(err?.message || '')
+  );
+}
 
 export const enterpriseChatHandler = async (req: Request, res: Response, deps: any) => {
   const connectionId = `conn_${Math.random().toString(36).substring(2, 15)}`;
   
   // Register SSE Connection
   sseManager.addClient(connectionId, res);
+  
+  // ── Master AbortController ──────────────────────────────────────────
+  // One controller per request — its signal is threaded through every
+  // SDK call, stream loop, and tool execution so that closing the
+  // browser tab instantly cancels all in-flight work.
+  const abortController = new AbortController();
+  const { signal } = abortController;
+
+  const onDisconnect = () => {
+    ChatLogger.info('chat_stream_client_disconnected', { connectionId });
+    abortController.abort();
+    sseManager.removeClient(connectionId);
+  };
+
+  req.on('close', onDisconnect);
+
+  const cleanup = () => {
+    req.removeListener('close', onDisconnect);
+  };
+
+  /** Safe SSE write — no-ops if the client already disconnected */
+  const sendSse = (event: string, payload: any) => {
+    if (signal.aborted || res.writableEnded) return;
+    sseManager.sendEvent(connectionId, event, payload);
+  };
   
   const { 
     prompt, 
@@ -117,19 +149,25 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     const systemPrompt = topic && topic !== "Normal" ? `You are a highly capable AI assistant specializing in ${topic}. Provide accurate, objective, and insightful information.` : undefined;
 
-    // Helper to stream chunks
+    // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
       try {
         await streamPromise;
       } catch (err: any) {
+        if (signal.aborted || isAbortLikeError(err)) {
+          ChatLogger.info(`model_stream_aborted_${modelName}`, { connectionId });
+          return;
+        }
         ChatLogger.error(`model_error_${modelName}`, err);
-        sseManager.sendEvent(connectionId, 'message', { model: modelName, chunk: `\n\n[Error: ${err.message}]` });
+        sendSse('message', { model: modelName, chunk: `\n\n[Error: ${err.message}]` });
       }
     };
 
     const promises: Promise<void>[] = [];
 
+    // ═══════════════════════════════════════════════════════════════════
     // Gemini Streaming
+    // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('gemini') && deps.ai) {
       promises.push(streamModel('gemini', (async () => {
         const contents: any[] = [];
@@ -140,8 +178,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
         contents.push({ role: 'user', parts: [{ text: governedPrompt }] });
 
-        // Clearspace-native pattern: inject ALL registered tools directly as functionDeclarations
-        // No dependency on frontend mcpServers payload — the backend is the source of truth
         const mergedDecls = [...deps.workspaceDecls];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           if (!mergedDecls.find((d: any) => d.name === toolName)) {
@@ -178,21 +214,22 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         let runCount = 0;
         let continueLoop = true;
 
-        while (runCount < 5 && continueLoop) {
+        while (runCount < 5 && continueLoop && !signal.aborted) {
           runCount++;
           let genStream = await deps.ai.models.generateContentStream({
-            model: modelConfigs.gemini || "gemini-3.5-flash",
+            model: selectedGeminiModel,
             contents: contents,
             config: geminiConfig
-          });
+          }, { signal });
 
           let functionCalls: any[] = [];
           let candidateContent: any = { role: 'model', parts: [] };
 
           for await (const chunk of genStream) {
+            if (signal.aborted) break;
             const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
             if (hasText && chunk.text) {
-               sseManager.sendEvent(connectionId, 'message', { model: 'gemini', chunk: chunk.text });
+               sendSse('message', { model: 'gemini', chunk: chunk.text });
             }
             if (chunk.functionCalls && chunk.functionCalls.length > 0) {
                functionCalls.push(...chunk.functionCalls);
@@ -202,11 +239,14 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             }
           }
 
+          if (signal.aborted) break;
+
           if (functionCalls.length > 0 && candidateContent.parts.length > 0) {
              contents.push(candidateContent);
              
              const responseParts = await Promise.all(functionCalls.map(async (call) => {
-               sseManager.sendEvent(connectionId, 'tool_start', { model: 'gemini', tool: call.name });
+               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+               sendSse('tool_start', { model: 'gemini', tool: call.name });
                let toolResult;
                try {
                  const isWorkspace = deps.workspaceDecls.some((d: any) => d.name === call.name);
@@ -216,10 +256,11 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                    toolResult = await deps.executeMcpTool(call.name, call.args, googleAccessToken, connectionId);
                  }
                } catch (toolErr: any) {
+                 if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
                  ChatLogger.error(`gemini_tool_exec_error_${call.name}`, toolErr);
                  toolResult = { error: toolErr.message || 'Tool execution failed' };
                }
-               sseManager.sendEvent(connectionId, 'tool_result', { model: 'gemini', tool: call.name, result: toolResult });
+               sendSse('tool_result', { model: 'gemini', tool: call.name, result: toolResult });
                
                return {
                  functionResponse: {
@@ -230,6 +271,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                };
              }));
              
+             if (signal.aborted) break;
              contents.push({ role: 'user', parts: responseParts });
           } else {
              continueLoop = false;
@@ -237,10 +279,12 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
       })()));
     } else if (targetModels.includes('gemini')) {
-      sseManager.sendEvent(connectionId, 'message', { model: 'gemini', chunk: '[Gemini Not Configured]' });
+      sendSse('message', { model: 'gemini', chunk: '[Gemini Not Configured]' });
     }
 
+    // ═══════════════════════════════════════════════════════════════════
     // OpenAI Streaming
+    // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('chatgpt') && deps.openai) {
       promises.push(streamModel('chatgpt', (async () => {
         const msgs: any[] = [];
@@ -248,7 +292,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
         
-        // Clearspace-native pattern: inject ALL registered tools directly
         const openaiTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           openaiTools.push({
@@ -265,7 +308,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           });
         }
 
-        // Register workspace tools for OpenAI
         if (deps.workspaceDecls) {
           deps.workspaceDecls.forEach((d: any) => {
             if (!openaiTools.some((t: any) => t.function.name === d.name)) {
@@ -284,24 +326,23 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3) {
+        while (runCount < 3 && !signal.aborted) {
           const stream = await deps.openai.chat.completions.create({
             model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
             messages: currentMessages,
             tools: openaiTools.length > 0 ? openaiTools : undefined,
             stream: true
-          });
+          }, { signal });
 
           let toolCalls: any = {};
-          let hasContent = false;
 
           for await (const chunk of stream) {
+            if (signal.aborted) break;
             const delta = chunk.choices[0]?.delta;
             if (!delta) continue;
 
             if (delta.content) {
-              hasContent = true;
-              sseManager.sendEvent(connectionId, 'message', { model: 'chatgpt', chunk: delta.content });
+              sendSse('message', { model: 'chatgpt', chunk: delta.content });
             }
 
             if (delta.tool_calls) {
@@ -316,6 +357,8 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             }
           }
 
+          if (signal.aborted) break;
+
           const tcKeys = Object.keys(toolCalls);
           if (tcKeys.length === 0) {
             break;
@@ -325,8 +368,9 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           currentMessages.push(messageToAppend);
 
           for (const key of tcKeys) {
+            if (signal.aborted) break;
             const call = toolCalls[key];
-            sseManager.sendEvent(connectionId, 'tool_start', { model: 'chatgpt', tool: call.function.name });
+            sendSse('tool_start', { model: 'chatgpt', tool: call.function.name });
             let args;
             try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
             
@@ -339,10 +383,11 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                 toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
               }
             } catch (toolErr: any) {
+              if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
               ChatLogger.error(`chatgpt_tool_exec_error_${call.function.name}`, toolErr);
               toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
-            sseManager.sendEvent(connectionId, 'tool_result', { model: 'chatgpt', tool: call.function.name, result: toolResult });
+            sendSse('tool_result', { model: 'chatgpt', tool: call.function.name, result: toolResult });
             
             currentMessages.push({
               role: "tool",
@@ -355,10 +400,12 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
       })()));
     } else if (targetModels.includes('chatgpt')) {
-      sseManager.sendEvent(connectionId, 'message', { model: 'chatgpt', chunk: '[ChatGPT Not Configured]' });
+      sendSse('message', { model: 'chatgpt', chunk: '[ChatGPT Not Configured]' });
     }
 
+    // ═══════════════════════════════════════════════════════════════════
     // Claude Streaming
+    // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('claude') && deps.anthropic) {
       promises.push(streamModel('claude', (async () => {
         const msgs: any[] = [];
@@ -369,7 +416,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
         msgs.push({ role: "user", content: governedPrompt });
 
-        // Clearspace-native pattern: inject ALL registered tools directly
         const claudeTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           claudeTools.push({
@@ -383,7 +429,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           });
         }
 
-        // Register workspace tools for Claude
         if (deps.workspaceDecls) {
           deps.workspaceDecls.forEach((d: any) => {
             if (!claudeTools.some((t: any) => t.name === d.name)) {
@@ -399,16 +444,14 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3) {
-          // Use messages.create with stream:true for raw event iteration
-          // This is more reliable than .stream() for tool_use flows
+        while (runCount < 3 && !signal.aborted) {
           const stream = deps.anthropic.messages.stream({
             model: modelConfigs.claude || "claude-opus-4-8",
             max_tokens: 16384,
             system: systemPrompt,
             messages: currentMessages,
             tools: claudeTools.length > 0 ? claudeTools : undefined
-          });
+          }, { signal });
 
           let currentToolUse: any = null;
           let assistantContentBlocks: any[] = [];
@@ -416,6 +459,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
           try {
             for await (const chunk of stream) {
+              if (signal.aborted) break;
               if (chunk.type === 'content_block_start') {
                 if (chunk.content_block.type === 'tool_use') {
                   hasToolUse = true;
@@ -425,9 +469,9 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                     name: chunk.content_block.name, 
                     input: "" 
                   };
-                  sseManager.sendEvent(connectionId, 'tool_start', { model: 'claude', tool: chunk.content_block.name });
+                  sendSse('tool_start', { model: 'claude', tool: chunk.content_block.name });
                 } else if (chunk.content_block.type === 'text') {
-                  // Don't push empty text at block_start — wait for deltas
+                  // Don't emit empty text at block_start — wait for deltas
                   assistantContentBlocks.push({ type: 'text', text: '' });
                 }
               } else if (chunk.type === 'content_block_delta') {
@@ -436,7 +480,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                   if (lastBlock && lastBlock.type === 'text') {
                     lastBlock.text += chunk.delta.text;
                   }
-                  sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: chunk.delta.text });
+                  sendSse('message', { model: 'claude', chunk: chunk.delta.text });
                 } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
                   currentToolUse.input += chunk.delta.partial_json;
                 }
@@ -449,15 +493,18 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                   currentToolUse = null;
                 }
               }
-              // message_start, message_delta, message_stop are handled implicitly
             }
           } catch (streamErr: any) {
-            // If the stream errors mid-flight (e.g. overloaded_error, network timeout),
-            // surface the error as a visible chunk so the user knows what happened
+            if (signal.aborted || isAbortLikeError(streamErr)) {
+              ChatLogger.info('claude_stream_aborted', { connectionId });
+              break;
+            }
             ChatLogger.error('claude_stream_iteration_error', streamErr);
-            sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: `\n\n[Stream error: ${streamErr.message || 'Unknown'}]` });
-            break; // exit the tool-call loop
+            sendSse('message', { model: 'claude', chunk: `\n\n[Stream error: ${streamErr.message || 'Unknown'}]` });
+            break;
           }
+
+          if (signal.aborted) break;
 
           if (!hasToolUse) {
             break;
@@ -469,6 +516,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           // Execute each tool_use and collect results
           const toolResultBlocks: any[] = [];
           for (const block of assistantContentBlocks) {
+            if (signal.aborted) break;
             if (block.type === 'tool_use') {
               let toolResult: any;
               try {
@@ -479,10 +527,11 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                   toolResult = await deps.executeMcpTool(block.name, block.input, googleAccessToken, connectionId);
                 }
               } catch (toolErr: any) {
+                if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
                 ChatLogger.error(`claude_tool_exec_error_${block.name}`, toolErr);
                 toolResult = { error: toolErr.message || 'Tool execution failed' };
               }
-              sseManager.sendEvent(connectionId, 'tool_result', { model: 'claude', tool: block.name, result: toolResult });
+              sendSse('tool_result', { model: 'claude', tool: block.name, result: toolResult });
               
               toolResultBlocks.push({
                 type: 'tool_result',
@@ -492,6 +541,8 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             }
           }
 
+          if (signal.aborted) break;
+
           if (toolResultBlocks.length > 0) {
             currentMessages.push({ role: "user", content: toolResultBlocks });
           }
@@ -499,10 +550,12 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
       })()));
     } else if (targetModels.includes('claude')) {
-      sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: '[Claude Not Configured]' });
+      sendSse('message', { model: 'claude', chunk: '[Claude Not Configured]' });
     }
 
+    // ═══════════════════════════════════════════════════════════════════
     // Grok Streaming
+    // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('grok') && deps.xai) {
       promises.push(streamModel('grok', (async () => {
         const msgs: any[] = [];
@@ -510,7 +563,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
         
-        // Clearspace-native pattern: inject ALL registered tools directly
         const grokTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           grokTools.push({
@@ -527,7 +579,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           });
         }
 
-        // Register workspace tools for Grok
         if (deps.workspaceDecls) {
           deps.workspaceDecls.forEach((d: any) => {
             if (!grokTools.some((t: any) => t.function.name === d.name)) {
@@ -546,24 +597,23 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3) {
+        while (runCount < 3 && !signal.aborted) {
           const stream = await deps.xai.chat.completions.create({
             model: modelConfigs.grok || "grok-4.3",
             messages: currentMessages,
             tools: grokTools.length > 0 ? grokTools : undefined,
             stream: true
-          });
+          }, { signal });
 
           let toolCalls: any = {};
-          let hasContent = false;
 
           for await (const chunk of stream) {
+            if (signal.aborted) break;
             const delta = chunk.choices[0]?.delta;
             if (!delta) continue;
 
             if (delta.content) {
-              hasContent = true;
-              sseManager.sendEvent(connectionId, 'message', { model: 'grok', chunk: delta.content });
+              sendSse('message', { model: 'grok', chunk: delta.content });
             }
 
             if (delta.tool_calls) {
@@ -578,6 +628,8 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             }
           }
 
+          if (signal.aborted) break;
+
           const tcKeys = Object.keys(toolCalls);
           if (tcKeys.length === 0) {
             break;
@@ -587,8 +639,9 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           currentMessages.push(messageToAppend);
 
           for (const key of tcKeys) {
+            if (signal.aborted) break;
             const call = toolCalls[key];
-            sseManager.sendEvent(connectionId, 'tool_start', { model: 'grok', tool: call.function.name });
+            sendSse('tool_start', { model: 'grok', tool: call.function.name });
             let args;
             try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
             
@@ -601,10 +654,11 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                 toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
               }
             } catch (toolErr: any) {
+              if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
               ChatLogger.error(`grok_tool_exec_error_${call.function.name}`, toolErr);
               toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
-            sseManager.sendEvent(connectionId, 'tool_result', { model: 'grok', tool: call.function.name, result: toolResult });
+            sendSse('tool_result', { model: 'grok', tool: call.function.name, result: toolResult });
             
             currentMessages.push({
               role: "tool",
@@ -617,13 +671,16 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
       })()));
     } else if (targetModels.includes('grok')) {
-      sseManager.sendEvent(connectionId, 'message', { model: 'grok', chunk: '[Grok Not Configured]' });
+      sendSse('message', { model: 'grok', chunk: '[Grok Not Configured]' });
     }
 
+    // ═══════════════════════════════════════════════════════════════════
     // DeepSeek Streaming
-    // NOTE: DeepSeek R1 is a reasoning model — it does NOT support tools/function calling
-    // and sends chain-of-thought tokens in `delta.reasoning_content` instead of `delta.content`.
-    // DeepSeek V3 (deepseek-chat) supports tools and uses the standard OpenAI format.
+    // NOTE: DeepSeek R1 is a reasoning model — it does NOT support
+    // tools/function calling and sends chain-of-thought tokens in
+    // `delta.reasoning_content` instead of `delta.content`.
+    // DeepSeek V3 (deepseek-chat) supports tools via standard OpenAI format.
+    // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('deepseek') && deps.deepseek) {
       promises.push(streamModel('deepseek', (async () => {
         const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1";
@@ -680,19 +737,20 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3) {
+        while (runCount < 3 && !signal.aborted) {
           const stream = await deps.deepseek.chat.completions.create({
             model: selectedDeepseekModel,
             messages: currentMessages,
             tools: deepseekTools.length > 0 ? deepseekTools : undefined,
             stream: true
-          });
+          }, { signal });
 
           let toolCalls: any = {};
           let hasContent = false;
           let reasoningBuffer = '';
 
           for await (const chunk of stream) {
+            if (signal.aborted) break;
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
@@ -700,19 +758,18 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             if ((delta as any).reasoning_content) {
               const reasoning = (delta as any).reasoning_content;
               reasoningBuffer += reasoning;
-              // Stream reasoning tokens with a visual indicator
-              sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: reasoning });
+              sendSse('message', { model: 'deepseek', chunk: reasoning });
             }
 
             // Standard content (final answer for R1, or full response for V3)
             if (delta.content) {
               // If we were streaming reasoning, insert a separator before the final answer
               if (reasoningBuffer && !hasContent) {
-                sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: '\n\n---\n\n' });
-                reasoningBuffer = ''; // reset so separator only fires once
+                sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
+                reasoningBuffer = '';
               }
               hasContent = true;
-              sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: delta.content });
+              sendSse('message', { model: 'deepseek', chunk: delta.content });
             }
 
             // Tool calls (V3 only — R1 never emits these)
@@ -728,6 +785,8 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             }
           }
 
+          if (signal.aborted) break;
+
           const tcKeys = Object.keys(toolCalls);
           if (tcKeys.length === 0) {
             break;
@@ -737,8 +796,9 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           currentMessages.push(messageToAppend);
 
           for (const key of tcKeys) {
+            if (signal.aborted) break;
             const call = toolCalls[key];
-            sseManager.sendEvent(connectionId, 'tool_start', { model: 'deepseek', tool: call.function.name });
+            sendSse('tool_start', { model: 'deepseek', tool: call.function.name });
             let args;
             try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
             
@@ -751,10 +811,11 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
                 toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
               }
             } catch (toolErr: any) {
+              if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
               ChatLogger.error(`deepseek_tool_exec_error_${call.function.name}`, toolErr);
               toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
-            sseManager.sendEvent(connectionId, 'tool_result', { model: 'deepseek', tool: call.function.name, result: toolResult });
+            sendSse('tool_result', { model: 'deepseek', tool: call.function.name, result: toolResult });
             
             currentMessages.push({
               role: "tool",
@@ -767,22 +828,34 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
       })()));
     } else if (targetModels.includes('deepseek')) {
-      sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: '[DeepSeek Not Configured]' });
+      sendSse('message', { model: 'deepseek', chunk: '[DeepSeek Not Configured]' });
     }
 
     // Wait for all streams to finish
     await Promise.all(promises);
 
-    sseManager.sendEvent(connectionId, 'done', { status: 'success' });
-    sseManager.removeClient(connectionId);
-    res.end();
-    
-    ChatLogger.info('chat_stream_completed', { connectionId });
+    // Finalize if client is still connected
+    if (!signal.aborted) {
+      sendSse('done', { status: 'success' });
+      sseManager.removeClient(connectionId);
+      res.end();
+      ChatLogger.info('chat_stream_completed', { connectionId });
+    }
 
   } catch (err: any) {
+    if (signal.aborted || isAbortLikeError(err)) {
+      ChatLogger.info('chat_stream_aborted', { connectionId });
+      return;
+    }
     ChatLogger.error('chat_stream_fatal', err, { connectionId });
-    sseManager.sendEvent(connectionId, 'error', { error: err.message });
-    sseManager.removeClient(connectionId);
-    res.end();
+    if (!signal.aborted) {
+      sendSse('error', { error: err.message });
+      sseManager.removeClient(connectionId);
+      if (!res.writableEnded) {
+        res.end();
+      }
+    }
+  } finally {
+    cleanup();
   }
 };
