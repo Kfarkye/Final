@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Folder, FolderOpen, File, FileCode, GitBranch, GitCommit,
-  Eye, PlusCircle, Link, RefreshCw, Search, Github,
+  Eye, PlusCircle, Link, RefreshCw, Search, Github, Lock,
   Terminal, ChevronDown, ChevronRight, AlertCircle, X, Check,
   AlertTriangle, Code2
 } from 'lucide-react';
@@ -331,6 +331,45 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     } catch (err) {
       console.error("Failed to fetch Github repositories", err);
     }
+  };
+
+  const handleConnectGithubToken = (token: string) => {
+    if (!token.trim()) return;
+    const cleanToken = token.trim();
+    setGithubToken(cleanToken);
+    
+    // Save to localStorage so ApiHub and other components stay in sync
+    const apiSaved = localStorage.getItem('api_hub_integrations');
+    let integrations = [];
+    if (apiSaved) {
+      try {
+        integrations = JSON.parse(apiSaved);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    
+    // Find or create github integration
+    const existingIdx = integrations.findIndex((i: any) => i.id === 'github');
+    const githubData = {
+      id: 'github',
+      status: 'Active',
+      credentials: { token: cleanToken },
+      selectedScope: 'read-only',
+      callsCount: 1,
+      latency: 20,
+      lastSync: 'Authorized just now'
+    };
+    
+    if (existingIdx >= 0) {
+      integrations[existingIdx] = { ...integrations[existingIdx], ...githubData };
+    } else {
+      integrations.push(githubData);
+    }
+    
+    localStorage.setItem('api_hub_integrations', JSON.stringify(integrations));
+    showToast("GitHub token connected successfully!");
+    fetchGithubRepos(cleanToken);
   };
 
   const handleSourceChange = (src: 'local' | 'github') => {
@@ -712,58 +751,93 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
             </button>
             <button
               onClick={() => handleSourceChange('github')}
-              disabled={!githubToken}
-              className={`flex-1 py-1.5 rounded-md transition-all font-sans flex items-center justify-center gap-1.5 ${!githubToken ? 'opacity-40 cursor-not-allowed' : ''} ${activeSource === 'github' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-              title={!githubToken ? "Connect GitHub in API Hub first" : "Connected GitHub Workspace"}
+              className={`flex-1 py-1.5 rounded-md transition-all font-sans flex items-center justify-center gap-1.5 ${activeSource === 'github' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              title={!githubToken ? "GitHub Integration Not Connected" : "Connected GitHub Workspace"}
             >
               <Github size={11} />
               <span>GitHub API</span>
+              {!githubToken && <Lock size={9} className="text-zinc-500" />}
             </button>
           </div>
 
-          {/* GitHub Repository Dropdowns */}
-          {activeSource === 'github' && githubToken && (
-            <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
-              <div className="space-y-1">
-                <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Select Repository</label>
-                <select
-                  value={selectedGithubRepo}
-                  onChange={e => handleGithubRepoChange(e.target.value)}
-                  className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-2 text-xs text-white outline-none cursor-pointer"
+          {/* GitHub Repository Dropdowns or Setup Screen */}
+          {activeSource === 'github' && (
+            !githubToken ? (
+              <div className="space-y-3 p-4 bg-zinc-950 border border-zinc-900 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
+                  <Github size={14} className="text-white" />
+                  <span>Connect GitHub Integration</span>
+                </div>
+                <p className="text-[10px] text-zinc-500 leading-normal font-light">
+                  To view remote repositories, list branches, and provision local workspaces, please configure a GitHub Personal Access Token.
+                </p>
+                <div className="space-y-1">
+                  <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Personal Access Token</label>
+                  <input
+                    type="password"
+                    placeholder="ghp_..."
+                    id="github-token-input"
+                    className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-700 outline-none font-mono focus:border-zinc-700 transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleConnectGithubToken((e.target as HTMLInputElement).value);
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={() => {
+                    const input = document.getElementById('github-token-input') as HTMLInputElement;
+                    if (input) handleConnectGithubToken(input.value);
+                  }}
+                  className="w-full py-2 bg-white text-black hover:bg-zinc-200 text-xs font-bold rounded-xl transition-all"
                 >
-                  <option value="" disabled>Choose a repository...</option>
-                  {githubRepos.map(repo => (
-                    <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
-                  ))}
-                </select>
+                  Connect GitHub Token
+                </button>
               </div>
-
-              {selectedGithubRepo && (
-                <>
-                  <div className="space-y-1">
-                    <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Select Branch</label>
-                    <select
-                      value={selectedGithubBranch}
-                      onChange={e => handleGithubBranchChange(e.target.value)}
-                      className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-white outline-none cursor-pointer"
-                    >
-                      {githubBranches.map(br => (
-                        <option key={br} value={br}>{br}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <button
-                    onClick={handleProvisionWorkspace}
-                    disabled={provisioning}
-                    className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2"
+            ) : (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="space-y-1">
+                  <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Select Repository</label>
+                  <select
+                    value={selectedGithubRepo}
+                    onChange={e => handleGithubRepoChange(e.target.value)}
+                    className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-2 text-xs text-white outline-none cursor-pointer"
                   >
-                    <RefreshCw size={12} className={provisioning ? 'animate-spin' : ''} />
-                    <span>{provisioning ? 'Provisioning Workspace...' : 'Provision Local Workspace'}</span>
-                  </button>
-                </>
-              )}
-            </div>
+                    <option value="" disabled>Choose a repository...</option>
+                    {githubRepos.map(repo => (
+                      <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedGithubRepo && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Select Branch</label>
+                      <select
+                        value={selectedGithubBranch}
+                        onChange={e => handleGithubBranchChange(e.target.value)}
+                        className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-white outline-none cursor-pointer"
+                      >
+                        {githubBranches.map(br => (
+                          <option key={br} value={br}>{br}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    <button
+                      onClick={handleProvisionWorkspace}
+                      disabled={provisioning}
+                      className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2"
+                    >
+                      <RefreshCw size={12} className={provisioning ? 'animate-spin' : ''} />
+                      <span>{provisioning ? 'Provisioning Workspace...' : 'Provision Local Workspace'}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )
           )}
 
           {/* Local branch switcher dropdown */}
