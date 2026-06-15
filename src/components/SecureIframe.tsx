@@ -1,14 +1,22 @@
-import React, { IframeHTMLAttributes } from 'react';
+import React, { IframeHTMLAttributes, useCallback } from 'react';
+
+interface IframeAction {
+  label: string;
+  icon: string;
+  onClick: () => void;
+}
 
 interface SecureIframeProps extends IframeHTMLAttributes<HTMLIFrameElement> {
   title: string;
-  sandboxOptions?: string[]; // e.g., ['allow-scripts', 'allow-same-origin']
+  sandboxOptions?: string[];
+  actions?: IframeAction[];
 }
 
 export function SecureIframe({ 
   title, 
   sandboxOptions = ['allow-scripts', 'allow-same-origin', 'allow-forms'], 
-  className = '', 
+  className = '',
+  actions = [],
   ...props 
 }: SecureIframeProps) {
   const sandboxConfig = sandboxOptions.join(' ');
@@ -24,7 +32,18 @@ export function SecureIframe({
           </div>
           <span className="uppercase tracking-widest">{title}</span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {actions.map((action, i) => (
+            <button
+              key={i}
+              onClick={action.onClick}
+              className="text-[10px] px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 hover:border-white/20 font-sans tracking-wide transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title={action.label}
+            >
+              <span>{action.icon}</span>
+              <span className="hidden sm:inline">{action.label}</span>
+            </button>
+          ))}
           <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-sans tracking-wide">
             Protected Sandbox
           </span>

@@ -151,14 +151,51 @@ const MimeRendererComponent = memo(function MimeRenderer({
             const codeContent = String(childProps.children || '').replace(/\n$/, '');
 
             if (lang === 'html' || lang === 'iframe') {
+              const htmlActions = [
+                {
+                  label: 'Copy',
+                  icon: '📋',
+                  onClick: () => {
+                    navigator.clipboard.writeText(codeContent);
+                  }
+                },
+                {
+                  label: 'Download',
+                  icon: '⬇️',
+                  onClick: () => {
+                    const blob = new Blob([codeContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'artifact.html';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }
+                },
+                {
+                  label: 'Source',
+                  icon: '🔍',
+                  onClick: () => {
+                    const pre = document.getElementById(`html-source-${codeContent.length}`);
+                    if (pre) pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+                  }
+                }
+              ];
+
               return (
-                <div className="space-y-4 my-5">
+                <div className="space-y-2 my-5">
                   <SecureIframe
                     srcDoc={codeContent}
-                    title="Code Output"
+                    title="HTML5 Artifact"
                     sandboxOptions={DEFAULT_SANDBOX}
+                    actions={htmlActions}
                   />
-                  <pre className="bg-white/5 p-4 rounded-xl overflow-x-auto text-[13px] font-mono" {...props}>
+                  <pre
+                    id={`html-source-${codeContent.length}`}
+                    className="bg-white/5 p-4 rounded-xl overflow-x-auto text-[13px] font-mono"
+                    style={{ display: 'none' }}
+                    {...props}
+                  >
                     {first}
                   </pre>
                 </div>

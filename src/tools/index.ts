@@ -6,6 +6,7 @@ import { workspaceTools } from './workspace.tools';
 import { spannerTools } from './spanner.tools';
 import { mcpTools } from './mcp.tools';
 import { gcpTools } from './gcp.tools';
+import { artifactTools } from './artifact.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -15,7 +16,8 @@ toolRegistry.registerMany([
   ...workspaceTools,
   ...spannerTools,
   ...mcpTools,
-  ...gcpTools
+  ...gcpTools,
+  ...artifactTools
 ]);
 
 export { toolRegistry };

@@ -54,6 +54,45 @@ app.get("/api/debug/tools", (_req, res) => {
   res.json({ registeredTools: Object.keys(schemas), count: Object.keys(schemas).length });
 });
 
+// --- HTML5 Artifact Serving ---
+import { callGcpMcpTool } from './src/tools/gcp-mcp-client';
+const ARTIFACT_BUCKET = "clearspace-artifacts";
+const ARTIFACT_PREFIX = "truth-artifacts";
+const STORAGE_MCP_URL = "https://storage.googleapis.com/storage/mcp";
+
+app.get("/api/artifacts/:id", async (req, res) => {
+  try {
+    const objectName = `${ARTIFACT_PREFIX}/${req.params.id}.html`;
+    const result = await callGcpMcpTool(STORAGE_MCP_URL, "read_text", {
+      bucketName: ARTIFACT_BUCKET,
+      objectName,
+      projectId: process.env.GCP_PROJECT || ""
+    });
+    const html = typeof result === "string" ? result : (result?.content || result?.text || "");
+    if (!html) {
+      res.status(404).json({ error: "Artifact not found" });
+      return;
+    }
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to serve artifact: ${err.message}` });
+  }
+});
+
+app.get("/api/artifacts", async (_req, res) => {
+  try {
+    const result = await callGcpMcpTool(STORAGE_MCP_URL, "list_objects", {
+      bucketName: ARTIFACT_BUCKET,
+      prefix: `${ARTIFACT_PREFIX}/`,
+      projectId: process.env.GCP_PROJECT || ""
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to list artifacts: ${err.message}` });
+  }
+});
+
 // --- Git Workspace Routes ---
 app.post("/api/git/provision", gitController.provisionWorkspace);
 app.get("/api/git/tree", gitController.getFileTree);

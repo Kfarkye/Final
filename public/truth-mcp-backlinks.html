@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Truth MCP Backlinks: Linear, Stripe, Firebase, and Serverless Deploy</title>
+
+  <meta
+    name="description"
+    content="Canonical backlink reference page for Linear, Stripe, Firebase/Storage, and serverless deployment resources used by the Truth MCP service fabric."
+  />
+
+  <meta name="application-name" content="Truth" />
+  <meta name="artifact-type" content="reference_backlinks" />
+  <meta name="system" content="truth-mcp-fabric" />
+</head>
+
+<body>
+  <main>
+    <header>
+      <h1>Truth MCP Backlinks</h1>
+      <p>
+        Canonical reference links for implementing and maintaining the Linear,
+        Stripe, Firebase/Storage, and serverless deployment integrations inside
+        Truth/Reverie.
+      </p>
+    </header>
+
+    <nav aria-label="Backlink sections">
+      <h2>Sections</h2>
+      <ul>
+        <li><a href="#linear">Linear</a></li>
+        <li><a href="#stripe">Stripe</a></li>
+        <li><a href="#firebase-storage">Firebase / Storage</a></li>
+        <li><a href="#serverless-deploy">Serverless Deploy</a></li>
+      </ul>
+    </nav>
+
+    <section id="linear">
+      <h2>Linear</h2>
+
+      <ul>
+        <li>
+          <a href="https://developers.linear.app/" target="_blank" rel="noopener noreferrer">
+            Linear Developers
+          </a>
+        </li>
+        <li>
+          <a href="https://developers.linear.app/docs/graphql/working-with-the-graphql-api" target="_blank" rel="noopener noreferrer">
+            Linear GraphQL API
+          </a>
+        </li>
+        <li>
+          <a href="https://developers.linear.app/docs/oauth/authentication" target="_blank" rel="noopener noreferrer">
+            Linear OAuth
+          </a>
+        </li>
+        <li>
+          <a href="https://developers.linear.app/docs/graphql/webhooks" target="_blank" rel="noopener noreferrer">
+            Linear Webhooks
+          </a>
+        </li>
+        <li>
+          <a href="https://github.com/linear/linear/tree/master/packages/sdk" target="_blank" rel="noopener noreferrer">
+            Linear TypeScript SDK
+          </a>
+        </li>
+        <li>
+          <a href="https://www.npmjs.com/package/@linear/sdk" target="_blank" rel="noopener noreferrer">
+            @linear/sdk on npm
+          </a>
+        </li>
+      </ul>
+
+      <aside>
+        <h3>Implementation Notes</h3>
+        <dl>
+          <dt>GraphQL endpoint</dt>
+          <dd><code>https://api.linear.app/graphql</code></dd>
+
+          <dt>Authentication</dt>
+          <dd>OAuth 2.0 or personal API key.</dd>
+
+          <dt>Recommended for Truth</dt>
+          <dd>Use OAuth for multi-user integration.</dd>
+
+          <dt>Webhook security</dt>
+          <dd>Verify <code>Linear-Signature</code>.</dd>
+
+          <dt>Duplicate webhook detection</dt>
+          <dd>Use <code>Linear-Delivery</code>.</dd>
+        </dl>
+      </aside>
+    </section>
+
+    <section id="stripe">
+      <h2>Stripe</h2>
+
+      <ul>
+        <li>
+          <a href="https://docs.stripe.com/keys" target="_blank" rel="noopener noreferrer">
+            Stripe API Keys
+          </a>
+        </li>
+        <li>
+          <a href="https://docs.stripe.com/keys-best-practices" target="_blank" rel="noopener noreferrer">
+            Stripe Key Best Practices / Restricted Keys
+          </a>
+        </li>
+        <li>
+          <a href="https://docs.stripe.com/api/idempotent_requests" target="_blank" rel="noopener noreferrer">
+            Stripe Idempotent Requests
+          </a>
+        </li>
+        <li>
+          <a href="https://docs.stripe.com/webhooks" target="_blank" rel="noopener noreferrer">
+            Stripe Webhooks
+          </a>
+        </li>
+        <li>
+          <a href="https://docs.stripe.com/webhooks/signature" target="_blank" rel="noopener noreferrer">
+            Stripe Webhook Signature Verification
+          </a>
+        </li>
+        <li>
+          <a href="https://github.com/stripe/stripe-node" target="_blank" rel="noopener noreferrer">
+            Stripe Node SDK
+          </a>
+        </li>
+        <li>
+          <a href="https://docs.stripe.com/api" target="_blank" rel="noopener noreferrer">
+            Stripe API Reference
+          </a>
+        </li>
+      </ul>
+
+      <aside>
+        <h3>Implementation Notes</h3>
+        <dl>
+          <dt>Recommended MCP key</dt>
+          <dd><code>STRIPE_MCP_RESTRICTED_KEY</code></dd>
+
+          <dt>Build/test keys</dt>
+          <dd>Use test-mode keys such as <code>rk_test_*</code> or <code>sk_test_*</code>.</dd>
+
+          <dt>Idempotency</dt>
+          <dd>Use idempotency keys for mutating POST requests.</dd>
+
+          <dt>Webhook verification</dt>
+          <dd>Verify webhooks with the raw request body.</dd>
+
+          <dt>Logging policy</dt>
+          <dd>
+            Never log secret keys, <code>client_secret</code>,
+            <code>payment_method</code>, card data, bank account data, or raw customer PII.
+          </dd>
+        </dl>
+      </aside>
+    </section>
+
+    <section id="firebase-storage">
+      <h2>Firebase / Storage</h2>
+
+      <ul>
+        <li>
+          <a href="https://firebase.google.com/docs" target="_blank" rel="noopener noreferrer">
+            Firebase Documentation
+          </a>
+        </li>
+        <li>
+          <a href="https://firebase.google.com/docs/auth" target="_blank" rel="noopener noreferrer">
+            Firebase Authentication
+          </a>
+        </li>
+        <li>
+          <a href="https://firebase.google.com/docs/auth/admin" target="_blank" rel="noopener noreferrer">
+            Firebase Admin Authentication
+          </a>
+        </li>
+        <li>
+          <a href="https://firebase.google.com/docs/storage" target="_blank" rel="noopener noreferrer">
+            Cloud Storage for Firebase
+          </a>
+        </li>
+        <li>
+          <a href="https://firebase.google.com/docs/storage/security" target="_blank" rel="noopener noreferrer">
+            Firebase Storage Security Rules
+          </a>
+        </li>
+        <li>
+          <a href="https://firebase.google.com/docs/rules" target="_blank" rel="noopener noreferrer">
+            Firebase Security Rules
+          </a>
+        </li>
+        <li>
+          <a href="https://firebase.google.com/docs/hosting" target="_blank" rel="noopener noreferrer">
+            Firebase Hosting
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/storage/docs" target="_blank" rel="noopener noreferrer">
+            Google Cloud Storage Documentation
+          </a>
+        </li>
+      </ul>
+
+      <aside>
+        <h3>Implementation Notes</h3>
+        <dl>
+          <dt>Auth boundary</dt>
+          <dd>
+            Truth backend should derive user identity from verified Firebase auth tokens,
+            not from spoofable client headers such as <code>x-user-id</code>.
+          </dd>
+
+          <dt>Artifact storage</dt>
+          <dd>
+            Use Firebase Storage or Google Cloud Storage for uploaded files,
+            generated artifacts, snapshots, and workspace-adjacent assets.
+          </dd>
+
+          <dt>Security rules</dt>
+          <dd>
+            Enforce per-user or per-workspace access at the rules layer and again
+            in the backend service layer.
+          </dd>
+
+          <dt>Metadata</dt>
+          <dd>
+            Store canonical artifact metadata in Spanner and human-readable artifacts
+            in Drive or Storage.
+          </dd>
+        </dl>
+      </aside>
+    </section>
+
+    <section id="serverless-deploy">
+      <h2>Serverless Deploy</h2>
+
+      <ul>
+        <li>
+          <a href="https://cloud.google.com/run/docs" target="_blank" rel="noopener noreferrer">
+            Cloud Run Documentation
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/run/docs/deploying-source-code" target="_blank" rel="noopener noreferrer">
+            Deploying Source Code to Cloud Run
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/run/docs/configuring/services/environment-variables" target="_blank" rel="noopener noreferrer">
+            Cloud Run Environment Variables
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/run/docs/configuring/services/secrets" target="_blank" rel="noopener noreferrer">
+            Cloud Run Secrets
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/secret-manager/docs" target="_blank" rel="noopener noreferrer">
+            Google Secret Manager
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/build/docs" target="_blank" rel="noopener noreferrer">
+            Cloud Build Documentation
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/run/docs/container-contract" target="_blank" rel="noopener noreferrer">
+            Cloud Run Container Runtime Contract
+          </a>
+        </li>
+        <li>
+          <a href="https://cloud.google.com/run/docs/troubleshooting" target="_blank" rel="noopener noreferrer">
+            Cloud Run Troubleshooting
+          </a>
+        </li>
+      </ul>
+
+      <aside>
+        <h3>Implementation Notes</h3>
+        <dl>
+          <dt>Current service</dt>
+          <dd><code>reverie</code> on Cloud Run.</dd>
+
+          <dt>Region</dt>
+          <dd><code>us-central1</code></dd>
+
+          <dt>Deploy command pattern</dt>
+          <dd>
+            <code>gcloud run deploy reverie --source . --region us-central1</code>
+          </dd>
+
+          <dt>Secrets</dt>
+          <dd>
+            Prefer Secret Manager bindings for Stripe, Linear, GitHub, and Firebase
+            credentials instead of plain environment variables.
+          </dd>
+
+          <dt>Health checks</dt>
+          <dd>
+            Maintain <code>/readyz</code> for app readiness and add
+            <code>/api/mcp/status</code> for MCP integration readiness.
+          </dd>
+
+          <dt>MCP server packaging</dt>
+          <dd>
+            Copy compiled MCP servers into <code>/opt/truth/mcp-servers</code>
+            inside the container image.
+          </dd>
+        </dl>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>
