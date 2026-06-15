@@ -7,7 +7,7 @@ import { doc, getDoc, collection, setDoc, addDoc, serverTimestamp, updateDoc } f
 import WorkspaceHub from './components/WorkspaceHub';
 import GitWorkspaceHub from './components/GitWorkspaceHub';
 import WorkspaceModeToggle from './components/WorkspaceModeToggle';
-import McpRegistry from './components/McpRegistry';
+import McpRegistry, { PRELOADED_SERVERS } from './components/McpRegistry';
 import ApiHub from './components/ApiHub';
 import { logAuditAction } from './lib/audit';
 
@@ -255,6 +255,10 @@ export default function ChatClient() {
         } catch (e) {
           console.error("Failed to parse local MCP servers", e);
         }
+      }
+      // Fallback: if localStorage has no servers, use the preloaded defaults
+      if (parsedMcpServers.length === 0) {
+        parsedMcpServers = PRELOADED_SERVERS;
       }
 
       let parsedIntegrations: any[] = [];

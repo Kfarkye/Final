@@ -29,7 +29,7 @@ export interface McpServer {
   latency?: number;
 }
 
-const PRELOADED_SERVERS: McpServer[] = [
+export const PRELOADED_SERVERS: McpServer[] = [
   {
     id: 'google-drive-mcp',
     name: 'Google Drive Protocol',
