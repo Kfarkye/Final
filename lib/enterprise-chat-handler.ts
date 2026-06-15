@@ -140,71 +140,22 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
         contents.push({ role: 'user', parts: [{ text: governedPrompt }] });
 
-        const activeMcpTools: any[] = [];
-        if (virtualMcpServers && virtualMcpServers.length > 0) {
-          virtualMcpServers.forEach((s: any) => {
-            if (s.status === 'Connected' || s.status === 'Active') {
-              s.tools.forEach((t: any) => {
-                const canonical = deps.CANONICAL_TOOLS[t.name];
-                if (canonical) {
-                  const gProps = safeGeminiProperties(canonical.properties);
-                  activeMcpTools.push({
-                    name: canonical.name,
-                    description: canonical.description,
-                    parameters: {
-                      type: "OBJECT",
-                      properties: gProps,
-                      required: canonical.required || []
-                    }
-                  });
-                } else {
-                  activeMcpTools.push({
-                    name: t.name,
-                    description: t.description,
-                    parameters: {
-                      type: "OBJECT",
-                      properties: { prompt: { type: "STRING", description: "Query argument" } }
-                    }
-                  });
-                }
-              });
-            }
-          });
-        }
-
+        // Clearspace-native pattern: inject ALL registered tools directly as functionDeclarations
+        // No dependency on frontend mcpServers payload — the backend is the source of truth
         const mergedDecls = [...deps.workspaceDecls];
-        activeMcpTools.forEach((t) => {
-          if (!mergedDecls.find((d: any) => d.name === t.name)) {
-            mergedDecls.push(t);
+        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+          if (!mergedDecls.find((d: any) => d.name === toolName)) {
+            const gProps = safeGeminiProperties(canonical.properties || {});
+            mergedDecls.push({
+              name: canonical.name,
+              description: canonical.description,
+              parameters: {
+                type: "OBJECT",
+                properties: gProps,
+                required: canonical.required || []
+              }
+            });
           }
-        });
-
-        const searchTool = deps.CANONICAL_TOOLS['search_web'];
-        if (searchTool && !mergedDecls.find((d: any) => d.name === searchTool.name)) {
-          const gProps = safeGeminiProperties(searchTool.properties || {});
-          mergedDecls.push({
-            name: searchTool.name,
-            description: searchTool.description,
-            parameters: {
-              type: "OBJECT",
-              properties: gProps,
-              required: searchTool.required || []
-            }
-          });
-        }
-
-        // Register get_current_time for Gemini
-        const timeTool = deps.CANONICAL_TOOLS['get_current_time'];
-        if (timeTool && !mergedDecls.find((d: any) => d.name === timeTool.name)) {
-          mergedDecls.push({
-            name: timeTool.name,
-            description: timeTool.description,
-            parameters: {
-              type: "OBJECT",
-              properties: {},
-              required: []
-            }
-          });
         }
 
         let geminiConfig: any = undefined;
@@ -282,57 +233,18 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
         
+        // Clearspace-native pattern: inject ALL registered tools directly
         const openaiTools: any[] = [];
-        if (virtualMcpServers && virtualMcpServers.length > 0) {
-          virtualMcpServers.forEach((s: any) => {
-            if (s.status === 'Connected' || s.status === 'Active') {
-              s.tools.forEach((t: any) => {
-                const canonical = deps.CANONICAL_TOOLS[t.name];
-                openaiTools.push({
-                  type: "function",
-                  function: {
-                    name: t.name,
-                    description: t.description,
-                    parameters: {
-                      type: "object",
-                      properties: canonical ? canonical.properties : { prompt: { type: "string" } },
-                      required: canonical?.required || []
-                    }
-                  }
-                });
-              });
-            }
-          });
-        }
-
-        const searchToolOpenAI = deps.CANONICAL_TOOLS['search_web'];
-        if (searchToolOpenAI && !openaiTools.find((t: any) => t.function.name === searchToolOpenAI.name)) {
+        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           openaiTools.push({
             type: "function",
             function: {
-              name: searchToolOpenAI.name,
-              description: searchToolOpenAI.description,
+              name: canonical.name,
+              description: canonical.description,
               parameters: {
                 type: "object",
-                properties: searchToolOpenAI.properties || {},
-                required: searchToolOpenAI.required || []
-              }
-            }
-          });
-        }
-
-        // Register get_current_time for OpenAI
-        const timeToolOpenAI = deps.CANONICAL_TOOLS['get_current_time'];
-        if (timeToolOpenAI && !openaiTools.find((t: any) => t.function.name === timeToolOpenAI.name)) {
-          openaiTools.push({
-            type: "function",
-            function: {
-              name: timeToolOpenAI.name,
-              description: timeToolOpenAI.description,
-              parameters: {
-                type: "object",
-                properties: {},
-                required: []
+                properties: canonical.properties || {},
+                required: canonical.required || []
               }
             }
           });
@@ -437,49 +349,16 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         }
         msgs.push({ role: "user", content: governedPrompt });
 
+        // Clearspace-native pattern: inject ALL registered tools directly
         const claudeTools: any[] = [];
-        if (virtualMcpServers && virtualMcpServers.length > 0) {
-          virtualMcpServers.forEach((s: any) => {
-            if (s.status === 'Connected' || s.status === 'Active') {
-              s.tools.forEach((t: any) => {
-                const canonical = deps.CANONICAL_TOOLS[t.name];
-                claudeTools.push({
-                  name: t.name,
-                  description: t.description,
-                  input_schema: {
-                    type: "object",
-                    properties: canonical ? canonical.properties : { prompt: { type: "string" } },
-                    required: canonical?.required || []
-                  }
-                });
-              });
-            }
-          });
-        }
-
-        const searchToolClaude = deps.CANONICAL_TOOLS['search_web'];
-        if (searchToolClaude && !claudeTools.find((t: any) => t.name === searchToolClaude.name)) {
+        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           claudeTools.push({
-            name: searchToolClaude.name,
-            description: searchToolClaude.description,
+            name: canonical.name,
+            description: canonical.description,
             input_schema: {
               type: "object",
-              properties: searchToolClaude.properties || {},
-              required: searchToolClaude.required || []
-            }
-          });
-        }
-
-        // Register get_current_time for Claude
-        const timeToolClaude = deps.CANONICAL_TOOLS['get_current_time'];
-        if (timeToolClaude && !claudeTools.find((t: any) => t.name === timeToolClaude.name)) {
-          claudeTools.push({
-            name: timeToolClaude.name,
-            description: timeToolClaude.description,
-            input_schema: {
-              type: "object",
-              properties: {},
-              required: []
+              properties: canonical.properties || {},
+              required: canonical.required || []
             }
           });
         }
@@ -595,60 +474,18 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
         
+        // Clearspace-native pattern: inject ALL registered tools directly
         const grokTools: any[] = [];
-        // Add MCP/virtual server tools for Grok
-        if (virtualMcpServers && virtualMcpServers.length > 0) {
-          virtualMcpServers.forEach((s: any) => {
-            if (s.status === 'Connected' || s.status === 'Active') {
-              s.tools.forEach((t: any) => {
-                const canonical = deps.CANONICAL_TOOLS[t.name];
-                if (!grokTools.find((gt: any) => gt.function.name === t.name)) {
-                  grokTools.push({
-                    type: "function",
-                    function: {
-                      name: t.name,
-                      description: t.description,
-                      parameters: {
-                        type: "object",
-                        properties: canonical ? canonical.properties : { prompt: { type: "string" } },
-                        required: canonical?.required || []
-                      }
-                    }
-                  });
-                }
-              });
-            }
-          });
-        }
-
-        const searchToolGrok = deps.CANONICAL_TOOLS['search_web'];
-        if (searchToolGrok && !grokTools.find((t: any) => t.function.name === searchToolGrok.name)) {
+        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           grokTools.push({
             type: "function",
             function: {
-              name: searchToolGrok.name,
-              description: searchToolGrok.description,
+              name: canonical.name,
+              description: canonical.description,
               parameters: {
                 type: "object",
-                properties: searchToolGrok.properties || {},
-                required: searchToolGrok.required || []
-              }
-            }
-          });
-        }
-
-        // Register get_current_time for Grok
-        const timeToolGrok = deps.CANONICAL_TOOLS['get_current_time'];
-        if (timeToolGrok && !grokTools.find((t: any) => t.function.name === timeToolGrok.name)) {
-          grokTools.push({
-            type: "function",
-            function: {
-              name: timeToolGrok.name,
-              description: timeToolGrok.description,
-              parameters: {
-                type: "object",
-                properties: {},
-                required: []
+                properties: canonical.properties || {},
+                required: canonical.required || []
               }
             }
           });
