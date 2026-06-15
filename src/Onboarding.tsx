@@ -122,7 +122,8 @@ export default function Onboarding() {
                 { id: 'gemini', name: 'Gemini 3.5 Flash' },
                 { id: 'chatgpt', name: 'GPT 5.5' },
                 { id: 'claude', name: 'Claude 4.8 Opus' },
-                { id: 'grok', name: 'Grok 4.3' }
+                { id: 'grok', name: 'Grok 4.3' },
+                { id: 'deepseek', name: 'DeepSeek-R1' }
               ].map(model => (
                 <button
                   key={model.id}

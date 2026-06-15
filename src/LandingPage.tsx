@@ -38,7 +38,7 @@ export default function LandingPage() {
           transition={{ duration: 1, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
           className="text-6xl md:text-8xl font-serif tracking-tighter font-medium max-w-5xl leading-[1.1] mb-8 text-white"
         >
-          Compare four minds.<br /><span className="text-zinc-500">Find the truth.</span>
+          Compare five minds.<br /><span className="text-zinc-500">Find the truth.</span>
         </motion.h1>
         
         <motion.p 
@@ -47,7 +47,7 @@ export default function LandingPage() {
           transition={{ duration: 1, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
           className="text-xl md:text-2xl text-zinc-400 max-w-2xl mb-16 tracking-tight font-light"
         >
-          An enterprise-grade cross-examination suite. Query Gemini, ChatGPT, Claude, and Grok concurrently.
+          An enterprise-grade cross-examination suite. Query Gemini, ChatGPT, Claude, Grok, and DeepSeek concurrently.
         </motion.p>
         
         <motion.div 
@@ -85,7 +85,7 @@ export default function LandingPage() {
           <div className="group">
             <h3 className="text-2xl font-serif font-medium mb-6 text-white group-hover:text-zinc-300 transition-colors">Consensus Triangulation.</h3>
             <p className="text-zinc-400 leading-relaxed font-light text-lg">
-              Isolate hallucinations and bypass structural biases. Analyze four distinct cognitive architectures to synthesize an objective truth.
+              Isolate hallucinations and bypass structural biases. Analyze five distinct cognitive architectures to synthesize an objective truth.
             </p>
           </div>
           <div className="group">
@@ -112,7 +112,7 @@ export default function LandingPage() {
             <p className="text-xl text-zinc-400 leading-relaxed mb-16 font-light max-w-2xl">
               We integrate exclusively with the bleeding edge of foundation models.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">Google</span>
                   <span className="text-2xl font-serif text-white">Gemini 1.5 Pro</span>
@@ -128,6 +128,10 @@ export default function LandingPage() {
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">xAI</span>
                   <span className="text-2xl font-serif text-white">Grok-2</span>
+               </div>
+               <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col sm:col-span-2 lg:col-span-1">
+                  <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">DeepSeek</span>
+                  <span className="text-2xl font-serif text-white">DeepSeek-R1 / V3</span>
                </div>
             </div>
           </div>

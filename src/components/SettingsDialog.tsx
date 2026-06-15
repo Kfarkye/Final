@@ -14,12 +14,14 @@ interface SettingsDialogProps {
     chatgpt: string;
     claude: string;
     grok: string;
+    deepseek: string;
   };
   onUpdateModelConfigs: (configs: {
     gemini: string;
     chatgpt: string;
     claude: string;
     grok: string;
+    deepseek: string;
   }) => void;
 }
 
@@ -35,10 +37,11 @@ export default function SettingsDialog({
   const [configs, setConfigs] = useState(modelConfigs);
 
   // Custom input toggles or inputs
-  const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
+  const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini', 'gpt-5.5-2026-04-23'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-opus-4-8'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-2-latest', 'grok-beta', 'grok-4.3'].includes(modelConfigs.grok));
+  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-r1', 'deepseek-v3'].includes(modelConfigs.deepseek));
 
   const handleSave = async () => {
     if (!currentUser) return;
@@ -68,7 +71,7 @@ export default function SettingsDialog({
     }
   };
 
-  const handleModelChange = (key: 'gemini' | 'chatgpt' | 'claude' | 'grok', val: string) => {
+  const handleModelChange = (key: 'gemini' | 'chatgpt' | 'claude' | 'grok' | 'deepseek', val: string) => {
     setConfigs(prev => ({ ...prev, [key]: val }));
   };
 
@@ -165,6 +168,7 @@ export default function SettingsDialog({
                 >
                   <option value="gemini-3.5-flash">Gemini 3.5 Flash (Standard)</option>
                   <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Reasoning)</option>
+                  <option value="gemini-3.1-pro-preview-next">Gemini 3.1 Pro Preview Next (Deep Think)</option>
                   <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
                   <option value="gemini-flash-latest">Gemini Flash Latest</option>
                   <option value="gemini-2.5-flash-image">Gemini 2.5 Flash (Image)</option>
@@ -272,6 +276,37 @@ export default function SettingsDialog({
                   <option value="grok-4.3">Grok 4.3 (First Choice)</option>
                   <option value="grok-2-latest">Grok-2 Latest (Standard)</option>
                   <option value="grok-beta">Grok Beta</option>
+                </select>
+              )}
+            </div>
+
+            {/* DeepSeek */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-zinc-400">DeepSeek model</span>
+                <button 
+                  onClick={() => setDeepseekCustom(!deepseekCustom)} 
+                  className="text-zinc-500 hover:text-white transition-colors"
+                >
+                  {deepseekCustom ? "Select preset" : "Set custom model ID"}
+                </button>
+              </div>
+              {deepseekCustom ? (
+                <input 
+                  type="text"
+                  value={configs.deepseek}
+                  onChange={(e) => handleModelChange('deepseek', e.target.value)}
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  placeholder="e.g. deepseek-chat"
+                />
+              ) : (
+                <select 
+                  value={configs.deepseek}
+                  onChange={(e) => handleModelChange('deepseek', e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                >
+                  <option value="deepseek-r1">DeepSeek-R1 (Reasoning)</option>
+                  <option value="deepseek-v3">DeepSeek-V3 (Chat)</option>
                 </select>
               )}
             </div>

@@ -22,3 +22,7 @@ export const anthropic = env.ANTHROPIC_API_KEY
 export const xai = env.XAI_API_KEY 
   ? new OpenAI({ apiKey: env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" }) 
   : null;
+
+export const deepseek = env.DEEPSEEK_API_KEY 
+  ? new OpenAI({ apiKey: env.DEEPSEEK_API_KEY, baseURL: env.DEEPSEEK_API_BASE_URL }) 
+  : null;

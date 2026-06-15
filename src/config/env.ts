@@ -25,6 +25,8 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   XAI_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
+  DEEPSEEK_API_BASE_URL: z.string().default("https://api.deepseek.com"),
 
   // Cloud Spanner Configuration
   SPANNER_PROJECT_ID: z.string().optional(),

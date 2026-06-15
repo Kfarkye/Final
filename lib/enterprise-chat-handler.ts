@@ -76,7 +76,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     prompt, 
     history, 
     mode, 
-    targetModels = ['gemini', 'chatgpt', 'claude', 'grok'], 
+    targetModels = ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'], 
     topic, 
     googleAccessToken,
     modelConfigs = {},
@@ -158,11 +158,21 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           }
         }
 
+        const selectedGeminiModel = modelConfigs.gemini || "gemini-3.5-flash";
+
         let geminiConfig: any = undefined;
         if (systemPrompt) geminiConfig = { systemInstruction: systemPrompt };
         if (mergedDecls.length > 0) {
           geminiConfig = geminiConfig || {};
           geminiConfig.tools = [{ functionDeclarations: mergedDecls }];
+        }
+
+        if (selectedGeminiModel === "gemini-3.1-pro-preview-next") {
+          geminiConfig = geminiConfig || {};
+          geminiConfig.thinkingConfig = {
+            thinkingLevel: 'HIGH',
+            includeThoughts: true
+          };
         }
 
         let runCount = 0;
@@ -577,6 +587,119 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
       })()));
     } else if (targetModels.includes('grok')) {
       sseManager.sendEvent(connectionId, 'message', { model: 'grok', chunk: '[Grok Not Configured]' });
+    }
+
+    // DeepSeek Streaming
+    if (targetModels.includes('deepseek') && deps.deepseek) {
+      promises.push(streamModel('deepseek', (async () => {
+        const msgs: any[] = [];
+        if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
+        if (mode === 'shared' && history) msgs.push(...history);
+        msgs.push({ role: "user", content: governedPrompt });
+        
+        // Clearspace-native pattern: inject ALL registered tools directly
+        const deepseekTools: any[] = [];
+        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+          deepseekTools.push({
+            type: "function",
+            function: {
+              name: canonical.name,
+              description: canonical.description,
+              parameters: {
+                type: "object",
+                properties: canonical.properties || {},
+                required: canonical.required || []
+              }
+            }
+          });
+        }
+
+        // Register workspace tools for DeepSeek
+        if (deps.workspaceDecls) {
+          deps.workspaceDecls.forEach((d: any) => {
+            if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
+              deepseekTools.push({
+                type: "function",
+                function: {
+                  name: d.name,
+                  description: d.description,
+                  parameters: lowercaseSchemaTypes(d.parameters)
+                }
+              });
+            }
+          });
+        }
+
+        let currentMessages = [...msgs];
+        let runCount = 0;
+
+        while (runCount < 3) {
+          const stream = await deps.deepseek.chat.completions.create({
+            model: modelConfigs.deepseek || "deepseek-r1",
+            messages: currentMessages,
+            tools: deepseekTools.length > 0 ? deepseekTools : undefined,
+            stream: true
+          });
+
+          let toolCalls: any = {};
+          let hasContent = false;
+
+          for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta;
+            if (!delta) continue;
+
+            if (delta.content) {
+              hasContent = true;
+              sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: delta.content });
+            }
+
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (!toolCalls[tc.index]) {
+                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                }
+                if (tc.function?.arguments) {
+                  toolCalls[tc.index].function.arguments += tc.function.arguments;
+                }
+              }
+            }
+          }
+
+          const tcKeys = Object.keys(toolCalls);
+          if (tcKeys.length === 0) {
+            break;
+          }
+
+          const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
+          currentMessages.push(messageToAppend);
+
+          for (const key of tcKeys) {
+            const call = toolCalls[key];
+            sseManager.sendEvent(connectionId, 'tool_start', { model: 'deepseek', tool: call.function.name });
+            let args;
+            try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
+            
+            const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
+            let toolResult;
+            if (isWorkspace) {
+              toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
+            } else {
+              toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+            }
+            sseManager.sendEvent(connectionId, 'tool_result', { model: 'deepseek', tool: call.function.name, result: toolResult });
+            
+            currentMessages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              name: call.function.name,
+              content: JSON.stringify(toolResult)
+            });
+          }
+          runCount++;
+        }
+      })()));
+    } else if (targetModels.includes('deepseek')) {
+      sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: '[DeepSeek Not Configured]' });
     }
 
     // Wait for all streams to finish

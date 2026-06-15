@@ -25,6 +25,7 @@ interface Responses {
   chatgpt: string | null;
   claude: string | null;
   grok: string | null;
+  deepseek: string | null;
 }
 
 interface Turn {
@@ -40,6 +41,7 @@ export interface ModelConfigs {
   chatgpt: string;
   claude: string;
   grok: string;
+  deepseek: string;
 }
 
 const TOPICS = [
@@ -79,7 +81,8 @@ export default function ChatClient() {
     gemini: 'gemini-3.5-flash',
     chatgpt: 'gpt-5.5-2026-04-23',
     claude: 'claude-opus-4-8',
-    grok: 'grok-4.3'
+    grok: 'grok-4.3',
+    deepseek: 'deepseek-r1'
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
@@ -148,7 +151,7 @@ export default function ChatClient() {
           const userData = userDoc.data();
           setCurrentUser({ ...user, role: userData?.role || 'Admin' });
           if (userData?.modelConfigs) {
-            setModelConfigs(userData.modelConfigs);
+            setModelConfigs(prev => ({ ...prev, ...userData.modelConfigs }));
           }
         } else {
           setCurrentUser({ ...user, role: 'Admin' });
@@ -197,7 +200,7 @@ export default function ChatClient() {
       ? [config.baseModel] 
       : mode === 'shared' 
       ? [sharedModel] 
-      : ['gemini', 'chatgpt', 'claude', 'grok'];
+      : ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'];
 
     const turnId = Date.now();
     setTurns(prev => [...prev, { 
@@ -305,7 +308,7 @@ export default function ChatClient() {
       // Initialize responses state with empty strings for targeted models to show typing UI immediately
       setTurns(prev => prev.map(t => {
         if (t.id === turnId) {
-          const initRes: any = { gemini: null, chatgpt: null, claude: null, grok: null };
+          const initRes: any = { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
           targetModels.forEach(m => initRes[m] = '');
           return { ...t, responses: initRes as Responses };
         }
@@ -341,7 +344,7 @@ export default function ChatClient() {
               if (data.model && data.chunk) {
                 setTurns(prev => prev.map(t => {
                   if (t.id === turnId) {
-                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null };
+                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
                     const newResponses = {
                       ...currentResponses,
                       [data.model]: (currentResponses[data.model as keyof Responses] || '') + data.chunk
@@ -410,7 +413,8 @@ export default function ChatClient() {
             gemini: "Error fetching.", 
             chatgpt: "Error fetching.", 
              claude: "Error fetching.", 
-             grok: "Error fetching."
+             grok: "Error fetching.",
+             deepseek: "Error fetching."
           } 
         } : t
       ));
@@ -426,6 +430,7 @@ export default function ChatClient() {
     if (id === 'gemini') {
       if (version === 'gemini-3.5-flash') return 'Gemini 3.5 Flash';
       if (version === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro';
+      if (version === 'gemini-3.1-pro-preview-next') return 'Gemini 3.1 Pro Preview Next (Deep Think)';
       if (version === 'gemini-3.1-flash-lite') return 'Gemini 3.1 Lite';
       return `Gemini (${version})`;
     }
@@ -449,6 +454,11 @@ export default function ChatClient() {
       if (version === 'grok-2-latest') return 'Grok-2';
       if (version === 'grok-beta') return 'Grok Beta';
       return `Grok (${version})`;
+    }
+    if (id === 'deepseek') {
+      if (version === 'deepseek-r1') return 'DeepSeek-R1';
+      if (version === 'deepseek-v3') return 'DeepSeek-V3';
+      return `DeepSeek (${version})`;
     }
     return id;
   };
@@ -790,11 +800,12 @@ export default function ChatClient() {
                         Copy All
                       </button>
                     </div>
-                    <div className={`grid gap-6 ${turn.targeted.length === 1 ? 'grid-cols-1 max-w-4xl mr-auto' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
+                    <div className={`grid gap-6 ${turn.targeted.length === 1 ? 'grid-cols-1 max-w-4xl mr-auto' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5'}`}>
                        {turn.targeted.includes("gemini") && renderModelCard("gemini", "Gemini 3.5 Flash", turn.responses?.gemini || null, turn.targeted.length > 1)}
                        {turn.targeted.includes("chatgpt") && renderModelCard("chatgpt", "ChatGPT (GPT-4o)", turn.responses?.chatgpt || null, turn.targeted.length > 1)}
                        {turn.targeted.includes("claude") && renderModelCard("claude", "Claude 3.7 Sonnet", turn.responses?.claude || null, turn.targeted.length > 1)}
                        {turn.targeted.includes("grok") && renderModelCard("grok", "Grok (xAI)", turn.responses?.grok || null, turn.targeted.length > 1)}
+                       {turn.targeted.includes("deepseek") && renderModelCard("deepseek", "DeepSeek", turn.responses?.deepseek || null, turn.targeted.length > 1)}
                     </div>
                   </div>
                 </motion.div>
@@ -976,6 +987,7 @@ export default function ChatClient() {
                     <option value="chatgpt">ChatGPT</option>
                     <option value="claude">Claude</option>
                     <option value="grok">Grok</option>
+                    <option value="deepseek">DeepSeek</option>
                   </select>
                   <div className="pointer-events-none pr-3 text-zinc-400">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>

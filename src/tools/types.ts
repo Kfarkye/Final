@@ -16,6 +16,7 @@ export interface ToolContext {
   openai?: OpenAI | null;
   anthropic?: Anthropic | null;
   xai?: OpenAI | null;
+  deepseek?: OpenAI | null;
   connectionId?: string;
 }
 
