@@ -3,6 +3,7 @@ import { env } from "./src/config/env";
 import express from "express";
 import http from "http";
 import path from "path";
+import fs from "fs";
 import { createHttpTerminator } from "http-terminator";
 
 // Controllers & Services
@@ -132,7 +133,14 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      // Check if the requested file exists in dist/ (e.g., truth-platform-vision.html)
+      const requestedFile = path.join(distPath, req.path);
+      if (req.path !== '/' && fs.existsSync(requestedFile) && fs.statSync(requestedFile).isFile()) {
+        res.sendFile(requestedFile);
+      } else {
+        // SPA fallback — serve index.html for all non-file routes
+        res.sendFile(path.join(distPath, 'index.html'));
+      }
     });
   }
 
