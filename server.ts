@@ -29,7 +29,7 @@ const PORT = env.PORT;
 
 // Mount request tracing immediately so all subsequent logs are traced
 app.use(requestTracing);
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 // --- DevOps Probes ---
 app.get("/healthz", healthController.liveness);
