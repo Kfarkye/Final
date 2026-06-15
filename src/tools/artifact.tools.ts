@@ -118,6 +118,44 @@ async function loadTemplate(templateId: string): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
+// SEO Meta Builder — auto-injected into every artifact
+// ---------------------------------------------------------------------------
+function buildSeoMeta(title: string, description: string, artifactId: string): string {
+  const canonicalUrl = `https://reverie-70323048967.us-central1.run.app/api/artifacts/${artifactId}`;
+  const safeTitle = title.replace(/"/g, '&quot;');
+  const safeDesc = (description || title).replace(/"/g, '&quot;').slice(0, 160);
+
+  return `
+  <!-- SEO Meta — Auto-injected by Truth -->
+  <meta name="description" content="${safeDesc}">
+  <meta name="theme-color" content="#0B0F19">
+  <link rel="canonical" href="${canonicalUrl}">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${safeTitle}">
+  <meta property="og:description" content="${safeDesc}">
+  <meta property="og:url" content="${canonicalUrl}">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${safeTitle}">
+  <meta name="twitter:description" content="${safeDesc}">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "${safeTitle}",
+    "description": "${safeDesc}",
+    "url": "${canonicalUrl}",
+    "publisher": { "@type": "Organization", "name": "Truth" }
+  }
+  </script>`;
+}
+
+// ---------------------------------------------------------------------------
 // TRUTH DESIGN SYSTEM CSS — auto-injected into every artifact
 // ---------------------------------------------------------------------------
 const TRUTH_DESIGN_SYSTEM = `
@@ -239,14 +277,16 @@ export const artifactTools: RegisteredTool<any>[] = [
         }
       }
 
-      // Auto-inject the Truth Design System
+      // Auto-inject Design System + SEO meta tags
       let finalHtml = args.html;
+      const seoBlock = buildSeoMeta(args.title, args.description || args.title, artifactId);
+
       if (finalHtml.includes('<head>')) {
-        finalHtml = finalHtml.replace('<head>', `<head>\n${TRUTH_DESIGN_SYSTEM}`);
+        finalHtml = finalHtml.replace('<head>', `<head>\n${seoBlock}\n${TRUTH_DESIGN_SYSTEM}`);
       } else if (finalHtml.includes('</head>')) {
-        finalHtml = finalHtml.replace('</head>', `${TRUTH_DESIGN_SYSTEM}\n</head>`);
+        finalHtml = finalHtml.replace('</head>', `${seoBlock}\n${TRUTH_DESIGN_SYSTEM}\n</head>`);
       } else {
-        finalHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${args.title}</title>${TRUTH_DESIGN_SYSTEM}</head><body>${finalHtml}</body></html>`;
+        finalHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${args.title}</title>${seoBlock}\n${TRUTH_DESIGN_SYSTEM}</head><body>${finalHtml}</body></html>`;
       }
 
       // Save to Cloud Storage

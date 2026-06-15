@@ -241,5 +241,75 @@ export const gcpTools: RegisteredTool<any>[] = [
       })
     },
     handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.resourceManager, "search_projects", args)
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  GOOGLE INDEXING API — Auto-submit URLs to Google for crawling
+  //  Docs: https://developers.google.com/search/apis/indexing-api/v3
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "submit_url_for_indexing",
+      description: `Submit a URL to Google's Indexing API for immediate crawling. Call this automatically after deploying any HTML artifact or public page. This tells Google to crawl and index the URL right away instead of waiting for natural discovery. Use type "URL_UPDATED" for new/changed pages and "URL_DELETED" for removed pages.`,
+      schema: z.object({
+        url: z.string().url("Must be a valid URL"),
+        type: z.enum(["URL_UPDATED", "URL_DELETED"]).default("URL_UPDATED")
+      })
+    },
+    handler: async (args) => {
+      const { GoogleAuth } = await import("google-auth-library");
+      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/indexing"] });
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+
+      const res = await fetch("https://indexing.googleapis.com/v3/urlNotifications:publish", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: args.url, type: args.type })
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return { error: `Indexing API failed (HTTP ${res.status}): ${errText}`, url: args.url };
+      }
+
+      const result = await res.json();
+      return {
+        success: true,
+        url: args.url,
+        type: args.type,
+        notifyTime: result.urlNotificationMetadata?.latestUpdate?.notifyTime || new Date().toISOString(),
+        message: `URL submitted to Google for ${args.type === 'URL_UPDATED' ? 'indexing' : 'removal'}: ${args.url}`
+      };
+    }
+  },
+  {
+    definition: {
+      name: "check_url_indexing_status",
+      description: "Check the indexing status of a URL in Google's index. Shows when the URL was last crawled and its current state.",
+      schema: z.object({
+        url: z.string().url("Must be a valid URL")
+      })
+    },
+    handler: async (args) => {
+      const { GoogleAuth } = await import("google-auth-library");
+      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/indexing"] });
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+
+      const res = await fetch(`https://indexing.googleapis.com/v3/urlNotifications/metadata?url=${encodeURIComponent(args.url)}`, {
+        headers: { Authorization: `Bearer ${token.token}` }
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return { error: `Status check failed (HTTP ${res.status}): ${errText}`, url: args.url };
+      }
+
+      return await res.json();
+    }
   }
 ];
