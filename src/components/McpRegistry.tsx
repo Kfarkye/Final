@@ -365,6 +365,87 @@ const PRELOADED_SERVERS: McpServer[] = [
     ],
     lastChecked: 'Just verified',
     latency: 5
+  },
+  {
+    id: 'stripe-mcp',
+    name: 'Stripe Ledger core',
+    publisher: 'Stripe Official API',
+    description: 'Exposes financial micro-ledgers, enabling query loops on invoice registries, balance sheets, and customers.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: '/api/mcp/stripe',
+    tools: [
+      {
+        name: 'balance_read',
+        description: 'Retrieve platform balance detail metrics.',
+        parameters: '{}',
+        sampleInput: '{}'
+      },
+      {
+        name: 'customers_search',
+        description: 'Query customers using standard Stripe search syntax. Caution: Eventually consistent.',
+        parameters: '{ query: string }',
+        sampleInput: '{"query": "email:\'user@example.com\'"}'
+      },
+      {
+        name: 'subscriptions_cancel',
+        description: 'Terminate an active user subscription. Requires administrative verification.',
+        parameters: '{ subscriptionId: string, confirm: boolean }',
+        sampleInput: '{"subscriptionId": "sub_1Oabc", "confirm": true}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 15
+  },
+  {
+    id: 'linear-mcp',
+    name: 'Linear Workspace Sync',
+    publisher: 'Linear Official API',
+    description: 'Bridges Truth to the Linear GraphQL API for tracking project issues and tasks.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: '/api/mcp/linear',
+    tools: [
+      {
+        name: 'issue_list',
+        description: 'Fetch list of issues scoped to the active workspace project filter.',
+        parameters: '{ projectId?: string, limit?: number }',
+        sampleInput: '{"projectId": "project-123", "limit": 10}'
+      },
+      {
+        name: 'issue_create',
+        description: 'Create a new issue inside the user\'s project.',
+        parameters: '{ title: string, description?: string, teamId: string }',
+        sampleInput: '{"title": "Fix login bug", "description": "Crash on empty token input", "teamId": "team-456"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 18
+  },
+  {
+    id: 'notebook-mcp',
+    name: 'Notebook Deno Sandbox',
+    publisher: 'Truth Platform',
+    description: 'Runs sandboxed JavaScript calculations inside an isolated Deno shell.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: '/api/mcp/notebook',
+    tools: [
+      {
+        name: 'execute_javascript',
+        description: 'Run code snippets dynamically in an isolated environment. Heavy standard libraries and remote networks are blocked.',
+        parameters: '{ code: string }',
+        sampleInput: '{"code": "const x = 10; console.log(x * 2); x * 2;"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 10
   }
 ];
 

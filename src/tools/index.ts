@@ -4,6 +4,7 @@ import { gitTools } from './git.tools';
 import { systemTools } from './system.tools';
 import { workspaceTools } from './workspace.tools';
 import { spannerTools } from './spanner.tools';
+import { mcpTools } from './mcp.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -11,7 +12,8 @@ toolRegistry.registerMany([
   ...gitTools,
   ...systemTools,
   ...workspaceTools,
-  ...spannerTools
+  ...spannerTools,
+  ...mcpTools
 ]);
 
 export { toolRegistry };
