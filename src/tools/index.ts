@@ -7,6 +7,7 @@ import { spannerTools } from './spanner.tools';
 import { mcpTools } from './mcp.tools';
 import { gcpTools } from './gcp.tools';
 import { artifactTools } from './artifact.tools';
+import { bettingTools } from './betting.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -17,7 +18,8 @@ toolRegistry.registerMany([
   ...spannerTools,
   ...mcpTools,
   ...gcpTools,
-  ...artifactTools
+  ...artifactTools,
+  ...bettingTools
 ]);
 
 export { toolRegistry };

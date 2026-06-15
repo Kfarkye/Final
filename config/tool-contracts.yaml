@@ -119,6 +119,47 @@ contracts:
       - execute_sql
 
   # ═══════════════════════════════════════════════════════════════════════
+  # SPORTS BETTING & LIVE ODDS
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: betting
+    name: Sports Betting & Live Odds
+    keywords:
+      - odds
+      - betting
+      - moneyline
+      - spread
+      - total
+      - over
+      - under
+      - sportsbook
+      - draftkings
+      - fanduel
+      - betmgm
+      - pinnacle
+      - mlb
+      - nba
+      - nfl
+      - prop
+      - line
+      - wager
+      - game
+      - player prop
+      - strikeout
+      - home run
+      - baseball
+      - basketball
+      - football
+      - soccer
+      - sharp
+      - ev
+      - expected value
+    tools:
+      - get_live_odds
+      - list_sports
+      - list_events
+      - get_event_odds
+
+  # ═══════════════════════════════════════════════════════════════════════
   # STRIPE & PAYMENTS
   # ═══════════════════════════════════════════════════════════════════════
   - id: payments
