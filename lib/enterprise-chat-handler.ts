@@ -207,12 +207,17 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
              
              const responseParts = await Promise.all(functionCalls.map(async (call) => {
                sseManager.sendEvent(connectionId, 'tool_start', { model: 'gemini', tool: call.name });
-               const isWorkspace = deps.workspaceDecls.some((d: any) => d.name === call.name);
                let toolResult;
-               if (isWorkspace) {
-                 toolResult = await deps.executeWorkspaceTool(call, googleAccessToken);
-               } else {
-                 toolResult = await deps.executeMcpTool(call.name, call.args, googleAccessToken, connectionId);
+               try {
+                 const isWorkspace = deps.workspaceDecls.some((d: any) => d.name === call.name);
+                 if (isWorkspace) {
+                   toolResult = await deps.executeWorkspaceTool(call, googleAccessToken);
+                 } else {
+                   toolResult = await deps.executeMcpTool(call.name, call.args, googleAccessToken, connectionId);
+                 }
+               } catch (toolErr: any) {
+                 ChatLogger.error(`gemini_tool_exec_error_${call.name}`, toolErr);
+                 toolResult = { error: toolErr.message || 'Tool execution failed' };
                }
                sseManager.sendEvent(connectionId, 'tool_result', { model: 'gemini', tool: call.name, result: toolResult });
                
@@ -327,10 +332,15 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             
             const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
             let toolResult;
-            if (isWorkspace) {
-              toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
-            } else {
-              toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+            try {
+              if (isWorkspace) {
+                toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
+              } else {
+                toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+              }
+            } catch (toolErr: any) {
+              ChatLogger.error(`chatgpt_tool_exec_error_${call.function.name}`, toolErr);
+              toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
             sseManager.sendEvent(connectionId, 'tool_result', { model: 'chatgpt', tool: call.function.name, result: toolResult });
             
@@ -390,7 +400,9 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         let runCount = 0;
 
         while (runCount < 3) {
-          const stream = await deps.anthropic.messages.stream({
+          // Use messages.create with stream:true for raw event iteration
+          // This is more reliable than .stream() for tool_use flows
+          const stream = deps.anthropic.messages.stream({
             model: modelConfigs.claude || "claude-opus-4-8",
             max_tokens: 16384,
             system: systemPrompt,
@@ -402,59 +414,73 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           let assistantContentBlocks: any[] = [];
           let hasToolUse = false;
 
-          for await (const chunk of stream) {
-            if (chunk.type === 'content_block_start') {
-              if (chunk.content_block.type === 'tool_use') {
-                hasToolUse = true;
-                currentToolUse = { 
-                  type: 'tool_use', 
-                  id: chunk.content_block.id, 
-                  name: chunk.content_block.name, 
-                  input: "" 
-                };
-              } else if (chunk.content_block.type === 'text') {
-                assistantContentBlocks.push({ type: 'text', text: chunk.content_block.text });
-                sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: chunk.content_block.text });
-              }
-            } else if (chunk.type === 'content_block_delta') {
-              if (chunk.delta.type === 'text_delta') {
-                if (assistantContentBlocks.length > 0 && assistantContentBlocks[assistantContentBlocks.length - 1].type === 'text') {
-                   assistantContentBlocks[assistantContentBlocks.length - 1].text += chunk.delta.text;
+          try {
+            for await (const chunk of stream) {
+              if (chunk.type === 'content_block_start') {
+                if (chunk.content_block.type === 'tool_use') {
+                  hasToolUse = true;
+                  currentToolUse = { 
+                    type: 'tool_use', 
+                    id: chunk.content_block.id, 
+                    name: chunk.content_block.name, 
+                    input: "" 
+                  };
+                  sseManager.sendEvent(connectionId, 'tool_start', { model: 'claude', tool: chunk.content_block.name });
+                } else if (chunk.content_block.type === 'text') {
+                  // Don't push empty text at block_start — wait for deltas
+                  assistantContentBlocks.push({ type: 'text', text: '' });
                 }
-                sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: chunk.delta.text });
-              } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
-                currentToolUse.input += chunk.delta.partial_json;
+              } else if (chunk.type === 'content_block_delta') {
+                if (chunk.delta.type === 'text_delta') {
+                  const lastBlock = assistantContentBlocks[assistantContentBlocks.length - 1];
+                  if (lastBlock && lastBlock.type === 'text') {
+                    lastBlock.text += chunk.delta.text;
+                  }
+                  sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: chunk.delta.text });
+                } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
+                  currentToolUse.input += chunk.delta.partial_json;
+                }
+              } else if (chunk.type === 'content_block_stop') {
+                if (currentToolUse) {
+                  try {
+                    currentToolUse.input = currentToolUse.input ? JSON.parse(currentToolUse.input) : {};
+                  } catch(e) { currentToolUse.input = {}; }
+                  assistantContentBlocks.push(currentToolUse);
+                  currentToolUse = null;
+                }
               }
-            } else if (chunk.type === 'content_block_stop') {
-              if (currentToolUse) {
-                try {
-                  currentToolUse.input = JSON.parse(currentToolUse.input);
-                } catch(e) { currentToolUse.input = {}; }
-                assistantContentBlocks.push(currentToolUse);
-                currentToolUse = null;
-              }
-            } else if (chunk.type === 'text_delta') {
-               sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: (chunk as any).text || "" });
+              // message_start, message_delta, message_stop are handled implicitly
             }
+          } catch (streamErr: any) {
+            // If the stream errors mid-flight (e.g. overloaded_error, network timeout),
+            // surface the error as a visible chunk so the user knows what happened
+            ChatLogger.error('claude_stream_iteration_error', streamErr);
+            sseManager.sendEvent(connectionId, 'message', { model: 'claude', chunk: `\n\n[Stream error: ${streamErr.message || 'Unknown'}]` });
+            break; // exit the tool-call loop
           }
 
           if (!hasToolUse) {
             break;
           }
 
+          // Push the full assistant turn (text + tool_use blocks) into history
           currentMessages.push({ role: "assistant", content: assistantContentBlocks });
 
+          // Execute each tool_use and collect results
           const toolResultBlocks: any[] = [];
           for (const block of assistantContentBlocks) {
             if (block.type === 'tool_use') {
-              sseManager.sendEvent(connectionId, 'tool_start', { model: 'claude', tool: block.name });
-              
-              const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === block.name);
-              let toolResult;
-              if (isWorkspace) {
-                toolResult = await deps.executeWorkspaceTool({ name: block.name, args: block.input }, googleAccessToken);
-              } else {
-                toolResult = await deps.executeMcpTool(block.name, block.input, googleAccessToken, connectionId);
+              let toolResult: any;
+              try {
+                const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === block.name);
+                if (isWorkspace) {
+                  toolResult = await deps.executeWorkspaceTool({ name: block.name, args: block.input }, googleAccessToken);
+                } else {
+                  toolResult = await deps.executeMcpTool(block.name, block.input, googleAccessToken, connectionId);
+                }
+              } catch (toolErr: any) {
+                ChatLogger.error(`claude_tool_exec_error_${block.name}`, toolErr);
+                toolResult = { error: toolErr.message || 'Tool execution failed' };
               }
               sseManager.sendEvent(connectionId, 'tool_result', { model: 'claude', tool: block.name, result: toolResult });
               
@@ -568,10 +594,15 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             
             const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
             let toolResult;
-            if (isWorkspace) {
-              toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
-            } else {
-              toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+            try {
+              if (isWorkspace) {
+                toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
+              } else {
+                toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+              }
+            } catch (toolErr: any) {
+              ChatLogger.error(`grok_tool_exec_error_${call.function.name}`, toolErr);
+              toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
             sseManager.sendEvent(connectionId, 'tool_result', { model: 'grok', tool: call.function.name, result: toolResult });
             
@@ -590,44 +621,60 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     }
 
     // DeepSeek Streaming
+    // NOTE: DeepSeek R1 is a reasoning model — it does NOT support tools/function calling
+    // and sends chain-of-thought tokens in `delta.reasoning_content` instead of `delta.content`.
+    // DeepSeek V3 (deepseek-chat) supports tools and uses the standard OpenAI format.
     if (targetModels.includes('deepseek') && deps.deepseek) {
       promises.push(streamModel('deepseek', (async () => {
-        const msgs: any[] = [];
-        if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
-        if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: governedPrompt });
-        
-        // Clearspace-native pattern: inject ALL registered tools directly
-        const deepseekTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
-          deepseekTools.push({
-            type: "function",
-            function: {
-              name: canonical.name,
-              description: canonical.description,
-              parameters: {
-                type: "object",
-                properties: canonical.properties || {},
-                required: canonical.required || []
-              }
-            }
-          });
-        }
+        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1";
+        const isReasoningModel = selectedDeepseekModel.includes('r1');
 
-        // Register workspace tools for DeepSeek
-        if (deps.workspaceDecls) {
-          deps.workspaceDecls.forEach((d: any) => {
-            if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
-              deepseekTools.push({
-                type: "function",
-                function: {
-                  name: d.name,
-                  description: d.description,
-                  parameters: lowercaseSchemaTypes(d.parameters)
+        const msgs: any[] = [];
+        if (systemPrompt && !isReasoningModel) {
+          // R1 doesn't support system messages — inject as user context instead
+          msgs.push({ role: "system", content: systemPrompt });
+        }
+        if (mode === 'shared' && history) msgs.push(...history);
+
+        // For R1, prepend system context into the user message
+        const userContent = isReasoningModel && systemPrompt
+          ? `[Context: ${systemPrompt}]\n\n${governedPrompt}`
+          : governedPrompt;
+        msgs.push({ role: "user", content: userContent });
+        
+        // Only build tool declarations for non-reasoning models
+        const deepseekTools: any[] = [];
+        if (!isReasoningModel) {
+          for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+            deepseekTools.push({
+              type: "function",
+              function: {
+                name: canonical.name,
+                description: canonical.description,
+                parameters: {
+                  type: "object",
+                  properties: canonical.properties || {},
+                  required: canonical.required || []
                 }
-              });
-            }
-          });
+              }
+            });
+          }
+
+          // Register workspace tools for DeepSeek (V3 only)
+          if (deps.workspaceDecls) {
+            deps.workspaceDecls.forEach((d: any) => {
+              if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
+                deepseekTools.push({
+                  type: "function",
+                  function: {
+                    name: d.name,
+                    description: d.description,
+                    parameters: lowercaseSchemaTypes(d.parameters)
+                  }
+                });
+              }
+            });
+          }
         }
 
         let currentMessages = [...msgs];
@@ -635,7 +682,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
         while (runCount < 3) {
           const stream = await deps.deepseek.chat.completions.create({
-            model: modelConfigs.deepseek || "deepseek-r1",
+            model: selectedDeepseekModel,
             messages: currentMessages,
             tools: deepseekTools.length > 0 ? deepseekTools : undefined,
             stream: true
@@ -643,16 +690,32 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
           let toolCalls: any = {};
           let hasContent = false;
+          let reasoningBuffer = '';
 
           for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta;
+            const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
+            // DeepSeek R1 streams chain-of-thought in reasoning_content
+            if ((delta as any).reasoning_content) {
+              const reasoning = (delta as any).reasoning_content;
+              reasoningBuffer += reasoning;
+              // Stream reasoning tokens with a visual indicator
+              sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: reasoning });
+            }
+
+            // Standard content (final answer for R1, or full response for V3)
             if (delta.content) {
+              // If we were streaming reasoning, insert a separator before the final answer
+              if (reasoningBuffer && !hasContent) {
+                sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: '\n\n---\n\n' });
+                reasoningBuffer = ''; // reset so separator only fires once
+              }
               hasContent = true;
               sseManager.sendEvent(connectionId, 'message', { model: 'deepseek', chunk: delta.content });
             }
 
+            // Tool calls (V3 only — R1 never emits these)
             if (delta.tool_calls) {
               for (const tc of delta.tool_calls) {
                 if (!toolCalls[tc.index]) {
@@ -679,12 +742,17 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             let args;
             try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
             
-            const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
-            let toolResult;
-            if (isWorkspace) {
-              toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
-            } else {
-              toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+            let toolResult: any;
+            try {
+              const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
+              if (isWorkspace) {
+                toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
+              } else {
+                toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
+              }
+            } catch (toolErr: any) {
+              ChatLogger.error(`deepseek_tool_exec_error_${call.function.name}`, toolErr);
+              toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
             sseManager.sendEvent(connectionId, 'tool_result', { model: 'deepseek', tool: call.function.name, result: toolResult });
             
