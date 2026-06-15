@@ -461,7 +461,7 @@ export default function ChatClient() {
     const displayName = getModelDisplayName(id);
 
     return (
-      <div className={`bg-black border text-left rounded-2xl p-6 flex flex-col h-full transition-all duration-300 ${isBase && mode !== 'solo' ? 'border-white ring-1 ring-white/50 shadow-[0_0_15px_rgba(255,255,255,0.05)]' : 'border-white/10 hover:border-white/20'}`}>
+      <div className={`bg-white/[0.03] backdrop-blur-xl border text-left rounded-2xl p-6 flex flex-col h-full transition-all duration-300 ${isBase && mode !== 'solo' ? 'border-white/20 ring-1 ring-white/10 shadow-[0_0_20px_rgba(255,255,255,0.04)]' : 'border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.05]'}`}>
         <div className="font-serif font-medium text-white mb-4 border-b border-white/10 pb-3 flex items-center justify-between">
            <span className="flex items-center space-x-3">
              <span>{displayName}</span>
@@ -498,10 +498,15 @@ export default function ChatClient() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-black text-white font-sans pb-safe pt-safe selection:bg-zinc-800">
-      
+    <div className="flex flex-col h-screen bg-black text-white font-sans pb-safe pt-safe selection:bg-zinc-800 relative overflow-hidden">
+      {/* Ambient gradient orbs for glassmorphism depth */}
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-[40%] -left-[20%] w-[60vw] h-[60vw] rounded-full bg-indigo-950/30 blur-[120px]" />
+        <div className="absolute -bottom-[30%] -right-[10%] w-[50vw] h-[50vw] rounded-full bg-violet-950/20 blur-[120px]" />
+        <div className="absolute top-[30%] right-[20%] w-[30vw] h-[30vw] rounded-full bg-cyan-950/15 blur-[100px]" />
+      </div>
       {/* Header */}
-      <header className="flex-shrink-0 px-6 py-4 border-b border-white/10 bg-black/80 backdrop-blur-xl flex justify-between items-center sticky top-0 z-20 w-full text-center sm:text-left">
+      <header className="flex-shrink-0 px-6 py-4 border-b border-white/[0.08] bg-white/[0.03] backdrop-blur-2xl backdrop-saturate-150 flex justify-between items-center sticky top-0 z-20 w-full text-center sm:text-left">
         <div className="flex items-center space-x-4 flex-1">
           <button 
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -519,7 +524,7 @@ export default function ChatClient() {
           </div>
         </div>
 
-        <div className="hidden md:flex bg-zinc-900 border border-white/10 p-1 rounded-full text-xs font-semibold tracking-wide">
+        <div className="hidden md:flex bg-white/[0.06] backdrop-blur-xl border border-white/[0.08] p-1 rounded-full text-xs font-semibold tracking-wide">
           <button 
             onClick={() => setMode('compare')} 
             className={`px-5 py-1.5 rounded-full transition-all duration-300 ${mode === 'compare' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'}`}
@@ -607,7 +612,7 @@ export default function ChatClient() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -10 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-12 w-56 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl overflow-hidden py-2 z-30"
+                className="absolute right-0 top-12 w-56 bg-zinc-950/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/40 overflow-hidden py-2 z-30"
               >
                 {(currentUser?.role === 'Admin' || currentUser?.role === 'Editor') && (
                   <button 
@@ -683,7 +688,7 @@ export default function ChatClient() {
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 260, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              className="border-r border-white/10 bg-zinc-950 flex flex-col flex-shrink-0 overflow-hidden"
+              className="border-r border-white/[0.06] bg-zinc-950/70 backdrop-blur-2xl backdrop-saturate-150 flex flex-col flex-shrink-0 overflow-hidden"
             >
               <div className="p-6 w-[260px] h-full flex flex-col">
                 <h3 className="text-xs uppercase tracking-widest font-bold text-zinc-500 mb-6 pl-2">Topic Focus</h3>
@@ -806,7 +811,7 @@ export default function ChatClient() {
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 380, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              className="border-l border-white/10 bg-zinc-950 flex flex-col flex-shrink-0 overflow-hidden"
+              className="border-l border-white/[0.06] bg-zinc-950/70 backdrop-blur-2xl backdrop-saturate-150 flex flex-col flex-shrink-0 overflow-hidden"
             >
               <div className="w-[380px] h-full flex flex-col">
                 {activeRightTab === 'workspace' ? (
@@ -850,7 +855,7 @@ export default function ChatClient() {
       </div>
 
       {/* Input Area */}
-      <div className="p-6 bg-black/90 backdrop-blur-2xl border-t border-white/10 z-10 relative">
+      <div className="p-6 bg-black/60 backdrop-blur-3xl backdrop-saturate-150 border-t border-white/[0.06] z-10 relative">
         <form 
           onSubmit={handleSend} 
           className={`max-w-4xl mx-auto w-full relative flex flex-col space-y-2.5 shadow-[0_0_30px_rgba(255,255,255,0.03)] rounded-2xl border transition-all duration-200 ${
