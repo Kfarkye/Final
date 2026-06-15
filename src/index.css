@@ -10,6 +10,7 @@
   --max-width-prose: 68ch;
   --max-width-prose-wide: 75ch;
   --max-width-prose-narrow: 60ch;
+  --max-width-chat: 72ch;
 
   --spacing-msg-gap: 1.5rem;
   --spacing-para-gap: 1rem;
@@ -20,6 +21,14 @@
   --color-truth-slateDark: #161F30;
   --color-truth-accentCyan: #06b6d4;
   --color-truth-accentPurple: #a855f7;
+
+  /* Shadcn / Tailwind UI Generic variables mapped to Truth palette */
+  --color-background: #0B0F19;
+  --color-muted: #131825;
+  --color-primary: #06b6d4;
+  --color-primary-foreground: #ffffff;
+  --color-muted-foreground: #94a3b8;
+  --color-border: rgba(255, 255, 255, 0.08);
 }
 
 @utility pb-safe {
