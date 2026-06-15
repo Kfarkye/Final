@@ -108,8 +108,7 @@ async function loadTemplate(templateId: string): Promise<string | null> {
   try {
     const result = await callGcpMcpTool(STORAGE_MCP, "read_text", {
       bucketName: ARTIFACT_BUCKET,
-      objectName: `${TEMPLATE_PREFIX}/${templateId}.html`,
-      projectId: env.GCP_PROJECT
+      objectName: `${TEMPLATE_PREFIX}/${templateId}.html`
     });
     return typeof result === "string" ? result : (result?.content || result?.text || null);
   } catch {
@@ -294,8 +293,7 @@ export const artifactTools: RegisteredTool<any>[] = [
         await callGcpMcpTool(STORAGE_MCP, "write_text", {
           bucketName: ARTIFACT_BUCKET,
           objectName,
-          textContent: finalHtml,
-          projectId: env.GCP_PROJECT
+          textContent: finalHtml
         });
       } catch (err: any) {
         return {
@@ -401,8 +399,7 @@ export const artifactTools: RegisteredTool<any>[] = [
       try {
         const result = await callGcpMcpTool(STORAGE_MCP, "list_objects", {
           bucketName: ARTIFACT_BUCKET,
-          prefix: `${ARTIFACT_PREFIX}/`,
-          projectId: env.GCP_PROJECT
+          prefix: `${ARTIFACT_PREFIX}/`
         });
         return result;
       } catch (err: any) {

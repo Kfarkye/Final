@@ -104,11 +104,10 @@ export const gcpTools: RegisteredTool<any>[] = [
       description: "List objects in a Cloud Storage bucket.",
       schema: z.object({
         bucketName: z.string().min(1, "Bucket name is required"),
-        prefix: z.string().optional(),
-        projectId: z.string().optional()
+        prefix: z.string().optional()
       })
     },
-    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "list_objects", withProject(args))
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "list_objects", args)
   },
   {
     definition: {
@@ -116,11 +115,10 @@ export const gcpTools: RegisteredTool<any>[] = [
       description: "Get metadata for a Cloud Storage object.",
       schema: z.object({
         bucketName: z.string().min(1, "Bucket name is required"),
-        objectName: z.string().min(1, "Object name is required"),
-        projectId: z.string().optional()
+        objectName: z.string().min(1, "Object name is required")
       })
     },
-    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "get_object_metadata", withProject(args))
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "get_object_metadata", args)
   },
   {
     definition: {
@@ -128,11 +126,10 @@ export const gcpTools: RegisteredTool<any>[] = [
       description: "Read a UTF-8 text object from Cloud Storage.",
       schema: z.object({
         bucketName: z.string().min(1, "Bucket name is required"),
-        objectName: z.string().min(1, "Object name is required"),
-        projectId: z.string().optional()
+        objectName: z.string().min(1, "Object name is required")
       })
     },
-    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "read_text", withProject(args))
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "read_text", args)
   },
   {
     definition: {
@@ -141,11 +138,10 @@ export const gcpTools: RegisteredTool<any>[] = [
       schema: z.object({
         bucketName: z.string().min(1, "Bucket name is required"),
         objectName: z.string().min(1, "Object name is required"),
-        textContent: z.string().min(1, "Text content is required"),
-        projectId: z.string().optional()
+        textContent: z.string().min(1, "Text content is required")
       })
     },
-    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "write_text", withProject(args))
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.storage, "write_text", args)
   },
   {
     definition: {

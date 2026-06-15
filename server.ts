@@ -105,8 +105,7 @@ app.get("/api/artifacts/:id", async (req, res) => {
     const objectName = `${ARTIFACT_PREFIX}/${req.params.id}.html`;
     const result = await callGcpMcpTool(STORAGE_MCP_URL, "read_text", {
       bucketName: ARTIFACT_BUCKET,
-      objectName,
-      projectId: process.env.GCP_PROJECT || ""
+      objectName
     });
     const html = typeof result === "string" ? result : (result?.content || result?.text || "");
     if (!html) {
@@ -124,8 +123,7 @@ app.get("/api/artifacts", async (_req, res) => {
   try {
     const result = await callGcpMcpTool(STORAGE_MCP_URL, "list_objects", {
       bucketName: ARTIFACT_BUCKET,
-      prefix: `${ARTIFACT_PREFIX}/`,
-      projectId: process.env.GCP_PROJECT || ""
+      prefix: `${ARTIFACT_PREFIX}/`
     });
     res.json(result);
   } catch (err: any) {
