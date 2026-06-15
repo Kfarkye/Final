@@ -47,6 +47,13 @@ app.use("/api/mcp/linear", linearMcpRoutes);
 app.use("/api/mcp/notebook", notebookMcpRoutes);
 app.use("/api/mcp/spanner", spannerMcpRoutes);
 
+// --- Debug: list all registered tools ---
+import { toolRegistry } from './src/tools';
+app.get("/api/debug/tools", (_req, res) => {
+  const schemas = toolRegistry.getSchemas();
+  res.json({ registeredTools: Object.keys(schemas), count: Object.keys(schemas).length });
+});
+
 // --- Git Workspace Routes ---
 app.post("/api/git/provision", gitController.provisionWorkspace);
 app.get("/api/git/tree", gitController.getFileTree);
