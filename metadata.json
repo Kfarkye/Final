@@ -1,0 +1,8 @@
+{
+  "name": "Truth",
+  "description": "Compare responses from Gemini, Grok, Claude, and ChatGPT side-by-side.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

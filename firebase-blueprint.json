@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and configuration",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "timestamp"
+        },
+        "baseModel": {
+          "type": "string"
+        }
+      },
+      "required": ["email", "createdAt", "baseModel"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "A chat session",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["compare", "shared", "solo"]
+        },
+        "topic": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "timestamp"
+        },
+        "updatedAt": {
+          "type": "timestamp"
+        }
+      },
+      "required": ["userId", "mode", "topic", "createdAt", "updatedAt"]
+    },
+    "Turn": {
+      "title": "Turn",
+      "description": "A single prompt and its responses",
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "responses": {
+          "type": "object"
+        },
+        "targeted": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "timestamp"
+        }
+      },
+      "required": ["prompt", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles."
+    },
+    "/users/{userId}/conversations/{conversationId}": {
+      "schema": "Conversation",
+      "description": "Stores user conversations."
+    },
+    "/users/{userId}/conversations/{conversationId}/turns/{turnId}": {
+      "schema": "Turn",
+      "description": "Stores the turns of a conversation."
+    }
+  }
+}
