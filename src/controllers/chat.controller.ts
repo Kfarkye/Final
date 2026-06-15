@@ -5,32 +5,48 @@ import { toolRegistry } from '../tools';
 import { workspaceDecls, executeWorkspaceTool } from '../../server_workspace';
 import { catchAsync } from '../middleware/catchAsync';
 import { env } from '../config/env';
-import { resolveContracts } from '../../lib/contract-router';
+import { getAlwaysOnToolNames, generateToolCatalog } from '../../lib/contract-router';
 
 export const chatController = {
   handleChat: catchAsync(async (req: Request, res: Response) => {
     const PORT = env.PORT || 3000;
 
-    // ── Contract-Based Tool Routing ─────────────────────────────────
-    // Instead of sending all 61 tools to the LLM, resolve only the
-    // relevant contracts based on the user's prompt + connected servers.
-    // executeMcpTool still has full registry access for execution.
-    const prompt = req.body.prompt || '';
-    const mcpServers = req.body.mcpServers || [];
-    const connectedServerIds = mcpServers
-      .filter((s: any) => s.status === 'Connected')
-      .map((s: any) => s.id);
+    // ── Antigravity Meta-Tool Pattern ───────────────────────────────
+    // 1. Always-on tools (core + spanner) → native function declarations
+    // 2. Everything else → text catalog in system prompt
+    // 3. One meta-tool `call_tool` → LLM self-routes from the catalog
+    //
+    // This reduces function declarations from 61 → ~8 (85% token reduction)
+    // while keeping ALL tools accessible via `call_tool`.
 
-    const { toolNames, matchedContracts, stats } = resolveContracts(prompt, connectedServerIds);
-    
-    // Filter CANONICAL_TOOLS to only include contracted tools
     const allSchemas = toolRegistry.getSchemas();
-    const filteredSchemas: Record<string, any> = {};
-    for (const name of toolNames) {
-      if (allSchemas[name]) filteredSchemas[name] = allSchemas[name];
+    const alwaysOnNames = getAlwaysOnToolNames();
+    
+    // Build native declarations: only always-on tools + the call_tool meta-tool
+    const nativeSchemas: Record<string, any> = {};
+    for (const name of alwaysOnNames) {
+      if (allSchemas[name]) nativeSchemas[name] = allSchemas[name];
     }
+    
+    // Add the meta-tool — one function declaration that gives access to all cataloged tools
+    nativeSchemas['call_tool'] = {
+      name: 'call_tool',
+      description: 'Call any tool from the available tools catalog. Use this to invoke tools listed in <available_tools> by providing the exact tool name and its arguments as a JSON object.',
+      properties: {
+        toolName: { type: 'string', description: 'The exact name of the tool to call (from the catalog)' },
+        arguments: { type: 'object', description: 'The arguments to pass to the tool as a JSON object' }
+      },
+      required: ['toolName', 'arguments']
+    };
 
-    console.log(`[ContractRouter] "${prompt.substring(0, 60)}..." → [${matchedContracts.join(', ')}] → ${stats.reduction}`);
+    // Generate the text catalog for the system prompt
+    const toolCatalog = generateToolCatalog(allSchemas);
+
+    // Inject catalog into the request body so the handler can include it in system prompts
+    req.body._toolCatalog = toolCatalog;
+
+    const catalogToolCount = Object.keys(allSchemas).length - alwaysOnNames.length;
+    console.log(`[ContractRouter] ${alwaysOnNames.length} native + 1 meta-tool + ${catalogToolCount} cataloged = ${Object.keys(allSchemas).length} total accessible`);
 
     await enterpriseChatHandler(req, res, {
       ai,
@@ -38,12 +54,23 @@ export const chatController = {
       anthropic,
       xai,
       deepseek,
-      CANONICAL_TOOLS: filteredSchemas,
+      CANONICAL_TOOLS: nativeSchemas,
       executeMcpTool: async (name: string, args: any, googleAccessToken?: string, connectionId?: string) => {
-        // Direct execution via toolRegistry — full registry access preserved.
-        // Even if a tool wasn't in the LLM's declaration set, execution still works
-        // (e.g., for multi-turn conversations referencing prior tool calls).
-        return toolRegistry.execute(name, args, { googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId });
+        // ── Meta-tool dispatch ──────────────────────────────────────
+        // When the LLM calls `call_tool`, unwrap and dispatch to the real tool.
+        if (name === 'call_tool' && args?.toolName) {
+          const realToolName = args.toolName;
+          const realArgs = args.arguments || {};
+          console.log(`[MetaTool] call_tool → dispatching to: ${realToolName}`);
+          return toolRegistry.execute(realToolName, realArgs, { 
+            googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId 
+          });
+        }
+        
+        // Direct execution for always-on tools (native declarations)
+        return toolRegistry.execute(name, args, { 
+          googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId 
+        });
       },
       workspaceDecls,
       executeWorkspaceTool

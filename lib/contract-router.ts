@@ -1,11 +1,18 @@
 /**
- * TRUTH PLATFORM — Contract-Based Tool Router
+ * TRUTH PLATFORM — Contract-Based Tool Router (Antigravity Pattern)
  * 
- * Reads tool-contracts.yaml at startup and exposes resolveContracts()
- * which keyword-matches the user's prompt to return only relevant tools.
+ * Architecture mirrors Antigravity's lazy-loading MCP pattern:
  * 
- * This reduces the tool payload from 61 → ~7-10 per request,
- * cutting ~20K input tokens and dramatically improving latency.
+ * 1. ALWAYS-ON tools get native function declarations (full schemas)
+ *    → core + spanner = 7 tools
+ * 
+ * 2. EVERYTHING ELSE lives in a text catalog injected into the system prompt
+ *    → 54 tools as name + description text (~2K tokens vs ~18K for schemas)
+ * 
+ * 3. ONE meta-tool `call_tool` lets the LLM invoke any cataloged tool
+ *    → LLM self-routes by reading the catalog and calling call_tool({toolName, arguments})
+ * 
+ * Result: 8 function declarations instead of 61. ~85% token reduction.
  */
 
 import fs from 'fs';
@@ -28,19 +35,6 @@ interface ContractsFile {
   contracts: Contract[];
 }
 
-interface ResolvedContracts {
-  /** Deduplicated list of tool names to send to the LLM */
-  toolNames: string[];
-  /** IDs of matched contracts (for logging/debugging) */
-  matchedContracts: string[];
-  /** Total tools available vs. selected (for metrics) */
-  stats: {
-    totalAvailable: number;
-    selected: number;
-    reduction: string;
-  };
-}
-
 // ============================================================================
 // Load contracts once at startup
 // ============================================================================
@@ -53,36 +47,92 @@ try {
   const raw = fs.readFileSync(CONTRACTS_PATH, 'utf8');
   const parsed = yaml.load(raw) as ContractsFile;
   contracts = parsed.contracts || [];
-  console.log(`[ContractRouter] Loaded ${contracts.length} tool contracts with ${contracts.reduce((sum, c) => sum + c.tools.length, 0)} total tool mappings`);
+  console.log(`[ContractRouter] Loaded ${contracts.length} contracts with ${contracts.reduce((sum, c) => sum + c.tools.length, 0)} total tools`);
 } catch (err: any) {
-  console.error(`[ContractRouter] Failed to load contracts from ${CONTRACTS_PATH}: ${err.message}`);
-  console.error('[ContractRouter] Falling back to empty contracts — ALL tools will be sent');
+  console.error(`[ContractRouter] Failed to load contracts: ${err.message}`);
 }
 
 // ============================================================================
-// Router
+// Router — Antigravity Meta-Tool Pattern
 // ============================================================================
 
 /**
- * Resolves which tool contracts are relevant for a given prompt.
- * 
- * Strategy:
- * 1. Always-on contracts are included unconditionally (core, spanner)
- * 2. Keyword contracts match if any keyword appears in the lowercased prompt
- * 3. Connected MCP server IDs can force-activate matching contracts
- * 4. Returns deduplicated tool name list
- * 
- * @param prompt - The user's chat message
- * @param connectedServerIds - Optional array of connected MCP server IDs from the UI
+ * Returns the tool names that should get NATIVE function declarations.
+ * These are the always-on contracts (core + spanner).
+ */
+export function getAlwaysOnToolNames(): string[] {
+  return [...new Set(
+    contracts
+      .filter(c => c.always)
+      .flatMap(c => c.tools)
+  )];
+}
+
+/**
+ * Returns the tool names that should be in the TEXT CATALOG only.
+ * These are NOT sent as native function declarations — the LLM
+ * accesses them via the `call_tool` meta-tool.
+ */
+export function getCatalogOnlyToolNames(): string[] {
+  const alwaysOn = new Set(getAlwaysOnToolNames());
+  return [...new Set(
+    contracts
+      .filter(c => !c.always)
+      .flatMap(c => c.tools)
+      .filter(name => !alwaysOn.has(name))
+  )];
+}
+
+/**
+ * Generates the text catalog to inject into the system prompt.
+ * Lists all non-always-on tools with name + description so the LLM
+ * knows what's available via `call_tool`.
+ */
+export function generateToolCatalog(
+  allSchemas: Record<string, { name: string; description: string }>
+): string {
+  const catalogTools = getCatalogOnlyToolNames();
+  
+  if (catalogTools.length === 0) return '';
+
+  const lines = catalogTools
+    .map(name => {
+      const schema = allSchemas[name];
+      if (!schema) return null;
+      return `- ${name}: ${schema.description}`;
+    })
+    .filter(Boolean);
+
+  return `
+<available_tools>
+You have access to additional tools beyond your native function declarations.
+To use any tool listed below, call the "call_tool" function with the tool name and arguments.
+
+Available tools:
+${lines.join('\n')}
+
+When calling these tools via call_tool, provide:
+- toolName: the exact tool name from the list above
+- arguments: a JSON object with the required parameters (infer from the description)
+
+Example: call_tool({ toolName: "search_web", arguments: { query: "latest AI news" } })
+</available_tools>`.trim();
+}
+
+/**
+ * Legacy keyword-based resolver (kept for backward compatibility / metrics).
  */
 export function resolveContracts(
   prompt: string,
   connectedServerIds?: string[]
-): ResolvedContracts {
+): {
+  toolNames: string[];
+  matchedContracts: string[];
+  stats: { totalAvailable: number; selected: number; reduction: string };
+} {
   const lower = prompt.toLowerCase();
   const matched: Contract[] = [];
 
-  // Map MCP server IDs to contract IDs for auto-activation
   const SERVER_TO_CONTRACT: Record<string, string> = {
     'google-spanner-mcp': 'spanner',
     'stripe-mcp': 'payments',
@@ -103,28 +153,13 @@ export function resolveContracts(
   }
 
   for (const contract of contracts) {
-    // Always-on contracts
-    if (contract.always) {
+    if (contract.always) { matched.push(contract); continue; }
+    if (forcedContractIds.has(contract.id)) { matched.push(contract); continue; }
+    if (contract.keywords?.some(kw => lower.includes(kw.toLowerCase()))) {
       matched.push(contract);
-      continue;
-    }
-
-    // Force-activated by connected MCP server
-    if (forcedContractIds.has(contract.id)) {
-      matched.push(contract);
-      continue;
-    }
-
-    // Keyword matching — check if any keyword appears in the prompt
-    if (contract.keywords && contract.keywords.length > 0) {
-      const hasMatch = contract.keywords.some(kw => lower.includes(kw.toLowerCase()));
-      if (hasMatch) {
-        matched.push(contract);
-      }
     }
   }
 
-  // Deduplicate tool names across all matched contracts
   const toolNames = [...new Set(matched.flatMap(c => c.tools))];
   const totalAvailable = contracts.reduce((sum, c) => sum + c.tools.length, 0);
 
@@ -137,12 +172,4 @@ export function resolveContracts(
       reduction: `${totalAvailable} → ${toolNames.length} (${Math.round((1 - toolNames.length / totalAvailable) * 100)}% reduction)`
     }
   };
-}
-
-/**
- * Returns the full list of all tool names across all contracts.
- * Used as a fallback if the router fails.
- */
-export function getAllContractedTools(): string[] {
-  return [...new Set(contracts.flatMap(c => c.tools))];
 }

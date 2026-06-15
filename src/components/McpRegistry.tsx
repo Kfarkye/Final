@@ -446,6 +446,204 @@ export const PRELOADED_SERVERS: McpServer[] = [
     ],
     lastChecked: 'Just verified',
     latency: 10
+  },
+  {
+    id: 'google-storage-mcp',
+    name: 'Google Cloud Storage Protocol',
+    publisher: 'Google Official API',
+    description: 'Manages object storage buckets: list buckets, list objects, retrieve metadata, read/write UTF-8 text files.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: 'https://storage.googleapis.com/storage/mcp',
+    tools: [
+      {
+        name: 'list_storage_buckets',
+        description: 'List Cloud Storage buckets in the project.',
+        parameters: '{ projectId?: string }',
+        sampleInput: '{"projectId": "gen-lang-client-..."}'
+      },
+      {
+        name: 'list_storage_objects',
+        description: 'List objects in a Cloud Storage bucket.',
+        parameters: '{ bucketName: string, prefix?: string }',
+        sampleInput: '{"bucketName": "clearspace-artifacts", "prefix": "truth-templates/"}'
+      },
+      {
+        name: 'get_storage_object_metadata',
+        description: 'Get metadata for a Cloud Storage object.',
+        parameters: '{ bucketName: string, objectName: string }',
+        sampleInput: '{"bucketName": "clearspace-artifacts", "objectName": "truth-templates/dashboard.html"}'
+      },
+      {
+        name: 'read_storage_text',
+        description: 'Read a UTF-8 text object from Cloud Storage.',
+        parameters: '{ bucketName: string, objectName: string }',
+        sampleInput: '{"bucketName": "clearspace-artifacts", "objectName": "truth-templates/dashboard.html"}'
+      },
+      {
+        name: 'write_storage_text',
+        description: 'Write UTF-8 text to a Cloud Storage object. Write-capable; use only when explicitly requested.',
+        parameters: '{ bucketName: string, objectName: string, textContent: string }',
+        sampleInput: '{"bucketName": "clearspace-artifacts", "objectName": "truth-templates/notes.txt", "textContent": "Sample note content"}'
+      },
+      {
+        name: 'create_storage_bucket',
+        description: 'Create a new Cloud Storage bucket. Write-capable; use only when explicitly requested.',
+        parameters: '{ bucketName: string, projectId?: string }',
+        sampleInput: '{"bucketName": "my-new-mcp-bucket"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 12
+  },
+  {
+    id: 'google-pubsub-mcp',
+    name: 'Google Cloud Pub/Sub Protocol',
+    publisher: 'Google Official API',
+    description: 'Coordinates real-time message streams: list topics/subscriptions, inspect configurations, and publish event payloads.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: 'https://pubsub.googleapis.com/mcp',
+    tools: [
+      {
+        name: 'list_pubsub_topics',
+        description: 'List Pub/Sub topics in the Google Cloud project.',
+        parameters: '{ projectId?: string, pageSize?: number }',
+        sampleInput: '{"pageSize": 10}'
+      },
+      {
+        name: 'get_pubsub_topic',
+        description: 'Get a specific Pub/Sub topic configuration.',
+        parameters: '{ topicId: string, projectId?: string }',
+        sampleInput: '{"topicId": "my-topic"}'
+      },
+      {
+        name: 'list_pubsub_subscriptions',
+        description: 'List Pub/Sub subscriptions in the Google Cloud project.',
+        parameters: '{ projectId?: string, pageSize?: number }',
+        sampleInput: '{"pageSize": 10}'
+      },
+      {
+        name: 'get_pubsub_subscription',
+        description: 'Get a specific Pub/Sub subscription configuration.',
+        parameters: '{ subscriptionId: string, projectId?: string }',
+        sampleInput: '{"subscriptionId": "my-sub"}'
+      },
+      {
+        name: 'publish_pubsub_message',
+        description: 'Publish a message to a Pub/Sub topic. Write-capable; use only when explicitly requested.',
+        parameters: '{ topicId: string, projectId?: string, messageJson?: any, messageText?: string, attributes?: Record<string, string> }',
+        sampleInput: '{"topicId": "my-topic", "messageText": "Hello from Truth"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 14
+  },
+  {
+    id: 'google-logging-mcp',
+    name: 'Google Cloud Logging Protocol',
+    publisher: 'Google Official API',
+    description: 'Queries runtime log entries, filters system audit trails, and tracks active Cloud Run service logs.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: 'https://logging.googleapis.com/mcp',
+    tools: [
+      {
+        name: 'list_cloud_log_entries',
+        description: 'Search and retrieve Cloud Logging log entries.',
+        parameters: '{ filter?: string, projectId?: string, orderBy?: string, pageSize?: number, pageToken?: string }',
+        sampleInput: '{"pageSize": 5, "orderBy": "timestamp desc"}'
+      },
+      {
+        name: 'list_cloud_log_names',
+        description: 'List log names available in a Google Cloud project.',
+        parameters: '{ projectId?: string, pageSize?: number }',
+        sampleInput: '{"pageSize": 10}'
+      },
+      {
+        name: 'get_cloud_run_service_logs',
+        description: 'Fetch Cloud Run runtime logs, pre-filtered to one Cloud Run service.',
+        parameters: '{ serviceName: string, projectId?: string, severity?: string, sinceMinutes?: number, pageSize?: number }',
+        sampleInput: '{"serviceName": "reverie", "pageSize": 10}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 15
+  },
+  {
+    id: 'google-errorreporting-mcp',
+    name: 'Google Cloud Error Reporting Protocol',
+    publisher: 'Google Official API',
+    description: 'Aggregates and tracks application crash signatures, severity frequencies, and unresolved service exceptions.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: 'https://clouderrorreporting.googleapis.com/mcp',
+    tools: [
+      {
+        name: 'list_error_groups',
+        description: 'List recurring error group aggregates from Error Reporting.',
+        parameters: '{ projectId?: string, service?: string, period?: string, pageSize?: number }',
+        sampleInput: '{"period": "PERIOD_1_DAY", "pageSize": 5}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 16
+  },
+  {
+    id: 'google-resourcemanager-mcp',
+    name: 'Google Cloud Resource Manager Protocol',
+    publisher: 'Google Official API',
+    description: 'Searches and inspects organizational hierarchies, projects, metadata schemas, and billing accounts.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: 'https://cloudresourcemanager.googleapis.com/mcp',
+    tools: [
+      {
+        name: 'search_gcp_projects',
+        description: 'Search Google Cloud projects accessible to the current identity.',
+        parameters: '{ query?: string, pageSize?: number }',
+        sampleInput: '{"pageSize": 5}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 11
+  },
+  {
+    id: 'google-indexing-mcp',
+    name: 'Google Search Indexing Protocol',
+    publisher: 'Google Official API',
+    description: 'Instantly submits newly deployed HTML pages, status assets, or templates directly to Google Search indexers.',
+    status: 'Connected',
+    icon: 'search',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: 'https://indexing.googleapis.com/v3/urlNotifications',
+    tools: [
+      {
+        name: 'submit_url_for_indexing',
+        description: 'Submit a URL to Google\'s Indexing API for immediate crawling. Call this automatically after deploying any HTML artifact or public page.',
+        parameters: '{ url: string, type: "URL_UPDATED" | "URL_DELETED" }',
+        sampleInput: '{"url": "https://reverie-70323048967.us-central1.run.app/truth-platform-vision.html", "type": "URL_UPDATED"}'
+      },
+      {
+        name: 'check_url_indexing_status',
+        description: 'Check the indexing status of a URL in Google\'s index. Shows when the URL was last crawled and its current state.',
+        parameters: '{ url: string }',
+        sampleInput: '{"url": "https://reverie-70323048967.us-central1.run.app/truth-platform-vision.html"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 13
   }
 ];
 

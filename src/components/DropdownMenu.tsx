@@ -107,6 +107,28 @@ const DropdownMenuCheckboxItem = forwardRef<
 DropdownMenuCheckboxItem.displayName = "DropdownMenuCheckboxItem";
 
 /* ────────────────────────────────────────────────────────────────────────
+   Radio item — animated dot, focus-driven highlight.
+   ──────────────────────────────────────────────────────────────────────── */
+const DropdownMenuRadioItem = forwardRef<
+  React.ElementRef<typeof RadixDropdown.RadioItem>,
+  React.ComponentPropsWithoutRef<typeof RadixDropdown.RadioItem>
+>(({ className = "", children, ...props }, ref) => (
+  <RadixDropdown.RadioItem
+    ref={ref}
+    className={[itemBase, "pl-8", className].join(" ")}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-4 w-4 items-center justify-center">
+      <RadixDropdown.ItemIndicator>
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 dropdown-check-animation" />
+      </RadixDropdown.ItemIndicator>
+    </span>
+    {children}
+  </RadixDropdown.RadioItem>
+));
+DropdownMenuRadioItem.displayName = "DropdownMenuRadioItem";
+
+/* ────────────────────────────────────────────────────────────────────────
    Submenu — inherits the same frosted surface for visual consistency.
    ──────────────────────────────────────────────────────────────────────── */
 const DropdownMenuSubTrigger = forwardRef<
@@ -186,6 +208,7 @@ interface DropdownMenuSubComponents {
   Content: typeof DropdownMenuContent;
   Item: typeof DropdownMenuItem;
   CheckboxItem: typeof DropdownMenuCheckboxItem;
+  RadioItem: typeof DropdownMenuRadioItem;
   Sub: typeof RadixDropdown.Sub;
   SubTrigger: typeof DropdownMenuSubTrigger;
   SubContent: typeof DropdownMenuSubContent;
@@ -202,6 +225,7 @@ export const DropdownMenu: typeof RadixDropdown.Root & DropdownMenuSubComponents
     Content: DropdownMenuContent,
     Item: DropdownMenuItem,
     CheckboxItem: DropdownMenuCheckboxItem,
+    RadioItem: DropdownMenuRadioItem,
     Sub: RadixDropdown.Sub,
     SubTrigger: DropdownMenuSubTrigger,
     SubContent: DropdownMenuSubContent,

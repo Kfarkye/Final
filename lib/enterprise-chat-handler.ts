@@ -147,7 +147,10 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
       }
     });
 
-    const systemPrompt = topic && topic !== "Normal" ? `You are a highly capable AI assistant specializing in ${topic}. Provide accurate, objective, and insightful information.` : undefined;
+    // Build system prompt with tool catalog injection
+    const toolCatalog = req.body._toolCatalog || '';
+    const baseSystemPrompt = topic && topic !== "Normal" ? `You are a highly capable AI assistant specializing in ${topic}. Provide accurate, objective, and insightful information.` : 'You are a highly capable AI assistant. Provide accurate, objective, and insightful information.';
+    const systemPrompt = toolCatalog ? `${baseSystemPrompt}\n\n${toolCatalog}` : baseSystemPrompt;
 
     // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
