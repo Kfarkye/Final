@@ -256,10 +256,17 @@ export default function ChatClient() {
           console.error("Failed to parse local MCP servers", e);
         }
       }
-      // Fallback: if localStorage has no servers, use the preloaded defaults
-      if (parsedMcpServers.length === 0) {
-        parsedMcpServers = PRELOADED_SERVERS;
-      }
+      // Merge missing preloaded servers (e.g. newly added tools like Spanner) into parsedMcpServers
+      PRELOADED_SERVERS.forEach(pre => {
+        const existing = parsedMcpServers.find(p => p.id === pre.id);
+        if (!existing) {
+          parsedMcpServers.push(pre);
+        } else if (existing.type === 'Official') {
+          // ensure the tools definition and commandOrUrl are updated to latest for official tools
+          existing.tools = pre.tools;
+          existing.commandOrUrl = pre.commandOrUrl;
+        }
+      });
 
       let parsedIntegrations: any[] = [];
       const apiSaved = localStorage.getItem('api_hub_integrations');
