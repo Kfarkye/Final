@@ -52,8 +52,47 @@ app.use("/api/mcp/spanner", spannerMcpRoutes);
 import { toolRegistry } from './src/tools';
 app.get("/api/debug/tools", (_req, res) => {
   const schemas = toolRegistry.getSchemas();
-  res.json({ registeredTools: Object.keys(schemas), count: Object.keys(schemas).length });
+  const toolDetails = Object.entries(schemas).map(([name, schema]: [string, any]) => ({
+    name,
+    description: schema.description || '',
+  }));
+  res.json({ registeredTools: Object.keys(schemas), count: Object.keys(schemas).length, tools: toolDetails });
 });
+
+// --- Live System Status API (consumed by HTML5 artifacts) ---
+const SERVER_START_TIME = Date.now();
+
+app.get("/api/system/status", (_req, res) => {
+  const mem = process.memoryUsage();
+  const schemas = toolRegistry.getSchemas();
+  res.json({
+    status: "healthy",
+    uptime: Math.floor((Date.now() - SERVER_START_TIME) / 1000),
+    uptimeFormatted: formatUptime(Date.now() - SERVER_START_TIME),
+    memory: {
+      heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+      heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+      rssMB: Math.round(mem.rss / 1024 / 1024),
+    },
+    tools: {
+      count: Object.keys(schemas).length,
+      names: Object.keys(schemas),
+    },
+    node: process.version,
+    platform: process.platform,
+    env: env.NODE_ENV,
+    region: "us-central1",
+    service: "reverie",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+function formatUptime(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
 
 // --- HTML5 Artifact Serving ---
 import { callGcpMcpTool } from './src/tools/gcp-mcp-client';

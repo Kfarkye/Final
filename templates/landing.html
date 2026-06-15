@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- CUSTOMIZE: Product Name --></title>
+</head>
+<body>
+  <div class="t-page" style="max-width:960px">
+    <!-- HERO -->
+    <section style="text-align:center;padding:var(--t-space-2xl) 0">
+      <span class="t-badge t-badge-cyan" style="margin-bottom:var(--t-space-md);display:inline-flex"><!-- CUSTOMIZE: Badge text --></span>
+      <h1 class="t-h1" style="font-size:42px;line-height:1.15;max-width:640px;margin:var(--t-space-md) auto 0"><!-- CUSTOMIZE: Hero headline --></h1>
+      <p class="t-body" style="font-size:16px;max-width:520px;margin:var(--t-space-md) auto 0;line-height:1.7"><!-- CUSTOMIZE: Hero subtitle --></p>
+      <div class="t-flex t-flex-center" style="margin-top:var(--t-space-xl);gap:12px">
+        <button class="t-btn t-btn-primary" style="padding:14px 32px;font-size:14px"><!-- CUSTOMIZE: CTA text --></button>
+        <button class="t-btn t-btn-ghost" style="padding:14px 32px;font-size:14px"><!-- CUSTOMIZE: Secondary CTA --></button>
+      </div>
+    </section>
+
+    <!-- LIVE STATS BAR -->
+    <div class="t-card-accent" style="margin-bottom:var(--t-space-2xl)">
+      <div class="t-grid t-grid-3" style="text-align:center" id="hero-stats">
+        <div class="t-stat"><div class="t-stat-value t-skeleton" id="hero-tools" style="height:36px;width:50px;margin:0 auto">&nbsp;</div><div class="t-stat-label">Live Tools</div></div>
+        <div class="t-stat"><div class="t-stat-value t-skeleton" id="hero-uptime" style="height:36px;width:70px;margin:0 auto">&nbsp;</div><div class="t-stat-label">Uptime</div></div>
+        <div class="t-stat"><div class="t-stat-value t-skeleton" id="hero-status" style="height:36px;width:80px;margin:0 auto">&nbsp;</div><div class="t-stat-label">Status</div></div>
+      </div>
+    </div>
+
+    <!-- FEATURES GRID -->
+    <div class="t-grid t-grid-3" style="margin-bottom:var(--t-space-2xl)">
+      <!-- CUSTOMIZE: Replace these 3 feature cards -->
+      <div class="t-card" style="text-align:center;padding:var(--t-space-xl)">
+        <div style="width:48px;height:48px;border-radius:var(--t-radius-md);background:rgba(6,182,212,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto var(--t-space-md);font-size:24px">⚡</div>
+        <h3 class="t-h3" style="color:var(--t-text-primary);text-transform:none;font-size:15px;margin-bottom:8px"><!-- CUSTOMIZE --></h3>
+        <p class="t-body" style="font-size:13px"><!-- CUSTOMIZE --></p>
+      </div>
+      <div class="t-card" style="text-align:center;padding:var(--t-space-xl)">
+        <div style="width:48px;height:48px;border-radius:var(--t-radius-md);background:rgba(168,85,247,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto var(--t-space-md);font-size:24px">🔒</div>
+        <h3 class="t-h3" style="color:var(--t-text-primary);text-transform:none;font-size:15px;margin-bottom:8px"><!-- CUSTOMIZE --></h3>
+        <p class="t-body" style="font-size:13px"><!-- CUSTOMIZE --></p>
+      </div>
+      <div class="t-card" style="text-align:center;padding:var(--t-space-xl)">
+        <div style="width:48px;height:48px;border-radius:var(--t-radius-md);background:rgba(16,185,129,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto var(--t-space-md);font-size:24px">📊</div>
+        <h3 class="t-h3" style="color:var(--t-text-primary);text-transform:none;font-size:15px;margin-bottom:8px"><!-- CUSTOMIZE --></h3>
+        <p class="t-body" style="font-size:13px"><!-- CUSTOMIZE --></p>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer style="text-align:center;padding:var(--t-space-xl) 0;border-top:1px solid var(--t-border)">
+      <p class="t-label"><!-- CUSTOMIZE: Footer text --></p>
+    </footer>
+  </div>
+
+  <script>
+    async function loadStats() {
+      try {
+        const s = await fetch('/api/system/status').then(r => r.json());
+        const el = (id, val) => { const e = document.getElementById(id); e.textContent = val; e.classList.remove('t-skeleton'); };
+        el('hero-tools', s.tools.count);
+        el('hero-uptime', s.uptimeFormatted);
+        el('hero-status', s.status === 'healthy' ? '● Live' : '○ Down');
+        document.getElementById('hero-status').style.color = s.status === 'healthy' ? 'var(--t-emerald)' : 'var(--t-rose)';
+      } catch(e) {}
+    }
+    loadStats();
+    setInterval(loadStats, 20000);
+  </script>
+</body>
+</html>

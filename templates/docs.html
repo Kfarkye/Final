@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- CUSTOMIZE: Doc Title --></title>
+</head>
+<body>
+  <div class="t-page-full" style="display:flex;min-height:100vh;padding:0">
+    <!-- SIDEBAR NAV -->
+    <aside style="width:260px;background:var(--t-bg-secondary);border-right:1px solid var(--t-border);padding:var(--t-space-lg);position:sticky;top:0;height:100vh;overflow-y:auto">
+      <h2 class="t-h3" style="margin-bottom:var(--t-space-lg)"><!-- CUSTOMIZE: Doc Name --></h2>
+      <nav id="doc-nav" style="display:flex;flex-direction:column;gap:2px">
+        <!-- CUSTOMIZE: Navigation items auto-generated from sections -->
+      </nav>
+      <div style="margin-top:var(--t-space-xl);padding-top:var(--t-space-md);border-top:1px solid var(--t-border)">
+        <span class="t-label" id="api-badge">Loading...</span>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main style="flex:1;padding:var(--t-space-xl) var(--t-space-2xl);max-width:820px;overflow-y:auto">
+      <header style="margin-bottom:var(--t-space-2xl)">
+        <div class="t-flex" style="gap:8px;margin-bottom:var(--t-space-md)">
+          <span class="t-badge t-badge-cyan"><!-- CUSTOMIZE: Version --></span>
+          <span class="t-badge t-badge-green"><span class="t-pulse"></span> Live</span>
+        </div>
+        <h1 class="t-h1" style="font-size:32px"><!-- CUSTOMIZE: Document Title --></h1>
+        <p class="t-body" style="margin-top:8px;font-size:15px;line-height:1.7"><!-- CUSTOMIZE: Intro paragraph --></p>
+      </header>
+
+      <!-- CUSTOMIZE: Add documentation sections -->
+      <section id="section-overview" style="margin-bottom:var(--t-space-2xl)">
+        <h2 class="t-h2" style="margin-bottom:var(--t-space-md);padding-bottom:var(--t-space-sm);border-bottom:1px solid var(--t-border)">Overview</h2>
+        <p class="t-body" style="line-height:1.8"><!-- CUSTOMIZE: Section content --></p>
+      </section>
+
+      <section id="section-endpoints" style="margin-bottom:var(--t-space-2xl)">
+        <h2 class="t-h2" style="margin-bottom:var(--t-space-md);padding-bottom:var(--t-space-sm);border-bottom:1px solid var(--t-border)">API Endpoints</h2>
+        <div id="endpoints-list">
+          <div class="t-skeleton" style="height:60px;margin-bottom:8px"></div>
+          <div class="t-skeleton" style="height:60px;margin-bottom:8px"></div>
+        </div>
+      </section>
+
+      <section id="section-tools" style="margin-bottom:var(--t-space-2xl)">
+        <h2 class="t-h2" style="margin-bottom:var(--t-space-md);padding-bottom:var(--t-space-sm);border-bottom:1px solid var(--t-border)">Tool Reference</h2>
+        <div id="tools-ref">
+          <div class="t-skeleton" style="height:80px;margin-bottom:8px"></div>
+          <div class="t-skeleton" style="height:80px;margin-bottom:8px"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    async function loadDocs() {
+      try {
+        const [status, tools] = await Promise.all([
+          fetch('/api/system/status').then(r => r.json()),
+          fetch('/api/debug/tools').then(r => r.json())
+        ]);
+
+        document.getElementById('api-badge').innerHTML = `${tools.count} tools • ${status.node}`;
+
+        // Nav
+        const sections = document.querySelectorAll('section[id]');
+        document.getElementById('doc-nav').innerHTML = Array.from(sections).map(s => {
+          const title = s.querySelector('h2')?.textContent || s.id;
+          return `<a href="#${s.id}" style="padding:6px 12px;font-size:13px;color:var(--t-text-secondary);text-decoration:none;border-radius:var(--t-radius-sm);transition:all 0.1s" onmouseenter="this.style.background='rgba(255,255,255,0.03)';this.style.color='var(--t-text-primary)'" onmouseleave="this.style.background='transparent';this.style.color='var(--t-text-secondary)'">${title}</a>`;
+        }).join('');
+
+        // Endpoints reference
+        const endpoints = [
+          { method: 'GET', path: '/api/system/status', desc: 'Live system metrics' },
+          { method: 'GET', path: '/api/debug/tools', desc: 'Tool registry' },
+          { method: 'GET', path: '/api/artifacts/:id', desc: 'Serve HTML artifact' },
+          { method: 'GET', path: '/api/artifacts', desc: 'List all artifacts' },
+          { method: 'POST', path: '/api/truth/chat', desc: 'Multi-model chat' },
+          { method: 'GET', path: '/healthz', desc: 'Health check' },
+        ];
+        document.getElementById('endpoints-list').innerHTML = endpoints.map(e => `
+          <div class="t-card" style="padding:12px 16px;margin-bottom:6px;display:flex;align-items:center;gap:12px">
+            <span class="t-badge ${e.method==='GET'?'t-badge-cyan':'t-badge-purple'}" style="min-width:48px;justify-content:center">${e.method}</span>
+            <span class="t-mono t-accent" style="flex:1">${e.path}</span>
+            <span class="t-body" style="font-size:12px">${e.desc}</span>
+          </div>
+        `).join('');
+
+        // Tools reference
+        document.getElementById('tools-ref').innerHTML = (tools.tools || []).map(t => `
+          <div class="t-card" style="padding:12px 16px;margin-bottom:6px">
+            <div class="t-flex t-flex-between">
+              <span class="t-mono" style="color:var(--t-cyan);font-size:13px">${t.name}</span>
+              <span class="t-badge t-badge-green" style="font-size:10px">Active</span>
+            </div>
+            <p class="t-body" style="font-size:12px;margin-top:4px">${(t.description || '').slice(0, 120)}</p>
+          </div>
+        `).join('');
+      } catch(e) { console.error(e); }
+    }
+    loadDocs();
+  </script>
+</body>
+</html>

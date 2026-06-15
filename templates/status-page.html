@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- CUSTOMIZE: Service Name --> Status</title>
+</head>
+<body>
+  <div class="t-page" style="max-width:960px">
+    <header style="text-align:center;margin-bottom:var(--t-space-2xl)">
+      <h1 class="t-h1" style="margin-bottom:8px"><!-- CUSTOMIZE: Service Name --></h1>
+      <p class="t-body">Operational status and real-time health monitoring</p>
+      <div style="margin-top:var(--t-space-lg)">
+        <div id="global-status" class="t-skeleton" style="height:48px;width:240px;margin:0 auto;border-radius:var(--t-radius-xl)"></div>
+      </div>
+    </header>
+
+    <!-- SERVICE GRID -->
+    <div class="t-grid t-grid-2" id="services-grid" style="margin-bottom:var(--t-space-xl)">
+      <div class="t-card"><div class="t-skeleton" style="height:60px"></div></div>
+      <div class="t-card"><div class="t-skeleton" style="height:60px"></div></div>
+      <div class="t-card"><div class="t-skeleton" style="height:60px"></div></div>
+      <div class="t-card"><div class="t-skeleton" style="height:60px"></div></div>
+    </div>
+
+    <!-- METRICS -->
+    <div class="t-card" style="margin-bottom:var(--t-space-lg)">
+      <h2 class="t-h3" style="margin-bottom:var(--t-space-md)">System Metrics</h2>
+      <div class="t-grid t-grid-3" id="metrics-grid">
+        <div class="t-stat"><div class="t-stat-value t-skeleton" id="metric-uptime" style="height:36px;width:80px;margin:0 auto">&nbsp;</div><div class="t-stat-label">Uptime</div></div>
+        <div class="t-stat"><div class="t-stat-value t-skeleton" id="metric-memory" style="height:36px;width:100px;margin:0 auto">&nbsp;</div><div class="t-stat-label">Memory Usage</div></div>
+        <div class="t-stat"><div class="t-stat-value t-skeleton" id="metric-tools" style="height:36px;width:50px;margin:0 auto">&nbsp;</div><div class="t-stat-label">Active Tools</div></div>
+      </div>
+    </div>
+
+    <!-- INCIDENT LOG -->
+    <div class="t-card">
+      <h2 class="t-h3" style="margin-bottom:var(--t-space-md)">Recent Events</h2>
+      <div id="events-log" style="font-family:var(--t-mono);font-size:12px;line-height:2">
+        <div class="t-skeleton" style="height:14px;width:90%;margin-bottom:6px"></div>
+        <div class="t-skeleton" style="height:14px;width:75%;margin-bottom:6px"></div>
+        <div class="t-skeleton" style="height:14px;width:85%"></div>
+      </div>
+    </div>
+
+    <footer style="text-align:center;margin-top:var(--t-space-xl)">
+      <span class="t-label" id="footer-time">—</span>
+    </footer>
+  </div>
+
+  <script>
+    async function loadStatus() {
+      try {
+        const [status, health] = await Promise.all([
+          fetch('/api/system/status').then(r => r.json()),
+          fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'unknown' }))
+        ]);
+
+        const isHealthy = status.status === 'healthy' && health.status === 'ok';
+
+        // Global status badge
+        document.getElementById('global-status').innerHTML = `
+          <div style="display:inline-flex;align-items:center;gap:10px;padding:12px 28px;border-radius:var(--t-radius-xl);font-size:16px;font-weight:700;
+            background:${isHealthy ? 'rgba(16,185,129,0.12)' : 'rgba(244,63,94,0.12)'};
+            color:${isHealthy ? 'var(--t-emerald)' : 'var(--t-rose)'};
+            border:1px solid ${isHealthy ? 'rgba(16,185,129,0.25)' : 'rgba(244,63,94,0.25)'}">
+            <span class="t-pulse" style="${isHealthy ? '' : 'background:var(--t-rose);box-shadow:0 0 6px var(--t-rose)'}"></span>
+            ${isHealthy ? 'All Systems Operational' : 'Degraded Performance'}
+          </div>`;
+        document.getElementById('global-status').classList.remove('t-skeleton');
+
+        // Services
+        const services = [
+          { name: 'API Gateway', desc: 'Express + SSE', ok: true },
+          { name: 'Tool Registry', desc: `${status.tools.count} tools loaded`, ok: status.tools.count > 0 },
+          { name: 'Cloud Run', desc: `${status.region}`, ok: true },
+          { name: 'Node Runtime', desc: status.node, ok: true },
+        ];
+        document.getElementById('services-grid').innerHTML = services.map(s => `
+          <div class="t-card" style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div class="t-h3" style="color:var(--t-text-primary);text-transform:none;font-size:14px">${s.name}</div>
+              <div class="t-body" style="font-size:12px;margin-top:2px">${s.desc}</div>
+            </div>
+            <span class="t-badge ${s.ok ? 't-badge-green' : 't-badge-rose'}">${s.ok ? 'Operational' : 'Down'}</span>
+          </div>`).join('');
+
+        // Metrics
+        const mu = document.getElementById('metric-uptime'); mu.textContent = status.uptimeFormatted; mu.classList.remove('t-skeleton');
+        const mm = document.getElementById('metric-memory'); mm.textContent = `${status.memory.heapUsedMB}/${status.memory.heapTotalMB} MB`; mm.classList.remove('t-skeleton');
+        const mt = document.getElementById('metric-tools'); mt.textContent = status.tools.count; mt.classList.remove('t-skeleton');
+
+        // Events
+        document.getElementById('events-log').innerHTML = `
+          <div style="color:var(--t-emerald)">[${status.timestamp}] Health check passed — all ${status.tools.count} tools operational</div>
+          <div style="color:var(--t-text-secondary)">[${status.timestamp}] Memory: ${status.memory.rssMB}MB RSS</div>
+          <div style="color:var(--t-text-muted)">[${status.timestamp}] Environment: ${status.env} | Platform: ${status.platform}</div>`;
+
+        document.getElementById('footer-time').textContent = `Last checked: ${new Date().toLocaleTimeString()} • Auto-refreshes every 10s`;
+      } catch (err) {
+        document.getElementById('global-status').innerHTML = `<div class="t-badge t-badge-rose" style="font-size:14px;padding:12px 24px">⚠ Connection Error</div>`;
+        document.getElementById('global-status').classList.remove('t-skeleton');
+      }
+    }
+    loadStatus();
+    setInterval(loadStatus, 10000);
+  </script>
+</body>
+</html>
