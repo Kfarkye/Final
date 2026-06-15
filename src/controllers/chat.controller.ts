@@ -20,7 +20,12 @@ export const chatController = {
         // 1. First attempt native execution via the toolRegistry
         const result = await toolRegistry.execute(name, args, { googleAccessToken, ai, openai, anthropic, xai, connectionId });
         
-        if (!result || !result.error || !result.error.includes("not supported natively on this server")) {
+        const isNotSupportedNatively = result && result.error && (
+          result.error.includes("not supported natively on this server") ||
+          result.error.includes("Local execution not supported")
+        );
+
+        if (!isNotSupportedNatively) {
           return result;
         }
 
