@@ -5,6 +5,15 @@
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Source Serif 4", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Custom additions for Truth Platform Chat */
+  --max-width-prose: 70ch;
+  --leading-relaxed: 1.625;
+  
+  --color-truth-navy: #0B0F19;
+  --color-truth-slateDark: #161F30;
+  --color-truth-accentCyan: #06b6d4;
+  --color-truth-accentPurple: #a855f7;
 }
 
 @utility pb-safe {
