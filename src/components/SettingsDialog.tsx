@@ -37,7 +37,7 @@ export default function SettingsDialog({
   const [configs, setConfigs] = useState(modelConfigs);
 
   // Custom input toggles or inputs
-  const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
+  const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini', 'gpt-5.5-2026-04-23'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-opus-4-8'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-2-latest', 'grok-beta', 'grok-4.3'].includes(modelConfigs.grok));
@@ -167,6 +167,7 @@ export default function SettingsDialog({
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
                   <option value="gemini-3.5-flash">Gemini 3.5 Flash (Standard)</option>
+                  <option value="gemini-3.1-pre-preview">⚡ Gemini 3.1 Pre-Preview (Cutting Edge)</option>
                   <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Reasoning)</option>
                   <option value="gemini-3.1-pro-preview-next">Gemini 3.1 Pro Preview Next (Deep Think)</option>
                   <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>

@@ -214,6 +214,14 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
           };
         }
 
+        if (selectedGeminiModel === "gemini-3.1-pre-preview") {
+          geminiConfig = geminiConfig || {};
+          geminiConfig.thinkingConfig = {
+            thinkingLevel: 'MEDIUM',
+            includeThoughts: true
+          };
+        }
+
         let runCount = 0;
         let continueLoop = true;
 
