@@ -1,0 +1,155 @@
+/**
+ * useModelConfig — state management for the model selector.
+ * 
+ * Handles encoding/decoding of provider::version values,
+ * shared vs compare mode, and persistence.
+ */
+
+import { useState, useCallback, useMemo } from 'react';
+
+// ── Types ───────────────────────────────────────────────────────────────
+
+export interface ModelVersion {
+  id: string;
+  label: string;
+  hint?: string;   // "fast" | "balanced" | "reasoning" | "creative"
+}
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  accent: string;   // color for the provider badge
+  versions: ModelVersion[];
+}
+
+export interface ModelState {
+  mode: 'shared' | 'compare';
+  activeProvider: string;
+  modelConfigs: Record<string, string>;
+  selectedProviders: string[];
+}
+
+// ── Model Registry ──────────────────────────────────────────────────────
+
+export const MODEL_REGISTRY: ModelProvider[] = [
+  {
+    id: 'gemini',
+    name: 'Gemini',
+    accent: '#4285F4',
+    versions: [
+      { id: 'gemini-3.5-flash', label: '3.5 Flash', hint: 'fast' },
+      { id: 'gemini-3.1-pro-preview', label: '3.1 Pro', hint: 'balanced' },
+      { id: 'gemini-3.1-pre-preview', label: 'Deep Think', hint: 'reasoning' },
+      { id: 'gemini-3.1-pro-preview-next', label: 'Deep Think Next', hint: 'reasoning' },
+    ],
+  },
+  {
+    id: 'chatgpt',
+    name: 'ChatGPT',
+    accent: '#10A37F',
+    versions: [
+      { id: 'gpt-5.5-2026-04-23', label: '5.5', hint: 'balanced' },
+      { id: 'gpt-4o', label: 'GPT-4o', hint: 'fast' },
+      { id: 'o1', label: 'o1', hint: 'reasoning' },
+      { id: 'o3-mini', label: 'o3-mini', hint: 'fast' },
+    ],
+  },
+  {
+    id: 'claude',
+    name: 'Claude',
+    accent: '#D97706',
+    versions: [
+      { id: 'claude-opus-4-8', label: '4.8 Opus', hint: 'balanced' },
+      { id: 'claude-opus-4-6', label: '4.6 Opus', hint: 'balanced' },
+      { id: 'claude-3-7-sonnet-20250219', label: '3.7 Sonnet', hint: 'fast' },
+      { id: 'claude-3-5-sonnet-20241022', label: '3.5 Sonnet', hint: 'fast' },
+    ],
+  },
+  {
+    id: 'grok',
+    name: 'Grok',
+    accent: '#EF4444',
+    versions: [
+      { id: 'grok-4.3', label: '4.3', hint: 'balanced' },
+      { id: 'grok-2-latest', label: '2 Latest', hint: 'fast' },
+    ],
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    accent: '#8B5CF6',
+    versions: [
+      { id: 'deepseek-v4-pro', label: 'V4 Pro', hint: 'balanced' },
+      { id: 'deepseek-chat', label: 'Chat', hint: 'fast' },
+    ],
+  },
+];
+
+// ── Hook ────────────────────────────────────────────────────────────────
+
+export function useModelConfig(initial?: Partial<ModelState>) {
+  const [mode, setMode] = useState<'shared' | 'compare'>(initial?.mode || 'shared');
+  const [activeProvider, setActiveProvider] = useState(initial?.activeProvider || 'gemini');
+  const [modelConfigs, setModelConfigs] = useState<Record<string, string>>(
+    initial?.modelConfigs || {
+      gemini: 'gemini-3.5-flash',
+      chatgpt: 'gpt-5.5-2026-04-23',
+      claude: 'claude-opus-4-8',
+      grok: 'grok-4.3',
+      deepseek: 'deepseek-v4-pro',
+    }
+  );
+  const [selectedProviders, setSelectedProviders] = useState<string[]>(
+    initial?.selectedProviders || ['gemini', 'chatgpt', 'claude']
+  );
+
+  // Encode to provider::version
+  const encoded = useMemo(() => {
+    return `${activeProvider}::${modelConfigs[activeProvider] || ''}`;
+  }, [activeProvider, modelConfigs]);
+
+  // Select a model (shared mode)
+  const selectModel = useCallback((providerId: string, versionId: string) => {
+    setActiveProvider(providerId);
+    setModelConfigs(prev => ({ ...prev, [providerId]: versionId }));
+  }, []);
+
+  // Toggle a provider in compare mode
+  const toggleCompareProvider = useCallback((providerId: string) => {
+    setSelectedProviders(prev => {
+      if (prev.includes(providerId)) {
+        if (prev.length <= 2) return prev; // min 2
+        return prev.filter(p => p !== providerId);
+      }
+      if (prev.length >= 4) return prev; // max 4
+      return [...prev, providerId];
+    });
+  }, []);
+
+  // Get display info for current selection
+  const activeDisplay = useMemo(() => {
+    const provider = MODEL_REGISTRY.find(p => p.id === activeProvider);
+    if (!provider) return { provider: 'Unknown', version: '', accent: '#888' };
+    const version = provider.versions.find(v => v.id === modelConfigs[activeProvider]);
+    return {
+      provider: provider.name,
+      version: version?.label || modelConfigs[activeProvider] || '',
+      accent: provider.accent,
+      hint: version?.hint,
+    };
+  }, [activeProvider, modelConfigs]);
+
+  return {
+    mode,
+    setMode,
+    activeProvider,
+    modelConfigs,
+    setModelConfigs,
+    selectedProviders,
+    encoded,
+    selectModel,
+    toggleCompareProvider,
+    activeDisplay,
+    registry: MODEL_REGISTRY,
+  };
+}

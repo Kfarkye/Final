@@ -15,6 +15,7 @@ import ExportDialog from './components/ExportDialog';
 import AuditDialog from './components/AuditDialog';
 import SettingsDialog from './components/SettingsDialog';
 import { MimeRenderer } from './components/MimeRenderer';
+import { ModelSelector } from './components/ModelSelector';
 
 import { useFileAttachment } from './components/attachments/useFileAttachment';
 import { FileChip } from './components/attachments/FileChip';
@@ -37,6 +38,7 @@ interface Turn {
 }
 
 export interface ModelConfigs {
+  [key: string]: string;
   gemini: string;
   chatgpt: string;
   claude: string;
@@ -87,6 +89,7 @@ export default function ChatClient() {
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
   const [workspaceSubTab, setWorkspaceSubTab] = useState<'google' | 'git'>('git');
+  const [selectedProviders, setSelectedProviders] = useState<string[]>(['gemini', 'chatgpt', 'claude']);
 
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -200,7 +203,7 @@ export default function ChatClient() {
       ? [config.baseModel] 
       : mode === 'shared' 
       ? [sharedModel] 
-      : ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'];
+      : selectedProviders;
 
     const turnId = Date.now();
     setTurns(prev => [...prev, { 
@@ -974,53 +977,28 @@ export default function ChatClient() {
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path></svg>
               </button>
 
-              {mode === 'shared' && (
-                <div className="bg-zinc-800 rounded-full p-1 border border-white/10 mr-1 flex items-center">
-                  <select 
-                    value={`${sharedModel}::${modelConfigs[sharedModel as keyof ModelConfigs] || ''}`}
-                    onChange={(e) => {
-                      const [provider, version] = e.target.value.split('::');
-                      setSharedModel(provider);
-                      if (version) {
-                        setModelConfigs(prev => ({ ...prev, [provider]: version }));
+              {(mode === 'shared' || mode === 'compare') && (
+                <ModelSelector
+                  mode={mode}
+                  activeProvider={sharedModel}
+                  modelConfigs={modelConfigs}
+                  selectedProviders={selectedProviders}
+                  onSelectModel={(providerId, versionId) => {
+                    setSharedModel(providerId);
+                    setModelConfigs(prev => ({ ...prev, [providerId]: versionId }));
+                    logAuditAction(currentUser, 'SWITCH_MODEL', { newModel: providerId, version: versionId, previousModel: sharedModel });
+                  }}
+                  onToggleCompare={(providerId) => {
+                    setSelectedProviders(prev => {
+                      if (prev.includes(providerId)) {
+                        if (prev.length <= 2) return prev;
+                        return prev.filter(p => p !== providerId);
                       }
-                      logAuditAction(currentUser, 'SWITCH_MODEL', { newModel: provider, version, previousModel: sharedModel });
-                    }}
-                    className="bg-transparent text-white text-xs pl-3 pr-2 py-1 outline-none appearance-none cursor-pointer font-medium tracking-wide"
-                    title="Switch LLM model + version"
-                  >
-                    <optgroup label="Gemini">
-                      <option value="gemini::gemini-3.5-flash">Gemini · 3.5 Flash</option>
-                      <option value="gemini::gemini-3.1-pro-preview">Gemini · 3.1 Pro</option>
-                      <option value="gemini::gemini-3.1-pre-preview">Gemini · Deep Think</option>
-                      <option value="gemini::gemini-3.1-pro-preview-next">Gemini · Deep Think Next</option>
-                      <option value="gemini::gemini-3.1-flash-lite">Gemini · 3.1 Lite</option>
-                    </optgroup>
-                    <optgroup label="ChatGPT">
-                      <option value="chatgpt::gpt-5.5-2026-04-23">ChatGPT · 5.5</option>
-                      <option value="chatgpt::gpt-4o">ChatGPT · GPT-4o</option>
-                      <option value="chatgpt::o1">ChatGPT · o1</option>
-                      <option value="chatgpt::o3-mini">ChatGPT · o3-mini</option>
-                    </optgroup>
-                    <optgroup label="Claude">
-                      <option value="claude::claude-opus-4-8">Claude · 4.8 Opus</option>
-                      <option value="claude::claude-opus-4-6">Claude · 4.6 Opus</option>
-                      <option value="claude::claude-3-7-sonnet-20250219">Claude · 3.7 Sonnet</option>
-                      <option value="claude::claude-3-5-sonnet-20241022">Claude · 3.5 Sonnet</option>
-                    </optgroup>
-                    <optgroup label="Grok">
-                      <option value="grok::grok-4.3">Grok · 4.3</option>
-                      <option value="grok::grok-2-latest">Grok · 2 Latest</option>
-                    </optgroup>
-                    <optgroup label="DeepSeek">
-                      <option value="deepseek::deepseek-v4-pro">DeepSeek · V4 Pro</option>
-                      <option value="deepseek::deepseek-chat">DeepSeek · Chat</option>
-                    </optgroup>
-                  </select>
-                  <div className="pointer-events-none pr-3 text-zinc-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                  </div>
-                </div>
+                      if (prev.length >= 4) return prev;
+                      return [...prev, providerId];
+                    });
+                  }}
+                />
               )}
 
               <button 
