@@ -162,6 +162,9 @@ contracts:
       - check_odds_quota
       - get_historical_odds
       - ingest_historical_odds
+      - start_odds_backfill
+      - stop_odds_backfill
+      - get_backfill_status
 
   # ═══════════════════════════════════════════════════════════════════════
   # STRIPE & PAYMENTS

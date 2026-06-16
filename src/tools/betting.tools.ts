@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RegisteredTool, ToolContext } from "./types";
+import { startBackfill, stopBackfill, getBackfillStatus } from "../workers/odds-backfill-worker";
 
 // ============================================================================
 // Sports Betting & Live Odds Tools
@@ -416,6 +417,57 @@ export const bettingTools: RegisteredTool<any>[] = [
         ...(errors.length > 0 ? { sampleErrors: errors } : {}),
         _quota: quota
       };
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  START ODDS BACKFILL — Launch background worker
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "start_odds_backfill",
+      description: "Start the background historical odds backfill worker. Walks backward through time fetching snapshots from the Odds API and writing to MlbOddsHistory in Spanner. Quota-aware with automatic pause. Configurable sport, date range, step interval, and snapshot type.",
+      schema: z.object({
+        sport: z.string().optional().describe("Sport key. Default: baseball_mlb"),
+        startDate: z.string().optional().describe("ISO 8601 start date (walks backward from here). Default: now"),
+        endDate: z.string().optional().describe("ISO 8601 end date (stop here). Default: 2025-03-01T00:00:00Z (MLB season start)"),
+        intervalHours: z.number().optional().describe("Hours between snapshots. Default: 12"),
+        snapshotType: z.string().optional().describe("Label for snapshots (e.g., 'open', 'close', 'historical_6h'). Default: 'historical'"),
+        markets: z.string().optional().describe("Comma-separated markets. Default: h2h,spreads,totals"),
+        pauseBetweenMs: z.number().optional().describe("Milliseconds between API calls (rate limiting). Default: 3000"),
+        quotaFloor: z.number().optional().describe("Stop if remaining quota drops below this. Default: 200")
+      })
+    },
+    handler: async (args) => {
+      return startBackfill(args);
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  STOP ODDS BACKFILL — Abort running worker
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "stop_odds_backfill",
+      description: "Stop the running historical odds backfill worker. Safe to call if no worker is running.",
+      schema: z.object({})
+    },
+    handler: async () => {
+      return stopBackfill();
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  GET BACKFILL STATUS — Check worker progress
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_backfill_status",
+      description: "Check the status and progress of the historical odds backfill worker. Returns current date being processed, rows written/skipped, quota remaining, and any errors.",
+      schema: z.object({})
+    },
+    handler: async () => {
+      return getBackfillStatus();
     }
   }
 ];

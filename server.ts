@@ -25,6 +25,7 @@ import { requestTracing } from "./src/middleware/tracing";
 import { logger } from "./src/utils/logger";
 import { closeDatabase } from "./src/db/index";
 import { handleApproval } from "./src/utils/approval";
+import { startBackfill, stopBackfill, getBackfillStatus } from "./src/workers/odds-backfill-worker";
 
 const app = express();
 const PORT = env.PORT;
@@ -77,6 +78,9 @@ app.get("/api/system/status", (_req, res) => {
     tools: {
       count: Object.keys(schemas).length,
       names: Object.keys(schemas),
+    },
+    workers: {
+      oddsBackfill: getBackfillStatus(),
     },
     node: process.version,
     platform: process.platform,
@@ -155,6 +159,21 @@ app.post("/api/mcp/approve", (req, res) => {
   }
 });
 
+// --- Background Workers API ---
+app.post("/api/workers/odds-backfill", (req, res) => {
+  const result = startBackfill(req.body || {});
+  res.json(result);
+});
+
+app.delete("/api/workers/odds-backfill", (_req, res) => {
+  const result = stopBackfill();
+  res.json(result);
+});
+
+app.get("/api/workers/odds-backfill", (_req, res) => {
+  res.json(getBackfillStatus());
+});
+
 async function startServer() {
   // Catch-All 404 Route for API (must be mounted before static files/Vite catch-all)
   app.use("/api", notFoundHandler);
@@ -207,7 +226,11 @@ async function startServer() {
       await httpTerminator.terminate();
       logger.info({ msg: "HTTP server closed, all active requests finished safely." });
 
-      // Step B: Flush Server-Sent Events (SSE) connections explicitly
+      // Step B: Stop background workers
+      stopBackfill();
+      logger.info({ msg: "Background workers stopped." });
+
+      // Step C: Flush Server-Sent Events (SSE) connections explicitly
       if (sseManager && typeof sseManager.shutdown === 'function') {
         sseManager.shutdown();
         logger.info({ msg: "SSE connections flushed and terminated." });
