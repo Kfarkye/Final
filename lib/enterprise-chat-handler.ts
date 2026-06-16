@@ -705,74 +705,85 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     // ═══════════════════════════════════════════════════════════════════
     // DeepSeek Streaming
-    // NOTE: DeepSeek R1 is a reasoning model — it does NOT support
-    // tools/function calling and sends chain-of-thought tokens in
-    // `delta.reasoning_content` instead of `delta.content`.
-    // DeepSeek V3 (deepseek-chat) supports tools via standard OpenAI format.
+    // GROUNDED IN: https://api-docs.deepseek.com/api/create-chat-completion
+    // GROUNDED IN: https://api-docs.deepseek.com/guides/thinking_mode
+    //
+    // Current models: deepseek-v4-pro, deepseek-v4-flash
+    // Thinking mode: { thinking: { type: "enabled" } } with reasoning_effort: "high" | "max"
+    // When thinking is enabled, CoT streams via delta.reasoning_content
+    // Tool calling: works on all models (with or without thinking)
     // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('deepseek') && deps.deepseek) {
       promises.push(streamModel('deepseek', (async () => {
-        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1";
-        const isReasoningModel = selectedDeepseekModel.includes('r1');
+        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-v4-pro";
+        // V4 models all support thinking natively — no more R1 vs chat split
+        const isThinkingModel = selectedDeepseekModel.includes('v4') || selectedDeepseekModel.includes('r1');
 
         const msgs: any[] = [];
-        if (systemPrompt && !isReasoningModel) {
-          // R1 doesn't support system messages — inject as user context instead
+        // V4 supports system messages in both thinking and non-thinking mode
+        if (systemPrompt) {
           msgs.push({ role: "system", content: systemPrompt });
         }
         if (mode === 'shared' && history) msgs.push(...history);
-
-        // For R1, prepend system context into the user message
-        const userContent = isReasoningModel && systemPrompt
-          ? `[Context: ${systemPrompt}]\n\n${governedPrompt}`
-          : governedPrompt;
-        msgs.push({ role: "user", content: userContent });
+        msgs.push({ role: "user", content: governedPrompt });
         
-        // Only build tool declarations for non-reasoning models
+        // Build tool declarations — V4 supports tools with thinking enabled
         const deepseekTools: any[] = [];
-        if (!isReasoningModel) {
-          for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
-            deepseekTools.push({
-              type: "function",
-              function: {
-                name: canonical.name,
-                description: canonical.description,
-                parameters: {
-                  type: "object",
-                  properties: canonical.properties || {},
-                  required: canonical.required || []
-                }
+        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+          deepseekTools.push({
+            type: "function",
+            function: {
+              name: canonical.name,
+              description: canonical.description,
+              parameters: {
+                type: "object",
+                properties: canonical.properties || {},
+                required: canonical.required || []
               }
-            });
-          }
+            }
+          });
+        }
 
-          // Register workspace tools for DeepSeek (V3 only)
-          if (deps.workspaceDecls) {
-            deps.workspaceDecls.forEach((d: any) => {
-              if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
-                deepseekTools.push({
-                  type: "function",
-                  function: {
-                    name: d.name,
-                    description: d.description,
-                    parameters: lowercaseSchemaTypes(d.parameters)
-                  }
-                });
-              }
-            });
-          }
+        // Register workspace tools
+        if (deps.workspaceDecls) {
+          deps.workspaceDecls.forEach((d: any) => {
+            if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
+              deepseekTools.push({
+                type: "function",
+                function: {
+                  name: d.name,
+                  description: d.description,
+                  parameters: lowercaseSchemaTypes(d.parameters)
+                }
+              });
+            }
+          });
         }
 
         let currentMessages = [...msgs];
         let runCount = 0;
 
         while (runCount < 3 && !signal.aborted) {
-          const stream = await deps.deepseek.chat.completions.create({
+          // Per official docs: thinking and reasoning_effort are top-level params
+          // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
+          const createParams: any = {
             model: selectedDeepseekModel,
             messages: currentMessages,
             tools: deepseekTools.length > 0 ? deepseekTools : undefined,
-            stream: true
-          }, { signal });
+            stream: true,
+          };
+
+          // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
+          if (isThinkingModel) {
+            // reasoning_effort: "high" (default) or "max" (for complex agentic tasks)
+            createParams.reasoning_effort = "high";
+            // thinking toggle — must be in extra_body for OpenAI SDK
+            // But the OpenAI Node SDK passes unknown top-level keys through,
+            // so we set it directly per DeepSeek's docs
+            createParams.thinking = { type: "enabled" };
+          }
+
+          const stream = await deps.deepseek.chat.completions.create(createParams, { signal });
 
           let toolCalls: any = {};
           let hasContent = false;
@@ -783,14 +794,15 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
-            // DeepSeek R1 streams chain-of-thought in reasoning_content
+            // DeepSeek streams chain-of-thought in reasoning_content
+            // Per docs: "the chain-of-thought content is returned via the reasoning_content parameter"
             if ((delta as any).reasoning_content) {
               const reasoning = (delta as any).reasoning_content;
               reasoningBuffer += reasoning;
               sendSse('message', { model: 'deepseek', chunk: reasoning });
             }
 
-            // Standard content (final answer for R1, or full response for V3)
+            // Standard content (final answer after reasoning, or full response if thinking disabled)
             if (delta.content) {
               // If we were streaming reasoning, insert a separator before the final answer
               if (reasoningBuffer && !hasContent) {
@@ -801,7 +813,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
               sendSse('message', { model: 'deepseek', chunk: delta.content });
             }
 
-            // Tool calls (V3 only — R1 never emits these)
+            // Tool calls — V4 supports these even with thinking enabled
             if (delta.tool_calls) {
               for (const tc of delta.tool_calls) {
                 if (!toolCalls[tc.index]) {

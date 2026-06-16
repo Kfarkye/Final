@@ -41,7 +41,7 @@ export default function SettingsDialog({
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini', 'gpt-5.5-2026-04-23'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-opus-4-8', 'claude-opus-4-6'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-2-latest', 'grok-beta', 'grok-4.3'].includes(modelConfigs.grok));
-  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-r1', 'deepseek-v3'].includes(modelConfigs.deepseek));
+  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-r1'].includes(modelConfigs.deepseek));
 
   const handleSave = async () => {
     if (!currentUser) return;
@@ -299,7 +299,7 @@ export default function SettingsDialog({
                   value={configs.deepseek}
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
                   className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
-                  placeholder="e.g. deepseek-chat"
+                  placeholder="e.g. deepseek-v4-pro"
                 />
               ) : (
                 <select 
@@ -307,8 +307,9 @@ export default function SettingsDialog({
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
-                  <option value="deepseek-r1">DeepSeek-R1 (Reasoning)</option>
-                  <option value="deepseek-v3">DeepSeek-V3 (Chat)</option>
+                  <option value="deepseek-v4-pro">DeepSeek V4 Pro (Reasoning)</option>
+                  <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
+                  <option value="deepseek-r1">DeepSeek-R1 (Legacy)</option>
                 </select>
               )}
             </div>

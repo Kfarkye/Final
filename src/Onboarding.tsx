@@ -123,7 +123,7 @@ export default function Onboarding() {
                 { id: 'chatgpt', name: 'GPT 5.5' },
                 { id: 'claude', name: 'Claude 4.8 Opus' },
                 { id: 'grok', name: 'Grok 4.3' },
-                { id: 'deepseek', name: 'DeepSeek-R1' }
+                { id: 'deepseek', name: 'DeepSeek V4 Pro' }
               ].map(model => (
                 <button
                   key={model.id}
