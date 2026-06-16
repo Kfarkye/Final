@@ -150,7 +150,24 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
     const baseSystemPrompt = topic && topic !== "Normal" ? `You are a highly capable AI assistant specializing in ${topic}. Provide accurate, objective, and insightful information.` : 'You are a highly capable AI assistant. Provide accurate, objective, and insightful information.';
-    const systemPrompt = toolCatalog ? `${baseSystemPrompt}\n\n${toolCatalog}` : baseSystemPrompt;
+
+    // ── HTML Artifact Output Contract ──
+    // Ensures all models render artifacts inline (triggers SecureIframe + Deploy button)
+    const artifactContract = `
+
+<artifact_rendering_contract>
+CRITICAL OUTPUT RULE — HTML ARTIFACTS:
+When you create, generate, or produce any HTML content (dashboards, pages, tools, visualizations, artifacts, UIs, etc.):
+1. ALWAYS output the complete HTML inside a fenced code block with the "html" language tag: \`\`\`html
+2. NEVER just describe the artifact or say "here's what I would create" — actually produce the full HTML.
+3. The HTML will be rendered as a live interactive preview in the chat with a Deploy button the user can click.
+4. Include <!DOCTYPE html> and complete <html><head><body> structure.
+5. Use the Truth Design System CSS classes when available (.t-card, .t-grid, .t-badge, etc.).
+6. Fetch live data from same-origin APIs (GET /api/system/status, GET /api/debug/tools, GET /healthz) instead of hardcoding mock data.
+This is non-negotiable. Every HTML artifact MUST be rendered inline as a code block so the user can preview and deploy it.
+</artifact_rendering_contract>`;
+
+    const systemPrompt = toolCatalog ? `${baseSystemPrompt}${artifactContract}\n\n${toolCatalog}` : `${baseSystemPrompt}${artifactContract}`;
 
     // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
