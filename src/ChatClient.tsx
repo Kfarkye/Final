@@ -977,20 +977,45 @@ export default function ChatClient() {
               {mode === 'shared' && (
                 <div className="bg-zinc-800 rounded-full p-1 border border-white/10 mr-1 flex items-center">
                   <select 
-                    value={sharedModel} 
+                    value={`${sharedModel}::${modelConfigs[sharedModel as keyof ModelConfigs] || ''}`}
                     onChange={(e) => {
-                      const newModel = e.target.value;
-                      setSharedModel(newModel);
-                      logAuditAction(currentUser, 'SWITCH_MODEL', { newModel, previousModel: sharedModel });
+                      const [provider, version] = e.target.value.split('::');
+                      setSharedModel(provider);
+                      if (version) {
+                        setModelConfigs(prev => ({ ...prev, [provider]: version }));
+                      }
+                      logAuditAction(currentUser, 'SWITCH_MODEL', { newModel: provider, version, previousModel: sharedModel });
                     }}
                     className="bg-transparent text-white text-xs pl-3 pr-2 py-1 outline-none appearance-none cursor-pointer font-medium tracking-wide"
-                    title="Switch LLM for this prompt"
+                    title="Switch LLM model + version"
                   >
-                    <option value="gemini">Gemini</option>
-                    <option value="chatgpt">ChatGPT</option>
-                    <option value="claude">Claude</option>
-                    <option value="grok">Grok</option>
-                    <option value="deepseek">DeepSeek</option>
+                    <optgroup label="Gemini">
+                      <option value="gemini::gemini-3.5-flash">Gemini · 3.5 Flash</option>
+                      <option value="gemini::gemini-3.1-pro-preview">Gemini · 3.1 Pro</option>
+                      <option value="gemini::gemini-3.1-pre-preview">Gemini · Deep Think</option>
+                      <option value="gemini::gemini-3.1-pro-preview-next">Gemini · Deep Think Next</option>
+                      <option value="gemini::gemini-3.1-flash-lite">Gemini · 3.1 Lite</option>
+                    </optgroup>
+                    <optgroup label="ChatGPT">
+                      <option value="chatgpt::gpt-5.5-2026-04-23">ChatGPT · 5.5</option>
+                      <option value="chatgpt::gpt-4o">ChatGPT · GPT-4o</option>
+                      <option value="chatgpt::o1">ChatGPT · o1</option>
+                      <option value="chatgpt::o3-mini">ChatGPT · o3-mini</option>
+                    </optgroup>
+                    <optgroup label="Claude">
+                      <option value="claude::claude-opus-4-8">Claude · 4.8 Opus</option>
+                      <option value="claude::claude-opus-4-6">Claude · 4.6 Opus</option>
+                      <option value="claude::claude-3-7-sonnet-20250219">Claude · 3.7 Sonnet</option>
+                      <option value="claude::claude-3-5-sonnet-20241022">Claude · 3.5 Sonnet</option>
+                    </optgroup>
+                    <optgroup label="Grok">
+                      <option value="grok::grok-4.3">Grok · 4.3</option>
+                      <option value="grok::grok-2-latest">Grok · 2 Latest</option>
+                    </optgroup>
+                    <optgroup label="DeepSeek">
+                      <option value="deepseek::deepseek-v4-pro">DeepSeek · V4 Pro</option>
+                      <option value="deepseek::deepseek-chat">DeepSeek · Chat</option>
+                    </optgroup>
                   </select>
                   <div className="pointer-events-none pr-3 text-zinc-400">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
