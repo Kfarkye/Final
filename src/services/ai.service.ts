@@ -29,7 +29,9 @@ export const anthropic = env.ANTHROPIC_API_KEY
   : null;
 
 // Vertex AI MaaS base URL — used for Grok and DeepSeek partner models
-const VERTEX_MAAS_BASE_URL = `https://${env.GCP_LOCATION}-aiplatform.googleapis.com/v1/projects/${env.GCP_PROJECT_ID}/locations/${env.GCP_LOCATION}/endpoints/openapi`;
+// NOTE: Must use a real region (us-central1), NOT 'global' — the OpenAI-compat endpoint requires it
+const VERTEX_MAAS_REGION = 'us-central1';
+const VERTEX_MAAS_BASE_URL = `https://${VERTEX_MAAS_REGION}-aiplatform.googleapis.com/v1/projects/${env.GCP_PROJECT_ID}/locations/${VERTEX_MAAS_REGION}/endpoints/openapi`;
 
 // Grok: prefer Vertex AI MaaS (Google auth), fallback to direct xAI API
 export const xai = env.XAI_API_KEY 
