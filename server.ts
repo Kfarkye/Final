@@ -737,7 +737,7 @@ app.get("/api/edge/game/:gamePk", async (req, res) => {
       sql: `
         SELECT Book, Market, Side, Price, Point, CapturedAt
         FROM OddsSnapshot
-        WHERE GamePk = @gamePk
+        WHERE GamePk = @gamePk AND Price IS NOT NULL
         ORDER BY CapturedAt DESC
         LIMIT 20
       `,
