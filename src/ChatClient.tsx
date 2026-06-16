@@ -448,6 +448,7 @@ export default function ChatClient() {
       if (version === 'claude-3-5-sonnet-20241022') return 'Claude 3.5 Sonnet';
       if (version === 'claude-3-opus-20240229') return 'Claude 3 Opus';
       if (version === 'claude-opus-4-8') return 'Claude 4.8 Opus';
+      if (version === 'claude-opus-4-6') return 'Claude 4.6 Opus';
       return `Claude (${version})`;
     }
     if (id === 'grok') {
