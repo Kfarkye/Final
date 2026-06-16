@@ -8,6 +8,8 @@ import { mcpTools } from './mcp.tools';
 import { gcpTools } from './gcp.tools';
 import { artifactTools } from './artifact.tools';
 import { bettingTools } from './betting.tools';
+import { espnTools } from './espn.tools';
+import { mlbTools } from './mlb.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -19,7 +21,10 @@ toolRegistry.registerMany([
   ...mcpTools,
   ...gcpTools,
   ...artifactTools,
-  ...bettingTools
+  ...bettingTools,
+  ...espnTools,
+  ...mlbTools,
 ]);
 
 export { toolRegistry };
+
