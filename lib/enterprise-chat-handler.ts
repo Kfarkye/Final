@@ -638,7 +638,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
           for await (const chunk of stream) {
             if (signal.aborted) break;
-            const delta = chunk.choices[0]?.delta;
+            const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
             if (delta.content) {
