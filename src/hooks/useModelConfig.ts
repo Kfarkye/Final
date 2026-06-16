@@ -41,6 +41,7 @@ export const MODEL_REGISTRY: ModelProvider[] = [
       { id: 'gemini-3.1-pro-preview', label: '3.1 Pro', hint: 'balanced' },
       { id: 'gemini-3.1-pre-preview', label: 'Deep Think', hint: 'reasoning' },
       { id: 'gemini-3.1-pro-preview-next', label: 'Deep Think Next', hint: 'reasoning' },
+      { id: 'gemini-3.1-flash-lite', label: '3.1 Flash Lite', hint: 'fast' },
     ],
   },
   {
