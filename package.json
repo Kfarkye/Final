@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
+    "@codesandbox/sandpack-react": "^2.20.0",
     "@google-cloud/spanner": "^8.7.1",
     "@google/genai": "^1.29.0",
     "@linear/sdk": "^86.0.0",
