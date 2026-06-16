@@ -167,7 +167,7 @@ export default function SettingsDialog({
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
                   <option value="gemini-3.5-flash">Gemini 3.5 Flash (Standard)</option>
-                  <option value="gemini-3.1-pre-preview">⚡ Gemini 3.1 Pre-Preview (Cutting Edge)</option>
+                  <option value="gemini-3.1-pre-preview">Gemini 3.1 Pre-Preview (Deep Think)</option>
                   <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Reasoning)</option>
                   <option value="gemini-3.1-pro-preview-next">Gemini 3.1 Pro Preview Next (Deep Think)</option>
                   <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>

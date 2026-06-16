@@ -431,7 +431,7 @@ export default function ChatClient() {
       if (version === 'gemini-3.5-flash') return 'Gemini 3.5 Flash';
       if (version === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro';
       if (version === 'gemini-3.1-pro-preview-next') return 'Gemini 3.1 Pro Preview Next (Deep Think)';
-      if (version === 'gemini-3.1-pre-preview') return '⚡ Gemini 3.1 Pre-Preview';
+      if (version === 'gemini-3.1-pre-preview') return 'Gemini 3.1 Pre-Preview (Deep Think)';
       if (version === 'gemini-3.1-flash-lite') return 'Gemini 3.1 Lite';
       return `Gemini (${version})`;
     }

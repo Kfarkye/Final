@@ -217,9 +217,27 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         if (selectedGeminiModel === "gemini-3.1-pre-preview") {
           geminiConfig = geminiConfig || {};
           geminiConfig.thinkingConfig = {
-            thinkingLevel: 'MEDIUM',
+            thinkingLevel: 'MAX',
             includeThoughts: true
           };
+          // Inject self-audit directive: the model must review its own reasoning
+          // and verify correctness before presenting any output to the user.
+          const auditDirective = [
+            "DEEP THINK PROTOCOL — MANDATORY SELF-AUDIT",
+            "Before presenting ANY output to the user, you MUST:",
+            "1. Re-read your entire chain of reasoning from start to finish.",
+            "2. Identify any logical gaps, unsupported assumptions, or factual errors.",
+            "3. Verify that every claim is grounded in the data or tools available to you.",
+            "4. If you used tool results, confirm the tool output actually supports your conclusion.",
+            "5. Check for contradictions between different parts of your response.",
+            "6. If you find errors during this audit, correct them before responding.",
+            "7. Present your final, audited answer with confidence.",
+            "Do NOT skip this self-audit step. Quality over speed."
+          ].join("\n");
+          const existingInstruction = geminiConfig.systemInstruction || "";
+          geminiConfig.systemInstruction = existingInstruction
+            ? `${auditDirective}\n\n---\n\n${existingInstruction}`
+            : auditDirective;
         }
 
         let runCount = 0;
