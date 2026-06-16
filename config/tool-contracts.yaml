@@ -306,3 +306,42 @@ contracts:
       - create_html_artifact
       - deploy_html_artifact
       - list_html_artifacts
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MODEL REGISTRY (Spanner-backed canonical model data)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: model-registry
+    name: Model Registry
+    keywords:
+      - model
+      - models
+      - registry
+      - provider
+      - gemini
+      - claude
+      - gpt
+      - grok
+      - deepseek
+      - anthropic
+      - openai
+      - xai
+      - vertex
+      - context window
+      - token limit
+      - capabilities
+      - routing
+      - validate model
+      - model id
+      - model availability
+      - endpoint
+      - maas
+      - which model
+      - compare models
+    tools:
+      - list_models
+      - get_model
+      - search_models
+      - get_model_sources
+      - get_model_capabilities
+      - validate_model
+      - resolve_model_alias
