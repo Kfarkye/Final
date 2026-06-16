@@ -300,7 +300,7 @@ function ArtifactInner({
                 flex: '0 0 48px',
                 fontWeight: 700,
                 fontSize: '10px',
-                color: entry.verdict === 'ask' ? '#7df2ff' : entry.verdict === 'ok' ? '#5eead4' : '#ff8a9b',
+                color: entry.verdict === 'ask' ? '#7df2ff' : entry.verdict === 'ok' ? '#5eead4' : entry.verdict === 'push' ? '#c6a3ff' : '#ff8a9b',
               }}>
                 {entry.verdict.toUpperCase()}
               </span>
@@ -308,6 +308,7 @@ function ArtifactInner({
                 {entry.verdict === 'ask' && <>artifact → <em style={{ color: '#7e879d' }}>{entry.action}</em> {entry.payload ? JSON.stringify(entry.payload) : ''}</>}
                 {entry.verdict === 'ok' && <>gate → granted <em style={{ color: '#7e879d' }}>{entry.action}</em> → {JSON.stringify(entry.data)}</>}
                 {entry.verdict === 'deny' && <>gate → DENIED <em style={{ color: '#7e879d' }}>{entry.action}</em> — {entry.error}</>}
+                {entry.verdict === 'push' && <>parent → pushed <em style={{ color: '#c6a3ff' }}>{entry.action}</em> → {JSON.stringify(entry.data)}</>}
               </span>
             </div>
           ))}

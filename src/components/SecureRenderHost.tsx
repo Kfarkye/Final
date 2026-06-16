@@ -7,17 +7,23 @@
  * 3. Curated libraries only (the capability surface you control)
  * 4. postMessage protocol — the ONLY channel between worlds
  *
- * BRIDGE INVARIANTS (Step 2):
+ * BRIDGE INVARIANTS:
  * 1. Origin validation — messages must match protocol shape + tag
  * 2. Typed request/response protocol — malformed messages dropped silently
  * 3. Explicit allowlist of actions — unknown action = denied, always
  * 4. Artifact never gets raw anything — no URLs, tokens, cookies, fetch
  *
+ * DATA LIFECYCLE (three levels):
+ * Level 1 — Polling: artifact re-asks on a timer via bridge.request()
+ * Level 2 — Push: artifact subscribes, parent pushes when data changes
+ * Level 3 — Streaming: same as push, higher cadence (live odds, etc.)
+ *
  * > The artifact never touches the network. It touches the bridge.
  * > The bridge touches the network — on the artifact's behalf, under the parent's rules.
+ * > Grow the menu, never lower the walls.
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 
 // ── Protocol ────────────────────────────────────────────────────────────
 
@@ -35,9 +41,16 @@ export interface GateLogEntry {
   timestamp: number;
   action: string;
   payload?: any;
-  verdict: 'ask' | 'ok' | 'deny';
+  verdict: 'ask' | 'ok' | 'deny' | 'push';
   data?: any;
   error?: string;
+}
+
+/** Methods exposed to the parent for pushing data into the frame */
+export interface SecureRenderHostHandle {
+  /** Push data to the frame on a named channel. The artifact receives
+   *  it via bridge.subscribe(channel, callback). connect-src stays 'none'. */
+  pushToFrame: (channel: string, data: any) => void;
 }
 
 interface SecureRenderHostProps {
@@ -83,10 +96,13 @@ ${html}
 <script>
 /* ── BRIDGE CLIENT (untrusted side) ──
    The ONLY way out. The artifact calls bridge.request(action, payload)
-   and gets a Promise. It NEVER sees a URL, a token, a cookie, or fetch. */
+   and gets a Promise. It NEVER sees a URL, a token, a cookie, or fetch.
+   For live data: bridge.subscribe(channel, callback) receives parent pushes. */
 var PROTO = ${JSON.stringify(PROTO)};
 var _pending = {};
+var _subscribers = {};  /* channel → [callback, ...] */
 var bridge = {
+  /* Level 1+2: one-shot request → Promise */
   request: function(action, payload) {
     return new Promise(function(resolve, reject) {
       var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -105,15 +121,35 @@ var bridge = {
         }
       }, 8000);
     });
+  },
+  /* Level 2+3: subscribe to parent-pushed data on a named channel.
+     Returns an unsubscribe function. The artifact receives live updates
+     without any network access — the parent pushes through postMessage. */
+  subscribe: function(channel, callback) {
+    if (!_subscribers[channel]) _subscribers[channel] = [];
+    _subscribers[channel].push(callback);
+    return function() {
+      _subscribers[channel] = (_subscribers[channel] || []).filter(function(cb) { return cb !== callback; });
+    };
   }
 };
 window.addEventListener('message', function(e) {
   var m = e.data;
-  if (!m || m.__bridge_v1 !== true || m.kind !== 'response') return;
-  var p = _pending[m.id];
-  if (!p) return;
-  delete _pending[m.id];
-  if (m.ok) { p.resolve(m.data); } else { p.reject(new Error(m.error || 'bridge error')); }
+  if (!m || m.__bridge_v1 !== true) return;
+  /* Handle responses to bridge.request() */
+  if (m.kind === 'response') {
+    var p = _pending[m.id];
+    if (!p) return;
+    delete _pending[m.id];
+    if (m.ok) { p.resolve(m.data); } else { p.reject(new Error(m.error || 'bridge error')); }
+  }
+  /* Handle parent-pushed data (Level 2+3) */
+  if (m.kind === 'push' && m.channel) {
+    var subs = _subscribers[m.channel] || [];
+    for (var i = 0; i < subs.length; i++) {
+      try { subs[i](m.data); } catch(err) { console.error('[bridge.subscribe]', err); }
+    }
+  }
 });
 
 /* ── Status reporting ── */
@@ -151,18 +187,35 @@ const DEFAULT_GATE: Record<string, GateHandler> = {
 
 // ── The Component ───────────────────────────────────────────────────────
 
-export function SecureRenderHost({
-  html,
-  height = 480,
-  gate,
-  onGateLog,
-  onError,
-  onRender,
-}: SecureRenderHostProps) {
+export const SecureRenderHost = forwardRef<SecureRenderHostHandle, SecureRenderHostProps>(
+  function SecureRenderHost({
+    html,
+    height = 480,
+    gate,
+    onGateLog,
+    onError,
+    onRender,
+  }, ref) {
   const [state, setState] = useState<HostState>('ready');
   const [errorMsg, setErrorMsg] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bridgeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Expose pushToFrame to parent components via ref
+  useImperativeHandle(ref, () => ({
+    pushToFrame(channel: string, data: any) {
+      if (!iframeRef.current?.contentWindow) return;
+      const msg = { [PROTO]: true, kind: 'push', channel, data };
+      // prod: use targetOrigin = SANDBOX_ORIGIN, not '*'
+      iframeRef.current.contentWindow.postMessage(msg, '*');
+      onGateLog?.({
+        timestamp: Date.now(),
+        action: `push:${channel}`,
+        verdict: 'push',
+        data,
+      });
+    },
+  }), [onGateLog]);
 
   // Merge default gate with custom gate (custom overrides default)
   const resolvedGate = { ...DEFAULT_GATE, ...(gate || {}) };
@@ -556,4 +609,4 @@ export function SecureRenderHost({
       </div>
     </div>
   );
-}
+});
