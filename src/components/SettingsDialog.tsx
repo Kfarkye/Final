@@ -38,7 +38,7 @@ export default function SettingsDialog({
 
   // Custom input toggles or inputs
   const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
-  const [chatgptCustom, setChatgptCustom] = useState(!['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini', 'gpt-5.5-2026-04-23'].includes(modelConfigs.chatgpt));
+  const [chatgptCustom, setChatgptCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-opus-4-8', 'claude-opus-4-6'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-2-latest', 'grok-beta', 'grok-4.3'].includes(modelConfigs.grok));
   const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-r1'].includes(modelConfigs.deepseek));
@@ -207,11 +207,10 @@ export default function SettingsDialog({
                   onChange={(e) => handleModelChange('chatgpt', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
-                  <option value="gpt-5.5-2026-04-23">GPT 5.5 (First Choice)</option>
-                  <option value="gpt-4o">GPT-4o (Standard)</option>
-                  <option value="gpt-4o-mini">GPT-4o mini</option>
-                  <option value="o1">o1</option>
-                  <option value="o3-mini">o3-mini</option>
+                  <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
+                  <option value="gpt-5.4">GPT-5.4 (Strong)</option>
+                  <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast)</option>
+                  <option value="gpt-5.4-nano">GPT-5.4 Nano (Cheapest)</option>
                 </select>
               )}
             </div>

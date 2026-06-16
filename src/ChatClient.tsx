@@ -81,7 +81,7 @@ export default function ChatClient() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [modelConfigs, setModelConfigs] = useState<ModelConfigs>({
     gemini: 'gemini-3.5-flash',
-    chatgpt: 'gpt-5.5-2026-04-23',
+    chatgpt: 'gpt-5.5',
     claude: 'claude-opus-4-8',
     grok: 'grok-4.3',
     deepseek: 'deepseek-v4-pro',
@@ -439,11 +439,10 @@ export default function ChatClient() {
       return `Gemini (${version})`;
     }
     if (id === 'chatgpt') {
-      if (version === 'gpt-5.5-2026-04-23') return 'ChatGPT 5.5';
-      if (version === 'gpt-4o') return 'ChatGPT (GPT-4o)';
-      if (version === 'gpt-4o-mini') return 'GPT-4o Mini';
-      if (version === 'o1') return 'ChatGPT o1';
-      if (version === 'o3-mini') return 'ChatGPT o3-mini';
+      if (version === 'gpt-5.5') return 'ChatGPT 5.5';
+      if (version === 'gpt-5.4') return 'ChatGPT 5.4';
+      if (version === 'gpt-5.4-mini') return 'ChatGPT 5.4 Mini';
+      if (version === 'gpt-5.4-nano') return 'ChatGPT 5.4 Nano';
       return `ChatGPT (${version})`;
     }
     if (id === 'claude') {

@@ -49,10 +49,10 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     name: 'ChatGPT',
     accent: '#10A37F',
     versions: [
-      { id: 'gpt-5.5-2026-04-23', label: '5.5', hint: 'balanced' },
-      { id: 'gpt-4o', label: 'GPT-4o', hint: 'fast' },
-      { id: 'o1', label: 'o1', hint: 'reasoning' },
-      { id: 'o3-mini', label: 'o3-mini', hint: 'fast' },
+      { id: 'gpt-5.5', label: 'GPT-5.5', hint: 'reasoning' },
+      { id: 'gpt-5.4', label: 'GPT-5.4', hint: 'balanced' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', hint: 'fast' },
+      { id: 'gpt-5.4-nano', label: 'GPT-5.4 nano', hint: 'fast' },
     ],
   },
   {
