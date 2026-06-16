@@ -44,21 +44,92 @@ export function SecureIframe({
       if (e.data?.type === 'resize_html' && e.data?.height) {
         setIframeHeight(Math.max(200, Math.min(e.data.height + 20, expanded ? 2400 : 700)));
       }
+
+      // ── Fetch Proxy Handler ──
+      // When the iframe sends a fetch_proxy request, we perform the actual fetch
+      // from the parent context (same-origin) and send the result back.
+      if (e.data?.type === 'fetch_proxy' && e.data?.requestId && iframeRef.current?.contentWindow) {
+        const { requestId, url, method, headers, body } = e.data;
+        fetch(url, { method, headers, body: body || undefined })
+          .then(async (res) => {
+            const responseBody = await res.json().catch(() => ({}));
+            iframeRef.current?.contentWindow?.postMessage({
+              type: 'fetch_proxy_response',
+              requestId,
+              status: res.status,
+              body: responseBody,
+            }, '*');
+          })
+          .catch((err) => {
+            iframeRef.current?.contentWindow?.postMessage({
+              type: 'fetch_proxy_response',
+              requestId,
+              error: err.message,
+            }, '*');
+          });
+      }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [expanded]);
 
-  // Inject resize observer into srcDoc
+  // Inject resize observer + fetch bridge into srcDoc
+  // srcDoc iframes have an opaque (null) origin, so fetch('/api/...') always fails.
+  // This bridge lets the iframe call window.parent.postMessage({ type: 'fetch_proxy', ... })
+  // and the parent (which IS same-origin) performs the actual fetch and sends the result back.
   const enhancedSrcDoc = srcDoc ? srcDoc.replace(
     '</body>',
     `<script>
+      // ── Resize Observer ──
       if (window.ResizeObserver) {
         new ResizeObserver(function() {
           window.parent.postMessage({ type: 'resize_html', height: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) }, '*');
         }).observe(document.body);
       }
       window.parent.postMessage({ type: 'resize_html', height: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) }, '*');
+
+      // ── Fetch Proxy Bridge ──
+      // Overrides window.fetch so that relative URL calls (e.g. fetch('/api/models'))
+      // are forwarded to the parent window, which performs the real fetch.
+      (function() {
+        var _nativeFetch = window.fetch;
+        var _pendingRequests = {};
+        var _requestId = 0;
+
+        window.addEventListener('message', function(e) {
+          if (e.data && e.data.type === 'fetch_proxy_response' && _pendingRequests[e.data.requestId]) {
+            var pending = _pendingRequests[e.data.requestId];
+            delete _pendingRequests[e.data.requestId];
+            if (e.data.error) {
+              pending.reject(new Error(e.data.error));
+            } else {
+              pending.resolve(new Response(JSON.stringify(e.data.body), {
+                status: e.data.status || 200,
+                headers: { 'Content-Type': 'application/json' }
+              }));
+            }
+          }
+        });
+
+        window.fetch = function(url, opts) {
+          // Only proxy relative URLs and same-origin API calls
+          if (typeof url === 'string' && (url.startsWith('/') || url.startsWith(window.location.origin))) {
+            var id = ++_requestId;
+            return new Promise(function(resolve, reject) {
+              _pendingRequests[id] = { resolve: resolve, reject: reject };
+              window.parent.postMessage({
+                type: 'fetch_proxy',
+                requestId: id,
+                url: url,
+                method: (opts && opts.method) || 'GET',
+                headers: (opts && opts.headers) || {},
+                body: (opts && opts.body) || null
+              }, '*');
+            });
+          }
+          return _nativeFetch.apply(this, arguments);
+        };
+      })();
     </script></body>`
   ) : undefined;
 
