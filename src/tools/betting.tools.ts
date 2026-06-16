@@ -542,6 +542,7 @@ export const bettingTools: RegisteredTool<any>[] = [
 
       return {
         gamePk,
+        sourceMode: "live",
         computedAt: resultObj.computedAt || new Date().toISOString(),
         compositeEdge: resultObj.compositeEdge || 0,
         edgeSide: resultObj.edgeSide || "none",

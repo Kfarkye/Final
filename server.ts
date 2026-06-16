@@ -746,6 +746,7 @@ app.get("/api/edge/game/:gamePk", async (req, res) => {
 
     res.json({
       gamePk,
+      sourceMode: "live",
       computedAt: edgeState.ComputedAt,
       compositeEdge: stateJson.compositeEdge || 0,
       edgeSide: stateJson.edgeSide || "none",
