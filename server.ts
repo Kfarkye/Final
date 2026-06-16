@@ -135,6 +135,43 @@ app.get("/api/artifacts", async (_req, res) => {
   }
 });
 
+// --- Serverless Deploy (user-facing button) ---
+app.post("/api/deploy-html", async (req, res) => {
+  try {
+    const { html, title } = req.body;
+    if (!html || typeof html !== "string") {
+      res.status(400).json({ error: "html field is required." });
+      return;
+    }
+    if (html.length > 2 * 1024 * 1024) {
+      res.status(413).json({ error: "HTML content exceeds 2MB limit." });
+      return;
+    }
+
+    const cleanTitle = (title || "artifact")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .slice(0, 60);
+    const timestamp = Date.now().toString(36);
+    const objectName = `${ARTIFACT_PREFIX}/${cleanTitle}-${timestamp}.html`;
+
+    await callGcpMcpTool(STORAGE_MCP_URL, "write_text", {
+      bucketName: ARTIFACT_BUCKET,
+      objectName,
+      textContent: html,
+    });
+
+    const publicUrl = `https://storage.googleapis.com/${ARTIFACT_BUCKET}/${encodeURIComponent(objectName)}`;
+    logger.info({ msg: "HTML artifact deployed", objectName, publicUrl });
+    res.json({ url: publicUrl, objectName });
+  } catch (err: any) {
+    logger.error({ msg: "Deploy failed", err: err.message });
+    res.status(500).json({ error: `Deploy failed: ${err.message}` });
+  }
+});
+
 // --- Git Workspace Routes ---
 app.post("/api/git/provision", gitController.provisionWorkspace);
 app.get("/api/git/tree", gitController.getFileTree);

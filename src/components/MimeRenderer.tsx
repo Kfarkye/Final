@@ -1,4 +1,4 @@
-import React, { useMemo, memo } from 'react';
+import React, { useMemo, memo, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -12,6 +12,130 @@ interface MimeRendererProps {
 }
 
 const DEFAULT_SANDBOX: string[] = ['allow-scripts', 'allow-forms', 'allow-popups'];
+
+// ── HTML Artifact Block with Deploy Button ──────────────────────────────
+// Stateful wrapper for HTML artifacts rendered in chat.
+// Deploy button calls POST /api/deploy-html → uploads to GCS → returns public URL.
+// UX: idle (🚀 Deploy) → deploying (spinner) → deployed (🌐 Open Page link)
+
+type DeployState = 'idle' | 'deploying' | 'deployed' | 'error';
+
+function HtmlArtifactBlock({ codeContent, props, first }: {
+  codeContent: string;
+  props: any;
+  first: React.ReactElement;
+}) {
+  const [deployState, setDeployState] = useState<DeployState>('idle');
+  const [deployUrl, setDeployUrl] = useState<string | null>(null);
+
+  const handleDeploy = useCallback(async () => {
+    setDeployState('deploying');
+    try {
+      const titleMatch = codeContent.match(/<title>(.*?)<\/title>/i);
+      const title = titleMatch ? titleMatch[1] : 'artifact';
+
+      const response = await fetch('/api/deploy-html', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ html: codeContent, title }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Deploy failed: ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      setDeployUrl(url);
+      setDeployState('deployed');
+    } catch (err: any) {
+      console.error('[Deploy] Failed:', err);
+      setDeployState('error');
+      setTimeout(() => setDeployState('idle'), 3000);
+    }
+  }, [codeContent]);
+
+  const deployAction = (() => {
+    if (deployState === 'deployed' && deployUrl) {
+      return {
+        label: 'Open Page',
+        icon: '🌐',
+        onClick: () => window.open(deployUrl, '_blank'),
+      };
+    }
+    if (deployState === 'deploying') {
+      return {
+        label: 'Deploying…',
+        icon: '⏳',
+        onClick: () => {},
+      };
+    }
+    if (deployState === 'error') {
+      return {
+        label: 'Failed',
+        icon: '⚠️',
+        onClick: () => handleDeploy(),
+      };
+    }
+    return {
+      label: 'Deploy',
+      icon: '🚀',
+      onClick: handleDeploy,
+    };
+  })();
+
+  const htmlActions = [
+    deployAction,
+    {
+      label: 'Copy',
+      icon: '📋',
+      onClick: () => { navigator.clipboard.writeText(codeContent); },
+    },
+    {
+      label: 'Download',
+      icon: '⬇️',
+      onClick: () => {
+        const blob = new Blob([codeContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'artifact.html';
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+    },
+    {
+      label: 'Source',
+      icon: '🔍',
+      onClick: () => {
+        const pre = document.getElementById(`html-source-${codeContent.length}`);
+        if (pre) pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+      },
+    },
+  ];
+
+  return (
+    <div className="space-y-2 my-5">
+      <SecureIframe
+        srcDoc={codeContent}
+        title="HTML5 Artifact"
+        sandboxOptions={DEFAULT_SANDBOX}
+        actions={htmlActions}
+      />
+      <pre
+        id={`html-source-${codeContent.length}`}
+        className="bg-white/5 p-4 rounded-xl overflow-x-auto text-[13px] font-mono"
+        style={{ display: 'none' }}
+        {...props}
+      >
+        {first}
+      </pre>
+    </div>
+  );
+}
+
+// ── Main MimeRenderer ───────────────────────────────────────────────────
 
 const customSanitizeSchema = {
   ...defaultSchema,
@@ -151,55 +275,7 @@ const MimeRendererComponent = memo(function MimeRenderer({
             const codeContent = String(childProps.children || '').replace(/\n$/, '');
 
             if (lang === 'html' || lang === 'iframe') {
-              const htmlActions = [
-                {
-                  label: 'Copy',
-                  icon: '📋',
-                  onClick: () => {
-                    navigator.clipboard.writeText(codeContent);
-                  }
-                },
-                {
-                  label: 'Download',
-                  icon: '⬇️',
-                  onClick: () => {
-                    const blob = new Blob([codeContent], { type: 'text/html' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'artifact.html';
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }
-                },
-                {
-                  label: 'Source',
-                  icon: '🔍',
-                  onClick: () => {
-                    const pre = document.getElementById(`html-source-${codeContent.length}`);
-                    if (pre) pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
-                  }
-                }
-              ];
-
-              return (
-                <div className="space-y-2 my-5">
-                  <SecureIframe
-                    srcDoc={codeContent}
-                    title="HTML5 Artifact"
-                    sandboxOptions={DEFAULT_SANDBOX}
-                    actions={htmlActions}
-                  />
-                  <pre
-                    id={`html-source-${codeContent.length}`}
-                    className="bg-white/5 p-4 rounded-xl overflow-x-auto text-[13px] font-mono"
-                    style={{ display: 'none' }}
-                    {...props}
-                  >
-                    {first}
-                  </pre>
-                </div>
-              );
+              return <HtmlArtifactBlock codeContent={codeContent} props={props} first={first} />;
             }
 
             return (
