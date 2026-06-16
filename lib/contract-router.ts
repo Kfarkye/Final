@@ -23,12 +23,18 @@ import yaml from 'js-yaml';
 // Types
 // ============================================================================
 
+export interface PrefetchSpec {
+  tool: string;
+  args: Record<string, any>;
+}
+
 interface Contract {
   id: string;
   name: string;
   always?: boolean;
   keywords?: string[];
   tools: string[];
+  prefetch?: PrefetchSpec[];
 }
 
 interface ContractsFile {
@@ -128,6 +134,7 @@ export function resolveContracts(
 ): {
   toolNames: string[];
   matchedContracts: string[];
+  prefetch: PrefetchSpec[];
   stats: { totalAvailable: number; selected: number; reduction: string };
 } {
   const lower = prompt.toLowerCase();
@@ -163,9 +170,15 @@ export function resolveContracts(
   const toolNames = [...new Set(matched.flatMap(c => c.tools))];
   const totalAvailable = contracts.reduce((sum, c) => sum + c.tools.length, 0);
 
+  // Collect prefetch specs from all matched contracts
+  const prefetch = matched
+    .filter(c => c.prefetch && c.prefetch.length > 0)
+    .flatMap(c => c.prefetch!);
+
   return {
     toolNames,
     matchedContracts: matched.map(c => c.id),
+    prefetch,
     stats: {
       totalAvailable,
       selected: toolNames.length,

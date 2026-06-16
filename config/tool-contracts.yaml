@@ -119,6 +119,93 @@ contracts:
       - execute_sql
 
   # ═══════════════════════════════════════════════════════════════════════
+  # MLB — Games, Pitchers, Stats (ESPN + MLB Stats API)
+  # Any MLB query always gets pitchers + scoreboard together
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: mlb
+    name: MLB Games & Stats
+    keywords:
+      - mlb
+      - baseball
+      - game today
+      - games today
+      - today's games
+      - tonight's games
+      - pitcher
+      - pitchers
+      - probable
+      - probables
+      - starting pitcher
+      - scoreboard
+      - box score
+      - boxscore
+      - standings
+      - roster
+      - yankees
+      - dodgers
+      - mets
+      - red sox
+      - cubs
+      - braves
+      - phillies
+      - astros
+      - padres
+      - orioles
+      - guardians
+      - twins
+      - rangers
+      - rays
+      - mariners
+      - tigers
+      - royals
+      - brewers
+      - cardinals
+      - diamondbacks
+      - giants
+      - pirates
+      - reds
+      - marlins
+      - rockies
+      - angels
+      - white sox
+      - nationals
+      - athletics
+      - blue jays
+      - inning
+      - home run
+      - strikeout
+      - era
+      - batting average
+      - rbi
+      - play by play
+      - live game
+      - final score
+    tools:
+      - get_espn_scoreboard
+      - get_espn_pitchers
+      - get_espn_game
+      - find_espn_game
+      - get_espn_live_games
+      - get_espn_final_scores
+      - get_mlb_schedule
+      - get_mlb_boxscore
+      - get_mlb_standings
+      - get_mlb_roster
+      - get_mlb_player_stats
+      - search_mlb_player
+      - get_mlb_play_by_play
+      - get_mlb_teams
+    # ── Executable Contract ──
+    # When this contract matches, these tools are called AUTOMATICALLY
+    # before the LLM runs. Results are injected as grounding context.
+    # The LLM never needs to "decide" to fetch pitchers — they're already there.
+    prefetch:
+      - tool: get_espn_scoreboard
+        args: {}
+      - tool: get_espn_pitchers
+        args: {}
+
+  # ═══════════════════════════════════════════════════════════════════════
   # SPORTS BETTING & LIVE ODDS
   # ═══════════════════════════════════════════════════════════════════════
   - id: betting
@@ -136,17 +223,12 @@ contracts:
       - fanduel
       - betmgm
       - pinnacle
-      - mlb
       - nba
       - nfl
       - prop
       - line
       - wager
-      - game
       - player prop
-      - strikeout
-      - home run
-      - baseball
       - basketball
       - football
       - soccer
