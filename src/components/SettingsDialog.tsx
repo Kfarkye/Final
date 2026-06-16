@@ -40,7 +40,7 @@ export default function SettingsDialog({
   const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
-  const [grokCustom, setGrokCustom] = useState(!['grok-2-latest', 'grok-beta', 'grok-4.3'].includes(modelConfigs.grok));
+  const [grokCustom, setGrokCustom] = useState(!['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning', 'grok-build-0.1'].includes(modelConfigs.grok));
   const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-r1'].includes(modelConfigs.deepseek));
 
   const handleSave = async () => {
@@ -272,9 +272,11 @@ export default function SettingsDialog({
                   onChange={(e) => handleModelChange('grok', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
-                  <option value="grok-4.3">Grok 4.3 (First Choice)</option>
-                  <option value="grok-2-latest">Grok-2 Latest (Standard)</option>
-                  <option value="grok-beta">Grok Beta</option>
+                  <option value="grok-4.3">Grok 4.3 (Flagship)</option>
+                  <option value="grok-4.20-reasoning">Grok 4.20 Reasoning</option>
+                  <option value="grok-4.20-non-reasoning">Grok 4.20 Fast (Agents)</option>
+                  <option value="grok-4.1-fast-reasoning">Grok 4.1 Fast Reasoning (Budget)</option>
+                  <option value="grok-build-0.1">Grok Build 0.1 (Coding)</option>
                 </select>
               )}
             </div>

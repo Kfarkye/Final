@@ -453,8 +453,10 @@ export default function ChatClient() {
     }
     if (id === 'grok') {
       if (version === 'grok-4.3') return 'Grok 4.3';
-      if (version === 'grok-2-latest') return 'Grok-2';
-      if (version === 'grok-beta') return 'Grok Beta';
+      if (version === 'grok-4.20-reasoning') return 'Grok 4.20 Reasoning';
+      if (version === 'grok-4.20-non-reasoning') return 'Grok 4.20 Fast';
+      if (version === 'grok-4.1-fast-reasoning') return 'Grok 4.1 Fast';
+      if (version === 'grok-build-0.1') return 'Grok Build';
       return `Grok (${version})`;
     }
     if (id === 'deepseek') {

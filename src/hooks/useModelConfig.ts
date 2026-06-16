@@ -71,7 +71,10 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     accent: '#EF4444',
     versions: [
       { id: 'grok-4.3', label: '4.3', hint: 'balanced' },
-      { id: 'grok-2-latest', label: '2 Latest', hint: 'fast' },
+      { id: 'grok-4.20-reasoning', label: '4.20 Reasoning', hint: 'reasoning' },
+      { id: 'grok-4.20-non-reasoning', label: '4.20 Fast', hint: 'fast' },
+      { id: 'grok-4.1-fast-reasoning', label: '4.1 Fast Reasoning', hint: 'fast' },
+      { id: 'grok-build-0.1', label: 'Build 0.1', hint: 'reasoning' },
     ],
   },
   {
