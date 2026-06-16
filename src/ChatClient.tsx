@@ -446,7 +446,6 @@ export default function ChatClient() {
       return `ChatGPT (${version})`;
     }
     if (id === 'claude') {
-      if (version === 'claude-fable-5') return 'Claude Fable 5';
       if (version === 'claude-opus-4-8') return 'Claude Opus 4.8';
       if (version === 'claude-opus-4-6') return 'Claude Opus 4.6';
       if (version === 'claude-sonnet-4-6') return 'Claude Sonnet 4.6';
