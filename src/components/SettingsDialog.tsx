@@ -25,12 +25,12 @@ interface SettingsDialogProps {
   }) => void;
 }
 
-export default function SettingsDialog({ 
-  onClose, 
-  currentUser, 
-  onUpdateRole, 
-  modelConfigs, 
-  onUpdateModelConfigs 
+export default function SettingsDialog({
+  onClose,
+  currentUser,
+  onUpdateRole,
+  modelConfigs,
+  onUpdateModelConfigs
 }: SettingsDialogProps) {
   const [loading, setLoading] = useState(false);
   const [selectedRole, setSelectedRole] = useState(currentUser?.role || 'Viewer');
@@ -40,8 +40,8 @@ export default function SettingsDialog({
   const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
-  const [grokCustom, setGrokCustom] = useState(!['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning', 'grok-build-0.1'].includes(modelConfigs.grok));
-  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v3-2', 'deepseek-r1-0528', 'deepseek-v3-1', 'deepseek-ocr'].includes(modelConfigs.deepseek));
+  const [grokCustom, setGrokCustom] = useState(!['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning'].includes(modelConfigs.grok));
+  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v3.2-maas', 'deepseek-r1-0528-maas', 'deepseek-v3.1-maas', 'deepseek-ocr-maas'].includes(modelConfigs.deepseek));
 
   const handleSave = async () => {
     if (!currentUser) return;
@@ -50,16 +50,16 @@ export default function SettingsDialog({
       // Save user config in Firestore
       const userRef = doc(db, 'users', currentUser.uid);
       const updates: any = {};
-      
+
       if (selectedRole !== currentUser.role) {
         updates.role = selectedRole;
         logAuditAction(currentUser, 'UPDATE_ROLE', { newRole: selectedRole, previousRole: currentUser.role });
         onUpdateRole(selectedRole);
       }
-      
+
       updates.modelConfigs = configs;
       logAuditAction(currentUser, 'UPDATE_MODEL_CONFIGS', configs);
-      
+
       await setDoc(userRef, updates, { merge: true });
       onUpdateModelConfigs(configs);
       onClose();
@@ -77,7 +77,7 @@ export default function SettingsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
@@ -91,7 +91,7 @@ export default function SettingsDialog({
             <X size={20} />
           </button>
         </div>
-        
+
         <div className="p-6 bg-zinc-950/50 space-y-8 overflow-y-auto max-h-[60vh] custom-scrollbar">
           <div className="space-y-4">
             <div className="flex items-center gap-3 border-b border-white/5 pb-4">
@@ -111,49 +111,48 @@ export default function SettingsDialog({
 
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-               <Shield size={16} className="text-indigo-400" />
-               <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Enterprise Role Simulation</h3>
+              <Shield size={16} className="text-indigo-400" />
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Enterprise Role Simulation</h3>
             </div>
             <p className="text-xs text-zinc-500 font-light leading-relaxed">
-               Select your simulated role. Depending on your role, different privileges are granted (e.g., Admins can view Audit Logs; Viewers are restricted to read-only views).
+              Select your simulated role. Depending on your role, different privileges are granted (e.g., Admins can view Audit Logs; Viewers are restricted to read-only views).
             </p>
             <div className="flex gap-4">
-               {['Admin', 'Editor', 'Viewer'].map((r) => (
-                 <button
-                   key={r}
-                   onClick={() => setSelectedRole(r)}
-                   className={`flex-1 py-3 text-sm rounded-xl transition-all border ${
-                     selectedRole === r 
-                       ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30 font-medium' 
-                       : 'bg-black border-white/10 text-zinc-400 hover:bg-white/5 hover:border-white/20'
-                   }`}
-                 >
-                   {r}
-                 </button>
-               ))}
+              {['Admin', 'Editor', 'Viewer'].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setSelectedRole(r)}
+                  className={`flex-1 py-3 text-sm rounded-xl transition-all border ${selectedRole === r
+                      ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30 font-medium'
+                      : 'bg-black border-white/10 text-zinc-400 hover:bg-white/5 hover:border-white/20'
+                    }`}
+                >
+                  {r}
+                </button>
+              ))}
             </div>
           </div>
 
           {/* Model Customization */}
           <div className="space-y-6 pt-6 border-t border-white/5">
             <div className="flex items-center gap-2">
-               <Settings size={16} className="text-emerald-400" />
-               <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">LLM Model Customizers</h3>
+              <Settings size={16} className="text-emerald-400" />
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">LLM Model Customizers</h3>
             </div>
-            
+
             {/* Gemini */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-zinc-400">Gemini model</span>
-                <button 
-                  onClick={() => setGeminiCustom(!geminiCustom)} 
+                <button
+                  onClick={() => setGeminiCustom(!geminiCustom)}
                   className="text-zinc-500 hover:text-white transition-colors"
                 >
                   {geminiCustom ? "Select preset" : "Set custom model ID"}
                 </button>
               </div>
               {geminiCustom ? (
-                <input 
+                <input
                   type="text"
                   value={configs.gemini}
                   onChange={(e) => handleModelChange('gemini', e.target.value)}
@@ -161,7 +160,7 @@ export default function SettingsDialog({
                   placeholder="e.g. gemini-3.5-flash"
                 />
               ) : (
-                <select 
+                <select
                   value={configs.gemini}
                   onChange={(e) => handleModelChange('gemini', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
@@ -186,15 +185,15 @@ export default function SettingsDialog({
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-zinc-400">ChatGPT model</span>
-                <button 
-                  onClick={() => setChatgptCustom(!chatgptCustom)} 
+                <button
+                  onClick={() => setChatgptCustom(!chatgptCustom)}
                   className="text-zinc-500 hover:text-white transition-colors"
                 >
                   {chatgptCustom ? "Select preset" : "Set custom model ID"}
                 </button>
               </div>
               {chatgptCustom ? (
-                <input 
+                <input
                   type="text"
                   value={configs.chatgpt}
                   onChange={(e) => handleModelChange('chatgpt', e.target.value)}
@@ -202,7 +201,7 @@ export default function SettingsDialog({
                   placeholder="e.g. gpt-4o"
                 />
               ) : (
-                <select 
+                <select
                   value={configs.chatgpt}
                   onChange={(e) => handleModelChange('chatgpt', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
@@ -219,15 +218,15 @@ export default function SettingsDialog({
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-zinc-400">Claude model</span>
-                <button 
-                  onClick={() => setClaudeCustom(!claudeCustom)} 
+                <button
+                  onClick={() => setClaudeCustom(!claudeCustom)}
                   className="text-zinc-500 hover:text-white transition-colors"
                 >
                   {claudeCustom ? "Select preset" : "Set custom model ID"}
                 </button>
               </div>
               {claudeCustom ? (
-                <input 
+                <input
                   type="text"
                   value={configs.claude}
                   onChange={(e) => handleModelChange('claude', e.target.value)}
@@ -235,7 +234,7 @@ export default function SettingsDialog({
                   placeholder="e.g. claude-opus-4-8"
                 />
               ) : (
-                <select 
+                <select
                   value={configs.claude}
                   onChange={(e) => handleModelChange('claude', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
@@ -251,15 +250,15 @@ export default function SettingsDialog({
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-zinc-400">Grok model</span>
-                <button 
-                  onClick={() => setGrokCustom(!grokCustom)} 
+                <button
+                  onClick={() => setGrokCustom(!grokCustom)}
                   className="text-zinc-500 hover:text-white transition-colors"
                 >
                   {grokCustom ? "Select preset" : "Set custom model ID"}
                 </button>
               </div>
               {grokCustom ? (
-                <input 
+                <input
                   type="text"
                   value={configs.grok}
                   onChange={(e) => handleModelChange('grok', e.target.value)}
@@ -267,7 +266,7 @@ export default function SettingsDialog({
                   placeholder="e.g. grok-2-latest"
                 />
               ) : (
-                <select 
+                <select
                   value={configs.grok}
                   onChange={(e) => handleModelChange('grok', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
@@ -276,7 +275,6 @@ export default function SettingsDialog({
                   <option value="grok-4.20-reasoning">Grok 4.20 Reasoning</option>
                   <option value="grok-4.20-non-reasoning">Grok 4.20 Fast (Agents)</option>
                   <option value="grok-4.1-fast-reasoning">Grok 4.1 Fast Reasoning (Budget)</option>
-                  <option value="grok-build-0.1">Grok Build 0.1 (Coding)</option>
                 </select>
               )}
             </div>
@@ -285,31 +283,31 @@ export default function SettingsDialog({
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-zinc-400">DeepSeek model</span>
-                <button 
-                  onClick={() => setDeepseekCustom(!deepseekCustom)} 
+                <button
+                  onClick={() => setDeepseekCustom(!deepseekCustom)}
                   className="text-zinc-500 hover:text-white transition-colors"
                 >
                   {deepseekCustom ? "Select preset" : "Set custom model ID"}
                 </button>
               </div>
               {deepseekCustom ? (
-                <input 
+                <input
                   type="text"
                   value={configs.deepseek}
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
                   className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
-                  placeholder="e.g. deepseek-v3-2"
+                  placeholder="e.g. deepseek-v3.2-maas"
                 />
               ) : (
-                <select 
+                <select
                   value={configs.deepseek}
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
-                  <option value="deepseek-v3-2">DeepSeek V3.2 (Flagship)</option>
-                  <option value="deepseek-r1-0528">DeepSeek R1 0528 (Reasoning)</option>
-                  <option value="deepseek-v3-1">DeepSeek V3.1</option>
-                  <option value="deepseek-ocr">DeepSeek OCR</option>
+                  <option value="deepseek-v3.2-maas">DeepSeek V3.2 (Flagship)</option>
+                  <option value="deepseek-r1-0528-maas">DeepSeek R1 0528 (Reasoning)</option>
+                  <option value="deepseek-v3.1-maas">DeepSeek V3.1</option>
+                  <option value="deepseek-ocr-maas">DeepSeek OCR</option>
                 </select>
               )}
             </div>
@@ -317,13 +315,13 @@ export default function SettingsDialog({
         </div>
 
         <div className="p-6 border-t border-white/10 bg-black flex justify-end gap-3">
-          <button 
+          <button
             onClick={onClose}
             className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-zinc-300 hover:bg-white/5 transition-colors"
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={handleSave}
             disabled={loading}
             className="px-5 py-2.5 rounded-xl bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"

@@ -74,7 +74,6 @@ export const MODEL_REGISTRY: ModelProvider[] = [
       { id: 'grok-4.20-reasoning', label: '4.20 Reasoning', hint: 'reasoning' },
       { id: 'grok-4.20-non-reasoning', label: '4.20 Fast', hint: 'fast' },
       { id: 'grok-4.1-fast-reasoning', label: '4.1 Fast Reasoning', hint: 'fast' },
-      { id: 'grok-build-0.1', label: 'Build 0.1', hint: 'reasoning' },
     ],
   },
   {
@@ -82,10 +81,10 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     name: 'DeepSeek',
     accent: '#8B5CF6',
     versions: [
-      { id: 'deepseek-v3-2', label: 'V3.2', hint: 'balanced' },
-      { id: 'deepseek-r1-0528', label: 'R1 0528', hint: 'reasoning' },
-      { id: 'deepseek-v3-1', label: 'V3.1', hint: 'fast' },
-      { id: 'deepseek-ocr', label: 'OCR', hint: 'fast' },
+      { id: 'deepseek-v3.2-maas', label: 'V3.2', hint: 'balanced' },
+      { id: 'deepseek-r1-0528-maas', label: 'R1 0528', hint: 'reasoning' },
+      { id: 'deepseek-v3.1-maas', label: 'V3.1', hint: 'fast' },
+      { id: 'deepseek-ocr-maas', label: 'OCR', hint: 'fast' },
     ],
   },
 ];

@@ -17,6 +17,8 @@ export interface ToolContext {
   anthropic?: Anthropic | null;
   xai?: OpenAI | null;
   deepseek?: OpenAI | null;
+  getGrokClient?: () => Promise<OpenAI>;
+  getDeepSeekClient?: () => Promise<OpenAI>;
   connectionId?: string;
 }
 

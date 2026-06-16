@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { enterpriseChatHandler } from '../../lib/enterprise-chat-handler';
-import { ai, openai, anthropic, xai, deepseek } from '../services/ai.service';
+import { ai, openai, anthropic, xai, deepseek, getGrokClient, getDeepSeekClient } from '../services/ai.service';
 import { toolRegistry } from '../tools';
 import { workspaceDecls, executeWorkspaceTool } from '../../server_workspace';
 import { catchAsync } from '../middleware/catchAsync';
@@ -54,6 +54,8 @@ export const chatController = {
       anthropic,
       xai,
       deepseek,
+      getGrokClient,
+      getDeepSeekClient,
       CANONICAL_TOOLS: nativeSchemas,
       executeMcpTool: async (name: string, args: any, googleAccessToken?: string, connectionId?: string) => {
         // ── Meta-tool dispatch ──────────────────────────────────────

@@ -25,11 +25,11 @@ function lowercaseSchemaTypes(schema: any): any {
 function safeGeminiProperties(properties: any): any {
   const gProps: any = {};
   if (!properties || typeof properties !== 'object') return gProps;
-  
+
   for (const key of Object.keys(properties)) {
     const prop = properties[key];
     let propType = "STRING";
-    
+
     if (prop && typeof prop === 'object') {
       if (typeof prop.type === 'string') {
         propType = prop.type.toUpperCase();
@@ -37,7 +37,7 @@ function safeGeminiProperties(properties: any): any {
         const typeObj = prop.anyOf.find((x: any) => x && typeof x.type === 'string' && x.type !== "null");
         if (typeObj) propType = typeObj.type.toUpperCase();
       }
-      
+
       if (propType === "INTEGER") propType = "INTEGER";
       else if (propType === "NUMBER") propType = "NUMBER";
       else if (propType === "BOOLEAN") propType = "BOOLEAN";
@@ -49,7 +49,7 @@ function safeGeminiProperties(properties: any): any {
         type: propType,
         description: prop.description || ""
       };
-      
+
       if (prop.items && typeof prop.items === 'object') {
         let itemType = "STRING";
         if (typeof prop.items.type === 'string') {
@@ -75,10 +75,10 @@ function isAbortLikeError(err: any): boolean {
 
 export const enterpriseChatHandler = async (req: Request, res: Response, deps: any) => {
   const connectionId = `conn_${Math.random().toString(36).substring(2, 15)}`;
-  
+
   // Register SSE Connection
   sseManager.addClient(connectionId, res);
-  
+
   // ── Master AbortController ──────────────────────────────────────────
   // One controller per request — its signal is threaded through every
   // SDK call, stream loop, and tool execution so that closing the
@@ -103,13 +103,13 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     if (signal.aborted || res.writableEnded) return;
     sseManager.sendEvent(connectionId, event, payload);
   };
-  
-  const { 
-    prompt, 
-    history, 
-    mode, 
-    targetModels = ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'], 
-    topic, 
+
+  const {
+    prompt,
+    history,
+    mode,
+    targetModels = ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'],
+    topic,
     googleAccessToken,
     modelConfigs = {},
     mcpServers = [],
@@ -283,52 +283,52 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             if (signal.aborted) break;
             const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
             if (hasText && chunk.text) {
-               sendSse('message', { model: 'gemini', chunk: chunk.text });
+              sendSse('message', { model: 'gemini', chunk: chunk.text });
             }
             if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-               functionCalls.push(...chunk.functionCalls);
+              functionCalls.push(...chunk.functionCalls);
             }
             if (chunk.candidates?.[0]?.content?.parts) {
-               candidateContent.parts.push(...chunk.candidates[0].content.parts);
+              candidateContent.parts.push(...chunk.candidates[0].content.parts);
             }
           }
 
           if (signal.aborted) break;
 
           if (functionCalls.length > 0 && candidateContent.parts.length > 0) {
-             contents.push(candidateContent);
-             
-             const responseParts = await Promise.all(functionCalls.map(async (call) => {
-               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-               sendSse('tool_start', { model: 'gemini', tool: call.name });
-               let toolResult;
-               try {
-                 const isWorkspace = deps.workspaceDecls.some((d: any) => d.name === call.name);
-                 if (isWorkspace) {
-                   toolResult = await deps.executeWorkspaceTool(call, googleAccessToken);
-                 } else {
-                   toolResult = await deps.executeMcpTool(call.name, call.args, googleAccessToken, connectionId);
-                 }
-               } catch (toolErr: any) {
-                 if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
-                 ChatLogger.error(`gemini_tool_exec_error_${call.name}`, toolErr);
-                 toolResult = { error: toolErr.message || 'Tool execution failed' };
-               }
-               sendSse('tool_result', { model: 'gemini', tool: call.name, result: toolResult });
-               
-               return {
-                 functionResponse: {
-                   name: call.name,
-                   id: call.id || call.name,
-                   response: { result: toolResult }
-                 }
-               };
-             }));
-             
-             if (signal.aborted) break;
-             contents.push({ role: 'user', parts: responseParts });
+            contents.push(candidateContent);
+
+            const responseParts = await Promise.all(functionCalls.map(async (call) => {
+              if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+              sendSse('tool_start', { model: 'gemini', tool: call.name });
+              let toolResult;
+              try {
+                const isWorkspace = deps.workspaceDecls.some((d: any) => d.name === call.name);
+                if (isWorkspace) {
+                  toolResult = await deps.executeWorkspaceTool(call, googleAccessToken);
+                } else {
+                  toolResult = await deps.executeMcpTool(call.name, call.args, googleAccessToken, connectionId);
+                }
+              } catch (toolErr: any) {
+                if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
+                ChatLogger.error(`gemini_tool_exec_error_${call.name}`, toolErr);
+                toolResult = { error: toolErr.message || 'Tool execution failed' };
+              }
+              sendSse('tool_result', { model: 'gemini', tool: call.name, result: toolResult });
+
+              return {
+                functionResponse: {
+                  name: call.name,
+                  id: call.id || call.name,
+                  response: { result: toolResult }
+                }
+              };
+            }));
+
+            if (signal.aborted) break;
+            contents.push({ role: 'user', parts: responseParts });
           } else {
-             continueLoop = false;
+            continueLoop = false;
           }
         }
       })()));
@@ -345,7 +345,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
-        
+
         const openaiTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           openaiTools.push({
@@ -426,8 +426,8 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             const call = toolCalls[key];
             sendSse('tool_start', { model: 'chatgpt', tool: call.function.name });
             let args;
-            try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
-            
+            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
             const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
             let toolResult;
             try {
@@ -442,7 +442,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
               toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
             sendSse('tool_result', { model: 'chatgpt', tool: call.function.name, result: toolResult });
-            
+
             currentMessages.push({
               role: "tool",
               tool_call_id: call.id,
@@ -517,11 +517,11 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
               if (chunk.type === 'content_block_start') {
                 if (chunk.content_block.type === 'tool_use') {
                   hasToolUse = true;
-                  currentToolUse = { 
-                    type: 'tool_use', 
-                    id: chunk.content_block.id, 
-                    name: chunk.content_block.name, 
-                    input: "" 
+                  currentToolUse = {
+                    type: 'tool_use',
+                    id: chunk.content_block.id,
+                    name: chunk.content_block.name,
+                    input: ""
                   };
                   sendSse('tool_start', { model: 'claude', tool: chunk.content_block.name });
                 } else if (chunk.content_block.type === 'text') {
@@ -542,7 +542,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
                 if (currentToolUse) {
                   try {
                     currentToolUse.input = currentToolUse.input ? JSON.parse(currentToolUse.input) : {};
-                  } catch(e) { currentToolUse.input = {}; }
+                  } catch (e) { currentToolUse.input = {}; }
                   assistantContentBlocks.push(currentToolUse);
                   currentToolUse = null;
                 }
@@ -586,7 +586,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
                 toolResult = { error: toolErr.message || 'Tool execution failed' };
               }
               sendSse('tool_result', { model: 'claude', tool: block.name, result: toolResult });
-              
+
               toolResultBlocks.push({
                 type: 'tool_result',
                 tool_use_id: block.id,
@@ -608,15 +608,22 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Grok Streaming
+    // Grok Streaming — via Vertex AI MaaS or direct xAI API
+    // MaaS: uses Google OAuth + Vertex AI OpenAI-compatible endpoint
+    // Direct: uses XAI_API_KEY + api.x.ai (fallback)
     // ═══════════════════════════════════════════════════════════════════
-    if (targetModels.includes('grok') && deps.xai) {
+    if (targetModels.includes('grok')) {
+      // Get client — Vertex AI MaaS (Google auth) or direct xAI API
+      const grokClient = deps.xai || await deps.getGrokClient?.();
+      if (!grokClient) {
+        sendSse('message', { model: 'grok', chunk: '[Grok Not Configured — set XAI_API_KEY or enable Vertex AI MaaS]' });
+      } else {
       promises.push(streamModel('grok', (async () => {
         const msgs: any[] = [];
         if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
-        
+
         const grokTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
           grokTools.push({
@@ -652,7 +659,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         let runCount = 0;
 
         while (runCount < 3 && !signal.aborted) {
-          const stream = await deps.xai.chat.completions.create({
+          const stream = await grokClient.chat.completions.create({
             model: modelConfigs.grok || "grok-4.3",
             messages: currentMessages,
             tools: grokTools.length > 0 ? grokTools : undefined,
@@ -697,8 +704,8 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             const call = toolCalls[key];
             sendSse('tool_start', { model: 'grok', tool: call.function.name });
             let args;
-            try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
-            
+            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
             const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
             let toolResult;
             try {
@@ -713,7 +720,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
               toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
             sendSse('tool_result', { model: 'grok', tool: call.function.name, result: toolResult });
-            
+
             currentMessages.push({
               role: "tool",
               tool_call_id: call.id,
@@ -724,25 +731,30 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
           runCount++;
         }
       })()));
-    } else if (targetModels.includes('grok')) {
-      sendSse('message', { model: 'grok', chunk: '[Grok Not Configured]' });
+      } // end else (grokClient available)
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // DeepSeek Streaming
-    // GROUNDED IN: https://api-docs.deepseek.com/api/create-chat-completion
-    // GROUNDED IN: https://api-docs.deepseek.com/guides/thinking_mode
+    // DeepSeek Streaming — via Vertex AI MaaS or direct API
+    // MaaS: uses Google OAuth + Vertex AI OpenAI-compatible endpoint
+    // Direct: uses DEEPSEEK_API_KEY + api.deepseek.com (fallback)
     //
-    // Current models: deepseek-v3-2, deepseek-r1-0528, deepseek-v3-1, deepseek-ocr
+    // Vertex AI MaaS models: deepseek-v3.2-maas, deepseek-r1-0528-maas, deepseek-v3.1-maas, deepseek-ocr-maas
+    // Direct API models: deepseek-v4-pro, deepseek-v4-flash
     // Thinking mode: { thinking: { type: "enabled" } } with reasoning_effort: "high" | "max"
     // When thinking is enabled, CoT streams via delta.reasoning_content
     // Tool calling: works on all models (with or without thinking)
     // ═══════════════════════════════════════════════════════════════════
-    if (targetModels.includes('deepseek') && deps.deepseek) {
+    if (targetModels.includes('deepseek')) {
+      // Get client — Vertex AI MaaS (Google auth) or direct API
+      const deepseekClient = deps.deepseek || await deps.getDeepSeekClient?.();
+      if (!deepseekClient) {
+        sendSse('message', { model: 'deepseek', chunk: '[DeepSeek Not Configured — set DEEPSEEK_API_KEY or enable Vertex AI MaaS]' });
+      } else {
       promises.push(streamModel('deepseek', (async () => {
-        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-v3-2";
-        // V3 and R1 models support thinking natively
-        const isThinkingModel = selectedDeepseekModel.includes('v3') || selectedDeepseekModel.includes('r1');
+        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
+        // All supported models support thinking (MaaS and direct)
+        const isThinkingModel = selectedDeepseekModel.includes('v3') || selectedDeepseekModel.includes('r1') || selectedDeepseekModel.includes('v4');
 
         const msgs: any[] = [];
         // V4 supports system messages in both thinking and non-thinking mode
@@ -751,7 +763,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         }
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: governedPrompt });
-        
+
         // Build tool declarations — V4 supports tools with thinking enabled
         const deepseekTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
@@ -808,7 +820,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             createParams.thinking = { type: "enabled" };
           }
 
-          const stream = await deps.deepseek.chat.completions.create(createParams, { signal });
+          const stream = await deepseekClient.chat.completions.create(createParams, { signal });
 
           let toolCalls: any = {};
           let hasContent = false;
@@ -866,8 +878,8 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             const call = toolCalls[key];
             sendSse('tool_start', { model: 'deepseek', tool: call.function.name });
             let args;
-            try { args = JSON.parse(call.function.arguments); } catch(e) { args = {}; }
-            
+            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
             let toolResult: any;
             try {
               const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
@@ -882,7 +894,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
               toolResult = { error: toolErr.message || 'Tool execution failed' };
             }
             sendSse('tool_result', { model: 'deepseek', tool: call.function.name, result: toolResult });
-            
+
             currentMessages.push({
               role: "tool",
               tool_call_id: call.id,
@@ -893,10 +905,8 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
           runCount++;
         }
       })()));
-    } else if (targetModels.includes('deepseek')) {
-      sendSse('message', { model: 'deepseek', chunk: '[DeepSeek Not Configured]' });
-    }
-
+      } // end else (deepseekClient available)
+    } // end if (targetModels.includes('deepseek'))
     // Wait for all streams to finish
     await Promise.all(promises);
 
