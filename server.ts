@@ -49,6 +49,10 @@ app.use("/api/mcp/linear", linearMcpRoutes);
 app.use("/api/mcp/notebook", notebookMcpRoutes);
 app.use("/api/mcp/spanner", spannerMcpRoutes);
 
+// --- Model Registry API ---
+import modelRegistryRoutes from "./src/routes/modelRegistryRoutes";
+app.use("/api/models", modelRegistryRoutes);
+
 // --- Debug: list all registered tools ---
 import { toolRegistry } from './src/tools';
 app.get("/api/debug/tools", (_req, res) => {
