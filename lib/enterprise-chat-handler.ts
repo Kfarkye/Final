@@ -753,8 +753,15 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
       } else {
       promises.push(streamModel('deepseek', (async () => {
         const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
+        
+        // Add deepseek-ai/ prefix if using Vertex AI MaaS (which is when DEEPSEEK_API_KEY is not configured)
+        const isMaaS = !process.env.DEEPSEEK_API_KEY;
+        const actualDeepseekModel = isMaaS && selectedDeepseekModel.startsWith('deepseek-') && !selectedDeepseekModel.includes('/')
+          ? `deepseek-ai/${selectedDeepseekModel}`
+          : selectedDeepseekModel;
+
         // All supported models support thinking (MaaS and direct)
-        const isThinkingModel = selectedDeepseekModel.includes('v3') || selectedDeepseekModel.includes('r1') || selectedDeepseekModel.includes('v4');
+        const isThinkingModel = actualDeepseekModel.includes('v3') || actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('v4');
 
         const msgs: any[] = [];
         // V4 supports system messages in both thinking and non-thinking mode
@@ -803,8 +810,8 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         while (runCount < 3 && !signal.aborted) {
           // Per official docs: thinking and reasoning_effort are top-level params
           // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
-          const createParams: any = {
-            model: selectedDeepseekModel,
+           const createParams: any = {
+            model: actualDeepseekModel,
             messages: currentMessages,
             tools: deepseekTools.length > 0 ? deepseekTools : undefined,
             stream: true,

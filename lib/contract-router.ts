@@ -18,6 +18,7 @@
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
+import { fileURLToPath } from 'url';
 
 // ============================================================================
 // Types
@@ -45,7 +46,15 @@ interface ContractsFile {
 // Load contracts once at startup
 // ============================================================================
 
-const CONTRACTS_PATH = path.join(__dirname, '..', 'config', 'tool-contracts.yaml');
+const getDirname = () => {
+  try {
+    return __dirname;
+  } catch {
+    return path.dirname(fileURLToPath(import.meta.url));
+  }
+};
+
+const CONTRACTS_PATH = path.join(getDirname(), '..', 'config', 'tool-contracts.yaml');
 
 let contracts: Contract[] = [];
 
