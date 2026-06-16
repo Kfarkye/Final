@@ -61,7 +61,16 @@ let contracts: Contract[] = [];
 try {
   const raw = fs.readFileSync(CONTRACTS_PATH, 'utf8');
   const parsed = yaml.load(raw) as ContractsFile;
-  contracts = parsed.contracts || [];
+  let loadedContracts = parsed.contracts || [];
+  
+  // Hide git tools if running in an environment without a git repository (e.g. Cloud Run container)
+  const hasGit = fs.existsSync(path.join(getDirname(), '..', '.git'));
+  if (!hasGit) {
+    console.log('[ContractRouter] No .git directory detected. Disabling git tools for this environment.');
+    loadedContracts = loadedContracts.filter(c => c.id !== 'git');
+  }
+  
+  contracts = loadedContracts;
   console.log(`[ContractRouter] Loaded ${contracts.length} contracts with ${contracts.reduce((sum, c) => sum + c.tools.length, 0)} total tools`);
 } catch (err: any) {
   console.error(`[ContractRouter] Failed to load contracts: ${err.message}`);

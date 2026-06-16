@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MLB Slate Dashboard</title>
+  
+  <!-- Google Fonts: Inter and JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      /* Spacing Tokens */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 24px;
+      --space-6: 32px;
+      --radius: 12px;
+      --card-pad: var(--space-5);
+
+      /* Harmonious Premium Palette */
+      --bg-primary: #080B10;
+      --bg-secondary: #0F131A;
+      --bg-card: #151A24;
+      --bg-elevated: #1B212D;
+      --border: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.12);
+      
+      --text-primary: #F3F4F6;
+      --text-secondary: #9CA3AF;
+      --text-muted: #6B7280;
+      --cyan: #06B6D4;
+      --blue: #3B82F6;
+      
+      --color-live: #10B981;
+      --color-upcoming: #3B82F6;
+      --color-final: #6B7280;
+      --color-postponed: #D97706;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      padding: var(--space-6) var(--space-4);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+
+    /* Header */
+    header {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--space-5);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+    }
+
+    @media (min-width: 768px) {
+      header {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+      }
+    }
+
+    .header-main {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+
+    .header-title {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #06B6D4, #3B82F6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--color-live);
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-live);
+      box-shadow: 0 0 8px var(--color-live);
+    }
+
+    /* Pulse animation for live dot */
+    @media (prefers-reduced-motion: no-preference) {
+      .live-dot {
+        animation: pulse 2s infinite;
+      }
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.1); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+
+    .date-picker-wrapper {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: var(--space-1) var(--space-2);
+    }
+
+    .date-picker-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .date-input {
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .meta-stats {
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      gap: var(--space-2);
+    }
+
+    .meta-stat-pill {
+      background: rgba(255, 255, 255, 0.04);
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-weight: 500;
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+      display: flex;
+      gap: var(--space-2);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--space-2);
+      overflow-x: auto;
+    }
+
+    .filter-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      padding: var(--space-2) var(--space-4);
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .filter-btn:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .filter-btn.active {
+      color: white;
+      background: var(--blue);
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Error Banner */
+    .error-banner {
+      display: none;
+      background: rgba(244, 63, 94, 0.1);
+      border: 1px solid rgba(244, 63, 94, 0.2);
+      color: #FB7185;
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    /* Game Grid */
+    .game-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+    }
+
+    @media (min-width: 640px) {
+      .game-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .game-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    /* Game Card */
+    .game-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--card-pad);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      transition: all 0.25s ease;
+    }
+
+    .game-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Card Header */
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 100px;
+      letter-spacing: 0.3px;
+    }
+
+    .status-badge-live {
+      background: rgba(16, 185, 129, 0.12);
+      color: #34D399;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .status-badge-live .badge-dot {
+      width: 6px;
+      height: 6px;
+      background: #34D399;
+      border-radius: 50%;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .status-badge-live .badge-dot {
+        animation: pulse 1.5s infinite;
+      }
+    }
+
+    .status-badge-scheduled {
+      background: rgba(59, 130, 246, 0.12);
+      color: #60A5FA;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .status-badge-final {
+      background: rgba(107, 114, 128, 0.12);
+      color: #9CA3AF;
+      border: 1px solid rgba(107, 114, 128, 0.2);
+    }
+
+    .status-badge-postponed {
+      background: rgba(217, 119, 6, 0.12);
+      color: #FBBF24;
+      border: 1px solid rgba(217, 119, 6, 0.2);
+    }
+
+    .game-meta-text {
+      max-width: 180px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: right;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* Card Rows & Columns */
+    .card-row {
+      display: grid;
+      /* Fixed columns matching spec: abbr, record, pitcher, hand, era, w-l, ml/score */
+      grid-template-columns: 44px 56px 1fr 24px 52px 48px 56px;
+      gap: var(--space-2);
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .card-row .column-abbr {
+      font-weight: 700;
+      color: var(--text-primary);
+      text-align: left;
+    }
+
+    .card-row .column-record {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 11px;
+      text-align: left;
+    }
+
+    .card-row .column-pitcher {
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: left;
+      padding-right: var(--space-1);
+    }
+
+    .card-row .column-hand {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      text-align: center;
+      font-size: 11px;
+    }
+
+    .card-row .column-era {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    .card-row .column-wl {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .card-row .column-value {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      text-align: right;
+    }
+
+    /* Highlight class for favorite odds or live score bolding */
+    .bold-value {
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* ERA Color Scale */
+    .era-good {
+      color: #34D399;
+      font-weight: 500;
+    }
+
+    .era-bad {
+      color: #F87171;
+      font-weight: 500;
+    }
+
+    /* Card Footer / Odds Row */
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: auto;
+    }
+
+    .odds-totals {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .odds-source {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Skeletons */
+    .skeleton-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--card-pad);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      height: 180px;
+    }
+
+    .shimmer {
+      background: linear-gradient(90deg, var(--bg-elevated) 25%, rgba(255,255,255,0.05) 50%, var(--bg-elevated) 75%);
+      background-size: 200% 100%;
+      border-radius: 4px;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .shimmer {
+        animation: shimmer-anim 1.5s infinite;
+      }
+    }
+
+    @keyframes shimmer-anim {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .skeleton-header {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .skeleton-row {
+      height: 18px;
+      width: 100%;
+    }
+
+    .skeleton-footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: auto;
+    }
+
+    /* Tooltip / Hover Help */
+    [title] {
+      cursor: help;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Non-blocking Fetch Error Banner -->
+    <div id="errorBanner" class="error-banner">
+      <span>⚠️</span>
+      <span id="errorMessage">Couldn't refresh — retrying</span>
+    </div>
+
+    <!-- Header -->
+    <header>
+      <div class="header-main">
+        <h1 class="header-title">MLB Slate</h1>
+        <div id="liveIndicator" class="live-indicator" style="display: none;">
+          <span class="live-dot"></span>
+          <span>Live Games</span>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <!-- Meta stats -->
+        <div class="meta-stats">
+          <span class="meta-stat-pill" id="statGameCount">0 games</span>
+          <span class="meta-stat-pill" id="statLiveCount" style="display: none; color: var(--color-live);">0 live</span>
+          <span class="meta-stat-pill" id="statUpdated">Last updated: Just now</span>
+        </div>
+
+        <!-- Date Picker -->
+        <div class="date-picker-wrapper">
+          <span class="date-picker-label">Date</span>
+          <input type="date" id="dateInput" class="date-input">
+        </div>
+      </div>
+    </header>
+
+    <!-- Filter Bar -->
+    <nav class="filter-bar" aria-label="Game filters">
+      <button class="filter-btn active" data-filter="all">All Games</button>
+      <button class="filter-btn" data-filter="live">Live</button>
+      <button class="filter-btn" data-filter="upcoming">Upcoming</button>
+      <button class="filter-btn" data-filter="final">Final</button>
+    </nav>
+
+    <!-- Game Grid -->
+    <main class="game-grid" id="gameGrid">
+      <!-- Skeletons render initially -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="shimmer" style="width: 80px; height: 16px;"></div>
+          <div class="shimmer" style="width: 120px; height: 16px;"></div>
+        </div>
+        <div class="shimmer skeleton-row"></div>
+        <div class="shimmer skeleton-row"></div>
+        <div class="skeleton-footer">
+          <div class="shimmer" style="width: 100px; height: 16px;"></div>
+          <div class="shimmer" style="width: 60px; height: 16px;"></div>
+        </div>
+      </div>
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="shimmer" style="width: 80px; height: 16px;"></div>
+          <div class="shimmer" style="width: 120px; height: 16px;"></div>
+        </div>
+        <div class="shimmer skeleton-row"></div>
+        <div class="shimmer skeleton-row"></div>
+        <div class="skeleton-footer">
+          <div class="shimmer" style="width: 100px; height: 16px;"></div>
+          <div class="shimmer" style="width: 60px; height: 16px;"></div>
+        </div>
+      </div>
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="shimmer" style="width: 80px; height: 16px;"></div>
+          <div class="shimmer" style="width: 120px; height: 16px;"></div>
+        </div>
+        <div class="shimmer skeleton-row"></div>
+        <div class="shimmer skeleton-row"></div>
+        <div class="skeleton-footer">
+          <div class="shimmer" style="width: 100px; height: 16px;"></div>
+          <div class="shimmer" style="width: 60px; height: 16px;"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // State management
+    let currentData = null;
+    let activeFilter = 'all';
+    let refreshIntervalId = null;
+    let relativeTimeTickerId = null;
+    let lastFetchedTime = null;
+
+    // Elements
+    const dateInput = document.getElementById('dateInput');
+    const gameGrid = document.getElementById('gameGrid');
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    const errorBanner = document.getElementById('errorBanner');
+    const errorMessage = document.getElementById('errorMessage');
+    
+    const statGameCount = document.getElementById('statGameCount');
+    const statLiveCount = document.getElementById('statLiveCount');
+    const statUpdated = document.getElementById('statUpdated');
+    const liveIndicator = document.getElementById('liveIndicator');
+
+    // Initialize date from URL or timezone-resolved today
+    function initDate() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryDate = urlParams.get('date');
+      
+      if (queryDate && /^\d{4}-\d{2}-\d{2}$/.test(queryDate)) {
+        dateInput.value = queryDate;
+      } else {
+        // Resolve today's date in America/New_York timezone
+        const nyDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/New_York',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(new Date());
+        dateInput.value = nyDate;
+      }
+    }
+
+    // Format moneyline text
+    function formatML(ml) {
+      if (ml == null) return '—';
+      return ml > 0 ? `+${ml}` : `${ml}`;
+    }
+
+    // Format ERA text and assign styling classes
+    function formatERA(era) {
+      if (era == null) return { text: '—', className: '' };
+      const val = parseFloat(era);
+      let className = '';
+      if (val < 3.00) className = 'era-good';
+      else if (val > 4.50) className = 'era-bad';
+      return { text: val.toFixed(2), className };
+    }
+
+    // Format Pitcher cell
+    function renderPitcher(p) {
+      if (!p) {
+        return `
+          <div class="column-pitcher">—</div>
+          <div class="column-hand">—</div>
+          <div class="column-era">—</div>
+          <div class="column-wl">—</div>
+        `;
+      }
+      const eraData = formatERA(p.era);
+      const whipVal = p.whip != null ? parseFloat(p.whip) : null;
+      const whipAttr = (whipVal != null && !isNaN(whipVal)) ? `title="WHIP: ${whipVal.toFixed(2)}"` : '';
+      return `
+        <div class="column-pitcher" title="${p.name}">${p.name}</div>
+        <div class="column-hand">${p.hand || '—'}</div>
+        <div class="column-era ${eraData.className}" ${whipAttr}>${eraData.text}</div>
+        <div class="column-wl">${p.record || '—'}</div>
+      `;
+    }
+
+    // Fetch and populate slate data
+    async function loadSlate(isAutoRefresh = false) {
+      const date = dateInput.value;
+      
+      if (!isAutoRefresh && !currentData) {
+        renderSkeletons();
+      }
+
+      try {
+        const response = await fetch(`/api/mlb/slate?date=${date}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        currentData = data;
+        lastFetchedTime = new Date(data.generatedAt || new Date());
+        
+        errorBanner.style.display = 'none';
+        renderSlate();
+        setupAutoRefresh();
+      } catch (err) {
+        console.error('Fetch failed:', err);
+        errorMessage.textContent = 'Couldn\'t refresh data — retrying';
+        errorBanner.style.display = 'flex';
+        
+        // Setup simple backoff retry if initial fetch failed
+        if (!refreshIntervalId) {
+          setupAutoRefresh(true); // fall back to longer interval on failure
+        }
+      }
+    }
+
+    // Render skeleton placeholders
+    function renderSkeletons() {
+      gameGrid.innerHTML = Array.from({ length: 6 }).map(() => `
+        <div class="skeleton-card">
+          <div class="skeleton-header">
+            <div class="shimmer" style="width: 80px; height: 16px;"></div>
+            <div class="shimmer" style="width: 120px; height: 16px;"></div>
+          </div>
+          <div class="shimmer skeleton-row"></div>
+          <div class="shimmer skeleton-row"></div>
+          <div class="skeleton-footer">
+            <div class="shimmer" style="width: 100px; height: 16px;"></div>
+            <div class="shimmer" style="width: 60px; height: 16px;"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Render games in grid
+    function renderSlate() {
+      if (!currentData || !currentData.games) {
+        gameGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: var(--space-6);">No games scheduled for this date.</div>';
+        return;
+      }
+
+      // Filter games client-side
+      const filteredGames = currentData.games.filter(g => {
+        if (activeFilter === 'all') return true;
+        if (activeFilter === 'live') return g.status === 'live';
+        if (activeFilter === 'upcoming') return g.status === 'scheduled';
+        if (activeFilter === 'final') return g.status === 'final';
+        return true;
+      });
+
+      // Update meta information
+      statGameCount.textContent = `${currentData.meta?.gameCount || 0} games`;
+      if (currentData.meta?.live > 0) {
+        statLiveCount.textContent = `${currentData.meta.live} live`;
+        statLiveCount.style.display = 'inline';
+        liveIndicator.style.display = 'flex';
+      } else {
+        statLiveCount.style.display = 'none';
+        liveIndicator.style.display = 'none';
+      }
+      
+      updateRelativeTime();
+
+      if (filteredGames.length === 0) {
+        gameGrid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: var(--space-6);">No ${activeFilter} games found.</div>`;
+        return;
+      }
+
+      gameGrid.innerHTML = filteredGames.map(g => {
+        // Determine favorite moneyline to bold
+        let awayMLClass = 'column-value';
+        let homeMLClass = 'column-value';
+        
+        if (g.status === 'scheduled' && g.away.moneyline != null && g.home.moneyline != null) {
+          if (g.away.moneyline < g.home.moneyline) {
+            awayMLClass += ' bold-value';
+          } else if (g.home.moneyline < g.away.moneyline) {
+            homeMLClass += ' bold-value';
+          }
+        }
+
+        // Bolding scores for live/final
+        let awayScoreContent = formatML(g.away.moneyline);
+        let homeScoreContent = formatML(g.home.moneyline);
+
+        if (g.status === 'live' || g.status === 'final') {
+          let awayScoreBold = g.status === 'live' ? 'bold-value' : '';
+          let homeScoreBold = g.status === 'live' ? 'bold-value' : '';
+
+          if (g.status === 'final' && g.away.score != null && g.home.score != null) {
+            if (g.away.score > g.home.score) awayScoreBold = 'bold-value';
+            else if (g.home.score > g.away.score) homeScoreBold = 'bold-value';
+          }
+          
+          awayScoreContent = `<span class="${awayScoreBold}">${g.away.score ?? 0}</span>`;
+          homeScoreContent = `<span class="${homeScoreBold}">${g.home.score ?? 0}</span>`;
+        }
+
+        // Status badge styling
+        let badgeClass = 'status-badge-scheduled';
+        let badgeLabel = 'Upcoming';
+        let badgeDotHtml = '';
+
+        if (g.status === 'live') {
+          badgeClass = 'status-badge-live';
+          badgeLabel = g.inning || 'Live';
+          badgeDotHtml = '<span class="badge-dot"></span>';
+        } else if (g.status === 'final') {
+          badgeClass = 'status-badge-final';
+          badgeLabel = 'Final';
+        } else if (g.status === 'postponed') {
+          badgeClass = 'status-badge-postponed';
+          badgeLabel = 'Postponed';
+        }
+
+        // Total odds content
+        let totalContent = '—';
+        if (g.total && g.total.line != null) {
+          const over = g.total.over ? (g.total.over > 0 ? `+${g.total.over}` : g.total.over) : '';
+          const under = g.total.under ? (g.total.under > 0 ? `+${g.total.under}` : g.total.under) : '';
+          totalContent = `O/U ${g.total.line} (${over}/${under})`;
+        }
+
+        return `
+          <article class="game-card" id="game-${g.gamePk}">
+            <div class="card-header">
+              <span class="status-badge ${badgeClass}">
+                ${badgeDotHtml}
+                <span>${badgeLabel}</span>
+              </span>
+              <span class="game-meta-text" title="${g.venue || ''}">
+                ${g.startTimeLocal} ${g.venue ? `· ${g.venue}` : ''}
+              </span>
+            </div>
+            
+            <div class="divider"></div>
+
+            <!-- Away Row -->
+            <div class="card-row">
+              <div class="column-abbr" title="${g.away.team}">${g.away.abbr || '—'}</div>
+              <div class="column-record">${g.away.record || '—'}</div>
+              ${renderPitcher(g.away.pitcher)}
+              <div class="${awayMLClass}">${awayScoreContent}</div>
+            </div>
+
+            <!-- Home Row -->
+            <div class="card-row">
+              <div class="column-abbr" title="${g.home.team}">${g.home.abbr || '—'}</div>
+              <div class="column-record">${g.home.record || '—'}</div>
+              ${renderPitcher(g.home.pitcher)}
+              <div class="${homeMLClass}">${homeScoreContent}</div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Footer Odds -->
+            <div class="card-footer">
+              <span class="odds-totals">${totalContent}</span>
+              <span class="odds-source">${g.oddsSource ? `source: ${g.oddsSource}` : ''}</span>
+            </div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    // Relative updated time ticker
+    function updateRelativeTime() {
+      if (!lastFetchedTime) return;
+      const secondsAgo = Math.floor((new Date() - lastFetchedTime) / 1000);
+      
+      if (secondsAgo < 5) {
+        statUpdated.textContent = 'Last updated: Just now';
+      } else if (secondsAgo < 60) {
+        statUpdated.textContent = `Last updated: ${secondsAgo}s ago`;
+      } else {
+        const mins = Math.floor(secondsAgo / 60);
+        const secs = secondsAgo % 60;
+        statUpdated.textContent = `Last updated: ${mins}m ${secs}s ago`;
+      }
+    }
+
+    // Set refresh intervals based on live game presence
+    function setupAutoRefresh(onFetchError = false) {
+      // Clear existing intervals
+      if (refreshIntervalId) clearInterval(refreshIntervalId);
+      
+      let intervalMs = 120000; // 120s backoff default
+      
+      if (onFetchError) {
+        intervalMs = 15000; // Retry quickly on error
+      } else if (currentData && currentData.meta?.live > 0) {
+        intervalMs = 20000; // High frequency 20s if games are live
+      }
+      
+      refreshIntervalId = setInterval(() => {
+        loadSlate(true);
+      }, intervalMs);
+    }
+
+    // Initialize UI listeners
+    function setupListeners() {
+      // Date Picker Change
+      dateInput.addEventListener('change', () => {
+        // Reset local data cache to trigger skeletons
+        currentData = null;
+        // Sync URL param
+        const url = new URL(window.location);
+        url.searchParams.set('date', dateInput.value);
+        window.history.pushState({}, '', url);
+        
+        loadSlate();
+      });
+
+      // Filter Buttons
+      filterButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          filterButtons.forEach(b => b.classList.remove('active'));
+          e.target.classList.add('active');
+          activeFilter = e.target.getAttribute('data-filter');
+          renderSlate();
+        });
+      });
+
+      // Relative time ticker (runs every second)
+      if (relativeTimeTickerId) clearInterval(relativeTimeTickerId);
+      relativeTimeTickerId = setInterval(updateRelativeTime, 1000);
+    }
+
+    // Run setup
+    initDate();
+    setupListeners();
+    loadSlate();
+
+  </script>
+</body>
+</html>

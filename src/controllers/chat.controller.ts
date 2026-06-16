@@ -96,22 +96,28 @@ export const chatController = {
       deepseek,
       getGrokClient,
       getDeepSeekClient,
-      CANONICAL_TOOLS: nativeSchemas,
-      executeMcpTool: async (name: string, args: any, googleAccessToken?: string, connectionId?: string) => {
+      NATIVE_TOOLS: nativeSchemas,
+      executeMcpTool: async (name: string, args: any, googleAccessToken?: string, connectionId?: string, options?: { signal?: AbortSignal }) => {
+        const signal = options?.signal;
         // ── Meta-tool dispatch ──────────────────────────────────────
         // When the LLM calls `call_tool`, unwrap and dispatch to the real tool.
         if (name === 'call_tool' && args?.toolName) {
           const realToolName = args.toolName;
           const realArgs = args.arguments || {};
+          
+          if (realToolName === 'call_tool') {
+            throw new Error('Nested call_tool invocation is not allowed');
+          }
+          
           console.log(`[MetaTool] call_tool → dispatching to: ${realToolName}`);
           return toolRegistry.execute(realToolName, realArgs, { 
-            googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId 
+            googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal 
           });
         }
         
         // Direct execution for always-on tools (native declarations)
         return toolRegistry.execute(name, args, { 
-          googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId 
+          googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal 
         });
       },
       workspaceDecls,

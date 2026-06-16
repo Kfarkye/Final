@@ -23,6 +23,12 @@ export class SSEManager {
       'X-Accel-Buffering': 'no' // Prevent Nginx/ALB buffering
     });
     
+    // Write immediate initial comment to flush headers and bypass proxies
+    res.write(': connected\n\n');
+    if ((res as any).flush) {
+      (res as any).flush();
+    }
+    
     this.clients.set(id, { id, res, lastHeartbeat: Date.now() });
 
     res.on('close', () => {
@@ -38,15 +44,24 @@ export class SSEManager {
     const client = this.clients.get(id);
     if (!client) return;
     
-    // We stringify the data payload if it's an object
-    const payload = typeof data === 'string' ? data : JSON.stringify(data);
-    
-    client.res.write(`event: ${eventName}\n`);
-    client.res.write(`data: ${payload}\n\n`);
-    
-    // Attempt to flush if compression or chunking is used
-    if ((client.res as any).flush) {
-      (client.res as any).flush();
+    try {
+      if (client.res.writableEnded || client.res.destroyed) {
+        this.removeClient(id);
+        return;
+      }
+
+      // We stringify the data payload if it's an object
+      const payload = typeof data === 'string' ? data : JSON.stringify(data);
+      
+      client.res.write(`event: ${eventName}\n`);
+      client.res.write(`data: ${payload}\n\n`);
+      
+      // Attempt to flush if compression or chunking is used
+      if ((client.res as any).flush) {
+        (client.res as any).flush();
+      }
+    } catch (err) {
+      this.removeClient(id);
     }
   }
 

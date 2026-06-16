@@ -10,6 +10,9 @@ import { artifactTools } from './artifact.tools';
 import { bettingTools } from './betting.tools';
 import { espnTools } from './espn.tools';
 import { mlbTools } from './mlb.tools';
+import { nbaTools } from './nba.tools';
+import { nflTools } from './nfl.tools';
+import { nhlTools } from './nhl.tools';
 import { modelRegistryTools } from './modelRegistry.tools';
 import { forgeTools } from './forge.tools';
 
@@ -26,6 +29,9 @@ toolRegistry.registerMany([
   ...bettingTools,
   ...espnTools,
   ...mlbTools,
+  ...nbaTools,
+  ...nflTools,
+  ...nhlTools,
   ...modelRegistryTools,
   ...forgeTools,
 ]);

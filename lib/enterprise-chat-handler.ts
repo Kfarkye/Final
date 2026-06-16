@@ -73,6 +73,197 @@ function isAbortLikeError(err: any): boolean {
   );
 }
 
+function withDeadline<T>(p: Promise<T>, ms: number, signal: AbortSignal, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Tool ${label} timed out after ${ms}ms`)), ms);
+    
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    
+    signal.addEventListener('abort', onAbort, { once: true });
+    
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        reject(e);
+      }
+    );
+  });
+}
+
+function truncateToolResult(result: any, maxLen = 30000): any {
+  if (result === null || result === undefined) return result;
+  if (typeof result !== 'object') {
+    const str = String(result);
+    if (str.length > maxLen) {
+      return str.substring(0, maxLen) + `\n\n[TRUNCATED: Result exceeded limit of ${maxLen} characters]`;
+    }
+    return result;
+  }
+  const jsonStr = JSON.stringify(result);
+  if (jsonStr.length <= maxLen) return result;
+  if (Array.isArray(result)) {
+    const sliced: any[] = [];
+    let currentLen = 2; // "[]"
+    for (const item of result) {
+      const itemStr = JSON.stringify(item);
+      if (currentLen + itemStr.length + 1 > maxLen) {
+        sliced.push({ _notice: `Truncated: ${result.length - sliced.length} items omitted to fit context window limit.` });
+        break;
+      }
+      sliced.push(item);
+      currentLen += itemStr.length + 1;
+    }
+    return sliced;
+  }
+  return {
+    ...result,
+    _truncated_notice: "This object's content was too large and has been trimmed.",
+    _truncated_data: jsonStr.substring(0, maxLen) + `... [Truncated after ${maxLen} chars]`
+  };
+}
+
+const TOOL_TIMEOUTS: Record<string, number> = {
+  execute_sql: 10_000,
+  get_database_ddl: 10_000,
+  search_web: 20_000,
+  research_report: 60_000,
+  create_html_artifact: 45_000,
+  get_live_odds: 15_000,
+};
+
+function getToolTimeoutMs(toolName: string): number {
+  return TOOL_TIMEOUTS[toolName] ?? 15_000;
+}
+
+function summarizeArgs(args: any): string {
+  if (!args) return '';
+  const s = JSON.stringify(args);
+  return s.length > 200 ? s.substring(0, 200) + '...' : s;
+}
+
+function summarizeToolResult(result: any): any {
+  if (result === null || result === undefined) return result;
+  if (typeof result !== 'object') {
+    const s = String(result);
+    return s.length > 150 ? s.substring(0, 150) + '... [trimmed]' : s;
+  }
+  if (Array.isArray(result)) {
+    return {
+      _summary: `Array of ${result.length} items. First item preview:`,
+      preview: result[0] ? summarizeToolResult(result[0]) : null
+    };
+  }
+  // Standard object summary
+  const summary: any = {};
+  for (const k of Object.keys(result).slice(0, 5)) {
+    summary[k] = typeof result[k] === 'object' ? '[Object]' : result[k];
+  }
+  return summary;
+}
+
+async function executeToolForModel({
+  model,
+  toolName,
+  args,
+  googleAccessToken,
+  connectionId,
+  signal,
+  sendSse,
+  deps
+}: {
+  model: string;
+  toolName: string;
+  args: any;
+  googleAccessToken?: string;
+  connectionId: string;
+  signal: AbortSignal;
+  sendSse: (event: string, payload: any) => void;
+  deps: any;
+}) {
+  const startedAt = Date.now();
+  const timeoutMs = getToolTimeoutMs(toolName);
+
+  sendSse('tool_start', {
+    model,
+    tool: toolName,
+    argsPreview: summarizeArgs(args),
+    timeoutMs
+  });
+
+  const progressInterval = setInterval(() => {
+    if (!signal.aborted) {
+      sendSse('tool_progress', {
+        model,
+        tool: toolName,
+        elapsedMs: Date.now() - startedAt,
+        status: 'running'
+      });
+    }
+  }, 3000);
+
+  try {
+    const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === toolName);
+    const executionPromise = isWorkspace
+      ? deps.executeWorkspaceTool({ name: toolName, args }, googleAccessToken)
+      : deps.executeMcpTool(toolName, args, googleAccessToken, connectionId, { signal });
+
+    const rawResult = await withDeadline(
+      executionPromise,
+      timeoutMs,
+      signal,
+      toolName
+    );
+
+    const result = truncateToolResult(rawResult);
+
+    sendSse('tool_result', {
+      model,
+      tool: toolName,
+      elapsedMs: Date.now() - startedAt,
+      resultPreview: summarizeToolResult(result)
+    });
+
+    return result;
+  } catch (err: any) {
+    if (signal.aborted || isAbortLikeError(err)) {
+      sendSse('tool_error', {
+        model,
+        tool: toolName,
+        elapsedMs: Date.now() - startedAt,
+        error: 'Request aborted by user'
+      });
+      throw err;
+    }
+    
+    ChatLogger.error(`${model}_tool_exec_error_${toolName}`, err);
+
+    sendSse('tool_error', {
+      model,
+      tool: toolName,
+      elapsedMs: Date.now() - startedAt,
+      error: err.message || 'Tool execution failed'
+    });
+
+    return { error: err.message || 'Tool execution failed' };
+  } finally {
+    clearInterval(progressInterval);
+  }
+}
+
 export const enterpriseChatHandler = async (req: Request, res: Response, deps: any) => {
   const connectionId = `conn_${Math.random().toString(36).substring(2, 15)}`;
 
@@ -86,16 +277,23 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
   const abortController = new AbortController();
   const { signal } = abortController;
 
+  let disconnected = false;
   const onDisconnect = () => {
+    if (disconnected) return;
+    disconnected = true;
     ChatLogger.info('chat_stream_client_disconnected', { connectionId });
     abortController.abort();
     sseManager.removeClient(connectionId);
   };
 
   req.on('close', onDisconnect);
+  res.on('close', onDisconnect);
+  res.on('error', onDisconnect);
 
   const cleanup = () => {
     req.removeListener('close', onDisconnect);
+    res.removeListener('close', onDisconnect);
+    res.removeListener('error', onDisconnect);
   };
 
   /** Safe SSE write — no-ops if the client already disconnected */
@@ -167,7 +365,19 @@ When you create, generate, or produce any HTML content (dashboards, pages, tools
 This is non-negotiable. Every HTML artifact MUST be rendered inline as a code block so the user can preview and deploy it.
 </artifact_rendering_contract>`;
 
-    const systemPrompt = toolCatalog ? `${baseSystemPrompt}${artifactContract}\n\n${toolCatalog}` : `${baseSystemPrompt}${artifactContract}`;
+    const toolUseInstruction = `
+
+<tool_use_discipline>
+CRITICAL TOOL USE INSTRUCTIONS:
+1. If you need to present statistical counts, database rows, live schedules, odds, starting pitchers, or any other data that requires a tool, you MUST call the appropriate tool.
+2. NEVER make up or hallucinate numbers, scores, records, names, or status.
+3. If a tool execution fails or returns an error, report the error honestly to the user. Do not pretend the tool succeeded or fake the data.
+4. Verify your claims using actual tool outputs before responding.
+</tool_use_discipline>`;
+
+    const systemPrompt = toolCatalog 
+      ? `${baseSystemPrompt}${artifactContract}${toolUseInstruction}\n\n${toolCatalog}` 
+      : `${baseSystemPrompt}${artifactContract}${toolUseInstruction}`;
 
     // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
@@ -199,7 +409,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         contents.push({ role: 'user', parts: [{ text: governedPrompt }] });
 
         const mergedDecls = [...deps.workspaceDecls];
-        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           if (!mergedDecls.find((d: any) => d.name === toolName)) {
             const gProps = safeGeminiProperties(canonical.properties || {});
             mergedDecls.push({
@@ -268,7 +478,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         let runCount = 0;
         let continueLoop = true;
 
-        while (runCount < 5 && continueLoop && !signal.aborted) {
+        while (runCount < 30 && continueLoop && !signal.aborted) {
           runCount++;
           let genStream = await deps.ai.models.generateContentStream({
             model: actualModelId,
@@ -300,21 +510,16 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
 
             const responseParts = await Promise.all(functionCalls.map(async (call) => {
               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-              sendSse('tool_start', { model: 'gemini', tool: call.name });
-              let toolResult;
-              try {
-                const isWorkspace = deps.workspaceDecls.some((d: any) => d.name === call.name);
-                if (isWorkspace) {
-                  toolResult = await deps.executeWorkspaceTool(call, googleAccessToken);
-                } else {
-                  toolResult = await deps.executeMcpTool(call.name, call.args, googleAccessToken, connectionId);
-                }
-              } catch (toolErr: any) {
-                if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
-                ChatLogger.error(`gemini_tool_exec_error_${call.name}`, toolErr);
-                toolResult = { error: toolErr.message || 'Tool execution failed' };
-              }
-              sendSse('tool_result', { model: 'gemini', tool: call.name, result: toolResult });
+              const toolResult = await executeToolForModel({
+                model: 'gemini',
+                toolName: call.name,
+                args: call.args,
+                googleAccessToken,
+                connectionId,
+                signal,
+                sendSse,
+                deps
+              });
 
               return {
                 functionResponse: {
@@ -329,6 +534,10 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             contents.push({ role: 'user', parts: responseParts });
           } else {
             continueLoop = false;
+          }
+
+          if (runCount >= 30 && continueLoop && !signal.aborted) {
+            sendSse('message', { model: 'gemini', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
           }
         }
       })()));
@@ -347,7 +556,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         msgs.push({ role: "user", content: governedPrompt });
 
         const openaiTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           openaiTools.push({
             type: "function",
             function: {
@@ -380,7 +589,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3 && !signal.aborted) {
+        while (runCount < 30 && !signal.aborted) {
           const stream = await deps.openai.chat.completions.create({
             model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
             messages: currentMessages,
@@ -421,36 +630,38 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
           const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
           currentMessages.push(messageToAppend);
 
-          for (const key of tcKeys) {
-            if (signal.aborted) break;
+          const toolResults = await Promise.all(tcKeys.map(async (key) => {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
             const call = toolCalls[key];
-            sendSse('tool_start', { model: 'chatgpt', tool: call.function.name });
             let args;
             try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
 
-            const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
-            let toolResult;
-            try {
-              if (isWorkspace) {
-                toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
-              } else {
-                toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
-              }
-            } catch (toolErr: any) {
-              if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
-              ChatLogger.error(`chatgpt_tool_exec_error_${call.function.name}`, toolErr);
-              toolResult = { error: toolErr.message || 'Tool execution failed' };
-            }
-            sendSse('tool_result', { model: 'chatgpt', tool: call.function.name, result: toolResult });
+            const toolResult = await executeToolForModel({
+              model: 'chatgpt',
+              toolName: call.function.name,
+              args,
+              googleAccessToken,
+              connectionId,
+              signal,
+              sendSse,
+              deps
+            });
 
-            currentMessages.push({
+            return {
               role: "tool",
               tool_call_id: call.id,
               name: call.function.name,
               content: JSON.stringify(toolResult)
-            });
-          }
+            };
+          }));
+
+          if (signal.aborted) break;
+          currentMessages.push(...toolResults);
           runCount++;
+
+          if (runCount >= 30 && !signal.aborted) {
+            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          }
         }
       })()));
     } else if (targetModels.includes('chatgpt')) {
@@ -471,7 +682,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         msgs.push({ role: "user", content: governedPrompt });
 
         const claudeTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           claudeTools.push({
             name: canonical.name,
             description: canonical.description,
@@ -498,7 +709,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3 && !signal.aborted) {
+        while (runCount < 30 && !signal.aborted) {
           const stream = deps.anthropic.messages.stream({
             model: modelConfigs.claude || "claude-opus-4-8",
             max_tokens: 16384,
@@ -567,40 +778,40 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
           // Push the full assistant turn (text + tool_use blocks) into history
           currentMessages.push({ role: "assistant", content: assistantContentBlocks });
 
-          // Execute each tool_use and collect results
-          const toolResultBlocks: any[] = [];
-          for (const block of assistantContentBlocks) {
-            if (signal.aborted) break;
-            if (block.type === 'tool_use') {
-              let toolResult: any;
-              try {
-                const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === block.name);
-                if (isWorkspace) {
-                  toolResult = await deps.executeWorkspaceTool({ name: block.name, args: block.input }, googleAccessToken);
-                } else {
-                  toolResult = await deps.executeMcpTool(block.name, block.input, googleAccessToken, connectionId);
-                }
-              } catch (toolErr: any) {
-                if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
-                ChatLogger.error(`claude_tool_exec_error_${block.name}`, toolErr);
-                toolResult = { error: toolErr.message || 'Tool execution failed' };
-              }
-              sendSse('tool_result', { model: 'claude', tool: block.name, result: toolResult });
+          // Execute each tool_use and collect results in parallel
+          const toolResultBlocks = await Promise.all(assistantContentBlocks.map(async (block) => {
+            if (block.type !== 'tool_use') return null;
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            
+            const toolResult = await executeToolForModel({
+              model: 'claude',
+              toolName: block.name,
+              args: block.input,
+              googleAccessToken,
+              connectionId,
+              signal,
+              sendSse,
+              deps
+            });
 
-              toolResultBlocks.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: JSON.stringify(toolResult)
-              });
-            }
-          }
+            return {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify(toolResult)
+            };
+          }));
 
           if (signal.aborted) break;
 
-          if (toolResultBlocks.length > 0) {
-            currentMessages.push({ role: "user", content: toolResultBlocks });
+          const activeToolResults = toolResultBlocks.filter((b): b is any => b !== null);
+          if (activeToolResults.length > 0) {
+            currentMessages.push({ role: "user", content: activeToolResults });
           }
           runCount++;
+
+          if (runCount >= 30 && hasToolUse && !signal.aborted) {
+            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          }
         }
       })()));
     } else if (targetModels.includes('claude')) {
@@ -625,7 +836,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         msgs.push({ role: "user", content: governedPrompt });
 
         const grokTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           grokTools.push({
             type: "function",
             function: {
@@ -658,7 +869,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3 && !signal.aborted) {
+        while (runCount < 30 && !signal.aborted) {
           const stream = await grokClient.chat.completions.create({
             model: modelConfigs.grok || "grok-4.3",
             messages: currentMessages,
@@ -699,36 +910,38 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
           const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
           currentMessages.push(messageToAppend);
 
-          for (const key of tcKeys) {
-            if (signal.aborted) break;
+          const toolResults = await Promise.all(tcKeys.map(async (key) => {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
             const call = toolCalls[key];
-            sendSse('tool_start', { model: 'grok', tool: call.function.name });
             let args;
             try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
 
-            const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
-            let toolResult;
-            try {
-              if (isWorkspace) {
-                toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
-              } else {
-                toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
-              }
-            } catch (toolErr: any) {
-              if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
-              ChatLogger.error(`grok_tool_exec_error_${call.function.name}`, toolErr);
-              toolResult = { error: toolErr.message || 'Tool execution failed' };
-            }
-            sendSse('tool_result', { model: 'grok', tool: call.function.name, result: toolResult });
+            const toolResult = await executeToolForModel({
+              model: 'grok',
+              toolName: call.function.name,
+              args,
+              googleAccessToken,
+              connectionId,
+              signal,
+              sendSse,
+              deps
+            });
 
-            currentMessages.push({
+            return {
               role: "tool",
               tool_call_id: call.id,
               name: call.function.name,
               content: JSON.stringify(toolResult)
-            });
-          }
+            };
+          }));
+
+          if (signal.aborted) break;
+          currentMessages.push(...toolResults);
           runCount++;
+
+          if (runCount >= 30 && !signal.aborted) {
+            sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          }
         }
       })()));
       } // end else (grokClient available)
@@ -773,7 +986,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
 
         // Build tool declarations — V4 supports tools with thinking enabled
         const deepseekTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.CANONICAL_TOOLS) as [string, any][]) {
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           deepseekTools.push({
             type: "function",
             function: {
@@ -807,7 +1020,7 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 3 && !signal.aborted) {
+        while (runCount < 30 && !signal.aborted) {
           // Per official docs: thinking and reasoning_effort are top-level params
           // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
            const createParams: any = {
@@ -880,36 +1093,38 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
           const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
           currentMessages.push(messageToAppend);
 
-          for (const key of tcKeys) {
-            if (signal.aborted) break;
+          const toolResults = await Promise.all(tcKeys.map(async (key) => {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
             const call = toolCalls[key];
-            sendSse('tool_start', { model: 'deepseek', tool: call.function.name });
             let args;
             try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
 
-            let toolResult: any;
-            try {
-              const isWorkspace = deps.workspaceDecls && deps.workspaceDecls.some((d: any) => d.name === call.function.name);
-              if (isWorkspace) {
-                toolResult = await deps.executeWorkspaceTool({ name: call.function.name, args }, googleAccessToken);
-              } else {
-                toolResult = await deps.executeMcpTool(call.function.name, args, googleAccessToken, connectionId);
-              }
-            } catch (toolErr: any) {
-              if (signal.aborted || isAbortLikeError(toolErr)) throw toolErr;
-              ChatLogger.error(`deepseek_tool_exec_error_${call.function.name}`, toolErr);
-              toolResult = { error: toolErr.message || 'Tool execution failed' };
-            }
-            sendSse('tool_result', { model: 'deepseek', tool: call.function.name, result: toolResult });
+            const toolResult = await executeToolForModel({
+              model: 'deepseek',
+              toolName: call.function.name,
+              args,
+              googleAccessToken,
+              connectionId,
+              signal,
+              sendSse,
+              deps
+            });
 
-            currentMessages.push({
+            return {
               role: "tool",
               tool_call_id: call.id,
               name: call.function.name,
               content: JSON.stringify(toolResult)
-            });
-          }
+            };
+          }));
+
+          if (signal.aborted) break;
+          currentMessages.push(...toolResults);
           runCount++;
+
+          if (runCount >= 30 && !signal.aborted) {
+            sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          }
         }
       })()));
       } // end else (deepseekClient available)

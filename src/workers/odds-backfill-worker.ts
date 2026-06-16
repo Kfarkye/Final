@@ -15,9 +15,76 @@
  * matching EventIds in MlbGames will succeed. Orphan events are skipped.
  */
 
+import { Spanner } from '@google-cloud/spanner';
+import { env } from '../config/env.js';
+
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 const DEFAULT_BOOKMAKERS = 'draftkings,fanduel,betmgm,caesars,circasports,pinnacle,betonlineag,betus,bovada';
-const SPANNER_MCP_URL_PATH = '/api/mcp/spanner';
+
+const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
+
+// Helper: wrap database calls with a timeout to prevent silent hangs
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Spanner request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
+export function getTeamNickname(name: string): string {
+  const normalized = name.toLowerCase().replace(/[\.\-']/g, '').trim();
+  if (normalized.endsWith('red sox')) return 'redsox';
+  if (normalized.endsWith('white sox')) return 'whitesox';
+  if (normalized.endsWith('blue jays')) return 'bluejays';
+  if (normalized.includes('dbacks') || normalized.includes('diamondbacks') || normalized.includes('d-backs')) return 'diamondbacks';
+
+  const parts = normalized.split(/\s+/);
+  return parts[parts.length - 1] || normalized;
+}
+
+export function findMatchingGame(
+  event: { home_team: string; away_team: string; commence_time: string },
+  games: any[]
+): string | null {
+  const eventHomeNick = getTeamNickname(event.home_team);
+  const eventAwayNick = getTeamNickname(event.away_team);
+  const eventTime = new Date(event.commence_time).getTime();
+
+  let bestMatch: { EventId: string; timeDiff: number } | null = null;
+
+  for (const game of games) {
+    const gameHomeNick = getTeamNickname(game.HomeTeamName);
+    const gameAwayNick = getTeamNickname(game.AwayTeamName);
+
+    const teamsMatch =
+      (eventHomeNick === gameHomeNick && eventAwayNick === gameAwayNick) ||
+      (eventHomeNick === gameAwayNick && eventAwayNick === gameHomeNick);
+
+    if (teamsMatch) {
+      const gameTimeStr = typeof game.StartTime === 'string'
+        ? game.StartTime
+        : (game.StartTime?.value || game.StartTime?.toISOString?.() || '');
+      if (!gameTimeStr) continue;
+
+      const gameTime = new Date(gameTimeStr).getTime();
+      const timeDiff = Math.abs(eventTime - gameTime);
+
+      // Match within 24 hours
+      if (timeDiff < 24 * 60 * 60 * 1000) {
+        if (!bestMatch || timeDiff < bestMatch.timeDiff) {
+          bestMatch = { EventId: game.EventId, timeDiff };
+        }
+      }
+    }
+  }
+
+  return bestMatch ? bestMatch.EventId : null;
+}
 
 // ── Worker State ────────────────────────────────────────────────────
 
@@ -148,14 +215,14 @@ async function runBackfillLoop(config: BackfillConfig, apiKey: string, signal: A
     try {
       // 1. Fetch historical odds
       const url = `${ODDS_API_BASE}/historical/sports/${config.sport}/odds/?apiKey=${apiKey}&regions=${config.regions}&markets=${config.markets}&bookmakers=${DEFAULT_BOOKMAKERS}&oddsFormat=american&date=${encodeURIComponent(dateStr)}`;
-      
+
       const res = await fetch(url, { signal });
-      
+
       // Track quota
       const remaining = res.headers.get('x-requests-remaining');
       if (remaining) {
         workerState.progress.quotaRemaining = parseInt(remaining, 10);
-        
+
         // Quota floor protection
         if (workerState.progress.quotaRemaining < config.quotaFloor) {
           console.log(`[OddsBackfill] Quota floor reached (${workerState.progress.quotaRemaining} < ${config.quotaFloor}). Pausing.`);
@@ -223,11 +290,33 @@ async function ingestSnapshot(
 ): Promise<{ written: number; skipped: number }> {
   let written = 0;
   let skipped = 0;
-  const port = process.env.PORT || 3000;
+
+  const database = spanner.instance('clearspace').database('sports-mlb-db');
+
+  // 1. Load all games from Spanner for in-memory mapping
+  let games: any[] = [];
+  try {
+    const [rows] = await withTimeout(database.run({
+      sql: 'SELECT EventId, HomeTeamName, AwayTeamName, StartTime FROM MlbGames'
+    }));
+    games = rows.map((r: any) => r.toJSON());
+  } catch (err: any) {
+    console.error('[OddsBackfill] Failed to load MlbGames from Spanner:', err.message);
+    return { written: 0, skipped: events.length };
+  }
+
+  const rowsToUpsert: any[] = [];
 
   for (const event of events) {
-    const eventId = event.id;
-    if (!eventId) { skipped++; continue; }
+    const eventIdHex = event.id;
+    if (!eventIdHex) { skipped++; continue; }
+
+    // 2. Resolve external hex ID to canonical ESPN EventId
+    const resolvedEventId = findMatchingGame(event, games);
+    if (!resolvedEventId) {
+      skipped++;
+      continue;
+    }
 
     for (const bookmaker of event.bookmakers || []) {
       let homeML: number | null = null;
@@ -255,27 +344,35 @@ async function ingestSnapshot(
       if (homeML === null && ou === null && spread === null) continue;
 
       const snapshotId = `${bookmaker.key}_${snapshotType}_${snapshotTimestamp}`;
-      const sql = `INSERT OR UPDATE INTO MlbOddsHistory 
-        (EventId, SnapshotId, Provider, SnapshotType, OverUnder, Spread, HomeMoneyLine, AwayMoneyLine, FetchedAt, CreatedAt, UpdatedAt)
-        VALUES ('${esc(eventId)}', '${esc(snapshotId)}', '${esc(bookmaker.key)}', '${esc(snapshotType)}', 
-                ${ou ?? 'NULL'}, ${spread ?? 'NULL'}, ${homeML ?? 'NULL'}, ${awayML ?? 'NULL'},
-                PENDING_COMMIT_TIMESTAMP(), PENDING_COMMIT_TIMESTAMP(), PENDING_COMMIT_TIMESTAMP())`;
+      rowsToUpsert.push({
+        EventId: resolvedEventId,
+        SnapshotId: snapshotId,
+        Provider: bookmaker.key,
+        SnapshotType: snapshotType,
+        OverUnder: ou,
+        Spread: spread,
+        HomeMoneyLine: homeML,
+        AwayMoneyLine: awayML,
+        FetchedAt: Spanner.COMMIT_TIMESTAMP,
+        CreatedAt: Spanner.COMMIT_TIMESTAMP,
+        UpdatedAt: Spanner.COMMIT_TIMESTAMP,
+      });
+    }
+  }
 
-      try {
-        const result = await fetch(`http://localhost:${port}${SPANNER_MCP_URL_PATH}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: Date.now(),
-            method: 'tools/call',
-            params: { name: 'execute_sql', arguments: { instanceId: 'clearspace', databaseId: 'sports-mlb-db', sql } }
-          })
-        });
-        const json = await result.json();
-        if (json.error) { skipped++; } else { written++; }
-      } catch {
-        skipped++;
+  // 3. Perform batch upsert to Spanner (direct client write)
+  if (rowsToUpsert.length > 0) {
+    try {
+      const table = database.table('MlbOddsHistory');
+      // Batch writes in chunks of 100
+      for (let i = 0; i < rowsToUpsert.length; i += 100) {
+        const batch = rowsToUpsert.slice(i, i + 100);
+        await withTimeout(table.upsert(batch));
+        written += batch.length;
       }
+    } catch (err: any) {
+      console.error('[OddsBackfill] Direct upsert to Spanner failed:', err.message);
+      skipped += rowsToUpsert.length;
     }
   }
 

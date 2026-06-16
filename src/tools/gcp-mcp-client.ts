@@ -53,6 +53,12 @@ export async function callGcpMcpTool(
     throw new Error(`GCP MCP ${toolName} error: ${JSON.stringify(data.error)}`);
   }
 
+  // Check if tool execution returned an error
+  if (data.result?.isError === true) {
+    const errMsg = data.result?.content?.[0]?.text || JSON.stringify(data.result);
+    throw new Error(`GCP MCP ${toolName} failed: ${errMsg}`);
+  }
+
   // Parse structured content or text content (same as clearspace-native)
   if (data.result?.structuredContent !== undefined) {
     return data.result.structuredContent;

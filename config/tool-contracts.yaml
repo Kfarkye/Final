@@ -247,6 +247,7 @@ contracts:
       - start_odds_backfill
       - stop_odds_backfill
       - get_backfill_status
+      - get_edge_readout
 
   # ═══════════════════════════════════════════════════════════════════════
   # STRIPE & PAYMENTS

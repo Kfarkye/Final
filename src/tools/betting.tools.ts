@@ -1,6 +1,24 @@
 import { z } from "zod";
 import { RegisteredTool, ToolContext } from "./types";
-import { startBackfill, stopBackfill, getBackfillStatus } from "../workers/odds-backfill-worker";
+import { startBackfill, stopBackfill, getBackfillStatus, findMatchingGame } from "../workers/odds-backfill-worker";
+import { Spanner } from '@google-cloud/spanner';
+import { env } from '../config/env';
+import { EdgeEngine, assertLiveEdgeSource, assertNoPlaceholderLeak } from "../services/edge-engine";
+
+const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
+
+// Helper: wrap database calls with a timeout to prevent silent hangs
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Spanner request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
 
 // ============================================================================
 // Sports Betting & Live Odds Tools
@@ -58,7 +76,7 @@ function flagPinnacle(bookmakers: any[]) {
  */
 async function oddsApiFetch(url: string): Promise<{ data: any; quota: { remaining: number | null; used: number | null; cost: number | null } }> {
   const res = await fetch(url);
-  
+
   const quota = {
     remaining: res.headers.get('x-requests-remaining') ? parseInt(res.headers.get('x-requests-remaining')!, 10) : null,
     used: res.headers.get('x-requests-used') ? parseInt(res.headers.get('x-requests-used')!, 10) : null,
@@ -290,22 +308,48 @@ export const bettingTools: RegisteredTool<any>[] = [
 
       const snapshotTimestamp = response?.timestamp || date;
       const events = response?.data || [];
-      
+
       if (!Array.isArray(events) || events.length === 0) {
-        return { 
-          status: 'empty', 
+        return {
+          status: 'empty',
           message: 'No historical data returned for this date/sport',
           snapshotTimestamp,
-          _quota: quota 
+          _quota: quota
         };
       }
 
       // 2. Transform to MlbOddsHistory rows
       const rows: any[] = [];
+      let skippedCount = 0;
+      const database = spanner.instance('clearspace').database('sports-mlb-db');
+
+      // Load all games from Spanner for in-memory mapping
+      let games: any[] = [];
+      try {
+        const [rows] = await withTimeout(database.run({
+          sql: 'SELECT EventId, HomeTeamName, AwayTeamName, StartTime FROM MlbGames'
+        }));
+        games = rows.map((r: any) => r.toJSON());
+      } catch (err: any) {
+        console.error('[BettingTools] Failed to load MlbGames from Spanner:', err.message);
+        return {
+          status: 'error',
+          message: `Failed to load MlbGames from Spanner: ${err.message}`,
+          snapshotTimestamp,
+          _quota: quota
+        };
+      }
 
       for (const event of events) {
-        const eventId = event.id;
-        if (!eventId) continue;
+        const eventIdHex = event.id;
+        if (!eventIdHex) { skippedCount++; continue; }
+
+        // Resolve external hex ID to canonical ESPN EventId
+        const resolvedEventId = findMatchingGame(event, games);
+        if (!resolvedEventId) {
+          skippedCount++;
+          continue;
+        }
 
         for (const bookmaker of event.bookmakers || []) {
           let homeMoneyLine: number | null = null;
@@ -334,7 +378,7 @@ export const bettingTools: RegisteredTool<any>[] = [
           if (homeMoneyLine !== null || overUnder !== null || spread !== null) {
             const snapshotId = `${bookmaker.key}_${snapshotType}_${snapshotTimestamp}`;
             rows.push({
-              EventId: eventId,
+              EventId: resolvedEventId,
               SnapshotId: snapshotId,
               Provider: bookmaker.key,
               SnapshotType: snapshotType,
@@ -342,6 +386,9 @@ export const bettingTools: RegisteredTool<any>[] = [
               Spread: spread,
               HomeMoneyLine: homeMoneyLine,
               AwayMoneyLine: awayMoneyLine,
+              FetchedAt: Spanner.COMMIT_TIMESTAMP,
+              CreatedAt: Spanner.COMMIT_TIMESTAMP,
+              UpdatedAt: Spanner.COMMIT_TIMESTAMP,
             });
           }
         }
@@ -353,56 +400,28 @@ export const bettingTools: RegisteredTool<any>[] = [
           snapshotTimestamp,
           eventsProcessed: events.length,
           rowsPrepared: rows.length,
+          skipped: skippedCount,
           sampleRows: rows.slice(0, 5),
           _quota: quota
         };
       }
 
-      // 3. Write to Spanner via the MCP endpoint (execute_sql with DML)
-      // Using individual INSERT OR UPDATE statements via the Spanner MCP
+      // 3. Write to Spanner via direct upsert
       let written = 0;
-      let skipped = 0;
+      let skipped = skippedCount;
       const errors: string[] = [];
 
-      for (const row of rows) {
+      if (rows.length > 0) {
         try {
-          const sql = `INSERT OR UPDATE INTO MlbOddsHistory 
-            (EventId, SnapshotId, Provider, SnapshotType, OverUnder, Spread, HomeMoneyLine, AwayMoneyLine, FetchedAt, CreatedAt, UpdatedAt)
-            VALUES ('${row.EventId}', '${row.SnapshotId}', '${row.Provider}', '${row.SnapshotType}', 
-                    ${row.OverUnder ?? 'NULL'}, ${row.Spread ?? 'NULL'}, 
-                    ${row.HomeMoneyLine ?? 'NULL'}, ${row.AwayMoneyLine ?? 'NULL'},
-                    PENDING_COMMIT_TIMESTAMP(), PENDING_COMMIT_TIMESTAMP(), PENDING_COMMIT_TIMESTAMP())`;
-          
-          // Execute via the Spanner MCP tool using the registry
-          const spannerResult = await fetch(`http://localhost:${process.env.PORT || 3000}/api/mcp/spanner`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: Date.now(),
-              method: 'tools/call',
-              params: {
-                name: 'execute_sql',
-                arguments: {
-                  instanceId: 'clearspace',
-                  databaseId: 'sports-mlb-db',
-                  sql
-                }
-              }
-            })
-          });
-          
-          const result = await spannerResult.json();
-          if (result.error) {
-            // Likely a foreign key / interleave issue (EventId not in MlbGames)
-            skipped++;
-            if (errors.length < 3) errors.push(`${row.EventId}: ${JSON.stringify(result.error).substring(0, 100)}`);
-          } else {
-            written++;
+          const table = database.table('MlbOddsHistory');
+          for (let i = 0; i < rows.length; i += 100) {
+            const batch = rows.slice(i, i + 100);
+            await withTimeout(table.upsert(batch));
+            written += batch.length;
           }
         } catch (err: any) {
-          skipped++;
-          if (errors.length < 3) errors.push(`${row.EventId}: ${err.message?.substring(0, 100)}`);
+          skipped += rows.length;
+          errors.push(`Direct upsert failed: ${err.message}`);
         }
       }
 
@@ -414,7 +433,7 @@ export const bettingTools: RegisteredTool<any>[] = [
         rowsPrepared: rows.length,
         written,
         skipped,
-        ...(errors.length > 0 ? { sampleErrors: errors } : {}),
+        ...(errors.length > 0 ? { errors } : {}),
         _quota: quota
       };
     }
@@ -468,6 +487,76 @@ export const bettingTools: RegisteredTool<any>[] = [
     },
     handler: async () => {
       return getBackfillStatus();
+    }
+  },
+  {
+    definition: {
+      name: "get_edge_readout",
+      description: "Retrieve the narrative and quantitative edge readout for a specific MLB game using its gamePk / eventId. Returns computed indicators (Steam, Cross-Book, Sharp Lead, COBB basis) and a plain-language summary of any arbitrage or lagging value opportunity.",
+      schema: z.object({
+        gamePk: z.string().describe("The canonical event ID (e.g. ESPN EventId as a string, e.g. '401570774')")
+      })
+    },
+    handler: async (args) => {
+      const gamePk = String(args.gamePk);
+      const db = spanner.instance("clearspace").database("sports-mlb-db");
+
+      // Check if the game itself is simulated (e.g. gamePk starts with "test-")
+      const isSimulated = gamePk.startsWith("test-");
+      const allowFixtures = process.env.NODE_ENV === "test" || process.env.ALLOW_EDGE_FIXTURES === "true";
+      if (isSimulated && !allowFixtures) {
+        throw new Error("Access Denied: Simulated games are blocked in production/staging environments.");
+      }
+
+      // Attempt to fetch computed edge state
+      const [rows] = await withTimeout(db.run({
+        sql: `
+          SELECT StateJson, ComputedAt
+          FROM GameEdgeState
+          WHERE GamePk = @gamePk
+          ORDER BY ComputedAt DESC
+          LIMIT 1
+        `,
+        params: { gamePk }
+      }));
+
+      let resultObj: any;
+      if (rows.length === 0) {
+        // Compute it live if not yet stored
+        const computed = await EdgeEngine.computeEdgeState(gamePk);
+        if (!computed) {
+          return { error: `No odds or edge data available to compute for game ${gamePk}` };
+        }
+        resultObj = computed;
+      } else {
+        const edgeState = rows[0].toJSON();
+        resultObj = edgeState.StateJson || {};
+        resultObj.computedAt = edgeState.ComputedAt;
+      }
+
+      // Enforce the critical production rule and quality gates
+      if (resultObj.sourceMeta) {
+        assertLiveEdgeSource(resultObj.sourceMeta);
+      }
+      assertNoPlaceholderLeak(resultObj);
+
+      return {
+        gamePk,
+        computedAt: resultObj.computedAt || new Date().toISOString(),
+        compositeEdge: resultObj.compositeEdge || 0,
+        edgeSide: resultObj.edgeSide || "none",
+        confidence: resultObj.confidence || "low",
+        headline: EdgeEngine.generateHeadline(resultObj),
+        indicators: {
+          steam: { score: resultObj.steamScore || 0 },
+          crossBook: { score: resultObj.crossBookDiverg || 0 },
+          sharpLeadLag: { score: resultObj.sharpLeadLag || 0 },
+          fairLineGap: resultObj.fairLineResult || {},
+          cobb: resultObj.cobbResult || {}
+        },
+        edges: resultObj.edges || [],
+        sourceMeta: resultObj.sourceMeta || []
+      };
     }
   }
 ];

@@ -20,6 +20,7 @@ export interface ToolContext {
   getGrokClient?: () => Promise<OpenAI>;
   getDeepSeekClient?: () => Promise<OpenAI>;
   connectionId?: string;
+  signal?: AbortSignal;
 }
 
 export interface RegisteredTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {

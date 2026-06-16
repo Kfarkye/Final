@@ -8,6 +8,19 @@ import { env } from '../config/env';
 // Initialize Spanner client
 const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
 
+// Helper: wrap database calls with a timeout to prevent silent hangs
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Spanner request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
 export const spannerTools: RegisteredTool<any>[] = [
   {
     definition: {
@@ -16,7 +29,7 @@ export const spannerTools: RegisteredTool<any>[] = [
       schema: z.object({})
     },
     handler: async () => {
-      const [instances] = await spanner.getInstances();
+      const [instances] = await withTimeout(spanner.getInstances());
       const plainInstances = instances.map((inst: any) => ({
         id: inst.id,
         formattedName: inst.formattedName,
@@ -36,7 +49,7 @@ export const spannerTools: RegisteredTool<any>[] = [
     },
     handler: async (args) => {
       const instance = spanner.instance(args.instanceId);
-      const [databases] = await instance.getDatabases();
+      const [databases] = await withTimeout(instance.getDatabases());
       const plainDatabases = databases.map((db: any) => ({
         id: db.id,
         formattedName: db.formattedName,
@@ -56,7 +69,7 @@ export const spannerTools: RegisteredTool<any>[] = [
     },
     handler: async (args) => {
       const database = spanner.instance(args.instanceId).database(args.databaseId);
-      const [ddlStatements] = await database.getSchema();
+      const [ddlStatements] = await withTimeout(database.getSchema());
       return { instanceId: args.instanceId, databaseId: args.databaseId, ddl: ddlStatements };
     }
   },
@@ -87,14 +100,14 @@ export const spannerTools: RegisteredTool<any>[] = [
 
       if (isWriteDML) {
         let rowCount = 0;
-        await database.runTransactionAsync(async (transaction) => {
+        await withTimeout(database.runTransactionAsync(async (transaction) => {
           const [count] = await transaction.runUpdate({ sql });
           await transaction.commit();
           rowCount = count;
-        });
+        }));
         return { success: true, statement: "DML Executed successfully", rowCount };
       } else {
-        const [rows] = await database.run({ sql });
+        const [rows] = await withTimeout(database.run({ sql }));
         const plainRows = rows.map((row: any) => row.toJSON ? row.toJSON() : row);
         return { instanceId: args.instanceId, databaseId: args.databaseId, sql, rows: plainRows };
       }

@@ -5,6 +5,7 @@ import { env } from "../config/env";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
+import { logger } from "../utils/logger";
 
 // ============================================================================
 // HTML5 Artifact Tools — Template-Driven, Live Data, Design System
@@ -94,7 +95,7 @@ async function loadTemplate(templateId: string): Promise<string | null> {
     if (fs.existsSync(localPath)) {
       return fs.readFileSync(localPath, "utf-8");
     }
-  } catch {}
+  } catch { }
 
   // 2. Try dist/templates (for production builds where Vite copies public/)
   const distPath = path.join(process.cwd(), "dist", "templates", `${templateId}.html`);
@@ -102,7 +103,7 @@ async function loadTemplate(templateId: string): Promise<string | null> {
     if (fs.existsSync(distPath)) {
       return fs.readFileSync(distPath, "utf-8");
     }
-  } catch {}
+  } catch { }
 
   // 3. Fall back to GCS
   try {
@@ -293,7 +294,8 @@ export const artifactTools: RegisteredTool<any>[] = [
         await callGcpMcpTool(STORAGE_MCP, "write_text", {
           bucketName: ARTIFACT_BUCKET,
           objectName,
-          textContent: finalHtml
+          textContent: finalHtml,
+          contentType: "text/html; charset=utf-8"
         });
       } catch (err: any) {
         return {
@@ -345,8 +347,7 @@ export const artifactTools: RegisteredTool<any>[] = [
       try {
         const result = await callGcpMcpTool(STORAGE_MCP, "read_text", {
           bucketName: ARTIFACT_BUCKET,
-          objectName,
-          projectId: env.GCP_PROJECT
+          objectName
         });
         htmlContent = typeof result === "string" ? result : (result?.content || result?.text || JSON.stringify(result));
       } catch (err: any) {
@@ -361,29 +362,92 @@ export const artifactTools: RegisteredTool<any>[] = [
             region: "us-central1",
             template: {
               containers: [{
-                image: "node:22-slim",
+                baseImageUri: "nodejs22",
                 command: ["node", "server.js"],
-                ports: [{ containerPort: 8080 }]
+                ports: [{ containerPort: 8080 }],
+                sourceCode: {
+                  inlinedSource: {
+                    sources: [
+                      { filename: "index.html", content: htmlContent },
+                      {
+                        filename: "server.js",
+                        content: `const http=require('http'),https=require('https'),fs=require('fs'),html=fs.readFileSync('index.html','utf8');http.createServer((q,s)=>{if(q.url.startsWith('/api/')){const p=https.request('https://reverie-70323048967.us-central1.run.app'+q.url,{method:q.method,headers:q.headers},r=>{s.writeHead(r.statusCode,r.headers);r.pipe(s)});p.on('error',e=>{s.writeHead(500,{'Content-Type':'application/json'});s.end(JSON.stringify({error:e.message}))});q.pipe(p)}else{s.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});s.end(html)}}).listen(process.env.PORT||8080);`
+                      },
+                      {
+                        filename: "Dockerfile",
+                        content: `FROM node:22-slim\nWORKDIR /app\nCOPY . .\nEXPOSE 8080\nCMD ["node","server.js"]`
+                      }
+                    ]
+                  }
+                }
               }]
             },
-            invokerIamDisabled: true,
-            sourceCode: {
-              sources: [
-                { filename: "index.html", content: htmlContent },
-                {
-                  filename: "server.js",
-                  content: `const http=require('http');const fs=require('fs');const html=fs.readFileSync('index.html','utf8');http.createServer((_,r)=>{r.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});r.end(html)}).listen(process.env.PORT||8080);`
-                },
-                {
-                  filename: "Dockerfile",
-                  content: `FROM node:22-slim\nWORKDIR /app\nCOPY . .\nEXPOSE 8080\nCMD ["node","server.js"]`
-                }
-              ]
-            },
-            baseImageUri: "node:22-slim"
+            invokerIamDisabled: true
           }
         });
-        return { artifactId: args.artifactId, serviceName, deployResult, message: `Artifact deployed as "${serviceName}".` };
+
+        // Poll get_service to verify deployment readiness and retrieve the official URL
+        let serviceUrl = "";
+        let isReady = false;
+        const startTime = Date.now();
+        const timeoutMs = 120000; // 2 minutes max
+
+        while (Date.now() - startTime < timeoutMs) {
+          try {
+            const serviceInfo = await callGcpMcpTool(CLOUDRUN_MCP, "get_service", {
+              name: serviceName,
+              project: env.GCP_PROJECT,
+              region: "us-central1"
+            });
+            if (serviceInfo?.uri) {
+              serviceUrl = serviceInfo.uri;
+            }
+            if (serviceInfo?.terminalCondition?.state === "CONDITION_SUCCEEDED") {
+              isReady = true;
+              break;
+            } else if (serviceInfo?.terminalCondition?.state === "CONDITION_FAILED" || serviceInfo?.terminalCondition?.severity === "ERROR") {
+              throw new Error(`Cloud Run deployment failed: ${serviceInfo.terminalCondition.message || "Unknown error"}`);
+            }
+          } catch (pollErr: any) {
+            // Service may not exist in the first few polls
+            logger.info({ msg: "Polling get_service error (waiting for creation)", error: pollErr.message });
+          }
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+
+        if (!isReady || !serviceUrl) {
+          return { error: `Failed to deploy or retrieve Cloud Run service URL within timeout.` };
+        }
+
+        // Perform HEAD request verification
+        let verified = false;
+        try {
+          const headRes = await fetch(serviceUrl, { method: "HEAD" });
+          const contentType = headRes.headers.get("content-type") || "";
+          if (contentType.toLowerCase().startsWith("text/html")) {
+            verified = true;
+          } else {
+            logger.error({ msg: "HEAD verification failed: unexpected content-type", contentType, serviceUrl });
+          }
+        } catch (err: any) {
+          logger.error({ msg: "HEAD verification request failed", err: err.message, serviceUrl });
+        }
+
+        if (!verified) {
+          return {
+            error: `Deployment verification failed. The deployed service did not return a text/html content-type. URL: ${serviceUrl}`,
+            url: serviceUrl,
+            verified: false
+          };
+        }
+
+        return {
+          artifactId: args.artifactId,
+          serviceName,
+          url: serviceUrl,
+          verified: true,
+          message: `Artifact deployed and verified successfully as "${serviceName}".`
+        };
       } catch (err: any) {
         return { error: `Failed to deploy artifact: ${err.message}` };
       }

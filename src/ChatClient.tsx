@@ -1036,47 +1036,106 @@ export default function ChatClient() {
             }}
           />
         )}
-        {pendingApproval && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-md w-full p-6 space-y-6 shadow-2xl scale-up-animation">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-amber-500 text-xs font-bold tracking-wider uppercase">
-                  <span className="h-2 w-2 bg-amber-500 rounded-full animate-ping" />
-                  <span>UX Approval Required</span>
+        {pendingApproval && (() => {
+          const getApprovalDetails = (tool: string, args: any) => {
+            switch (tool) {
+              case "write_staged_file":
+                return {
+                  badge: "UX Review Request",
+                  title: "Stage File for Review",
+                  description: `The AI model has requested to stage a file in Cloud Storage: ${args?.path || args?.objectName || ""}. Confirming this will write the staged file.`,
+                  colorClass: "text-amber-500",
+                  pingBg: "bg-amber-500"
+                };
+              case "execute_ddl":
+                return {
+                  badge: "Critical Schema Change",
+                  title: "Modify Live Spanner Schema",
+                  description: "The AI model has requested schema modifications (DDL) on Spanner. Confirming this will run DDL migration statements.",
+                  colorClass: "text-rose-500",
+                  pingBg: "bg-rose-500"
+                };
+              case "execute_sql":
+                return {
+                  badge: "Critical Database Write",
+                  title: "Modify Live Spanner Rows",
+                  description: "The AI model has requested executing database queries that modify live rows (DML). Confirming this will run write/update queries.",
+                  colorClass: "text-rose-500",
+                  pingBg: "bg-rose-500"
+                };
+              case "deploy_staged_mcp":
+                return {
+                  badge: "Production Deployment",
+                  title: "Deploy Staged Code to Cloud Run",
+                  description: "The AI model has requested redeploying the Reverie platform to Cloud Run. Confirming this triggers source-based builds.",
+                  colorClass: "text-rose-500",
+                  pingBg: "bg-rose-500"
+                };
+              case "write_storage_text": {
+                const path = args?.objectName || args?.path || "";
+                const isStaged = path.includes("staged") || path.includes("staged/specs") || path.includes("truth-artifacts");
+                return {
+                  badge: isStaged ? "UX Review Request" : "Storage Modification",
+                  title: "Write Cloud Storage Object",
+                  description: `The AI model has requested writing an object to Cloud Storage: ${args?.bucketName || ""}/${path}.`,
+                  colorClass: isStaged ? "text-amber-500" : "text-rose-500",
+                  pingBg: isStaged ? "bg-amber-500" : "bg-rose-500"
+                };
+              }
+              default:
+                return {
+                  badge: "UX Approval Required",
+                  title: "Sensitive Action Requested",
+                  description: `The AI model has requested execution of ${tool}. Confirming this will execute the action.`,
+                  colorClass: "text-rose-500",
+                  pingBg: "bg-rose-500"
+                };
+            }
+          };
+
+          const details = getApprovalDetails(pendingApproval.tool, pendingApproval.args);
+
+          return (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+              <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-md w-full p-6 space-y-6 shadow-2xl scale-up-animation">
+                <div className="space-y-2">
+                  <div className={`flex items-center gap-2 ${details.colorClass} text-xs font-bold tracking-wider uppercase`}>
+                    <span className={`h-2 w-2 ${details.pingBg} rounded-full animate-ping`} />
+                    <span>{details.badge}</span>
+                  </div>
+                  <h3 className="text-white text-lg font-semibold tracking-tight">
+                    {details.title}
+                  </h3>
+                  <p className="text-zinc-400 text-xs leading-relaxed">
+                    {details.description}
+                  </p>
                 </div>
-                <h3 className="text-white text-lg font-semibold tracking-tight">
-                  Sensitive Spanner Database Action
-                </h3>
-                <p className="text-zinc-400 text-xs leading-relaxed">
-                  The AI model has requested execution of <code className="bg-zinc-900 text-zinc-300 px-1.5 py-0.5 rounded text-[11px] font-mono">{pendingApproval.tool}</code>.
-                  Confirming this will modify the live database state.
-                </p>
-              </div>
 
-              <div className="bg-black/40 border border-zinc-900 rounded-xl p-4 overflow-y-auto max-h-48 font-mono text-[10px] text-zinc-300 space-y-1">
-                <div className="text-zinc-500 font-bold uppercase tracking-wider text-[8px] mb-1">Payload parameters</div>
-                <pre className="whitespace-pre-wrap">{JSON.stringify(pendingApproval.args, null, 2)}</pre>
-              </div>
+                <div className="bg-black/40 border border-zinc-900 rounded-xl p-4 overflow-y-auto max-h-48 font-mono text-[10px] text-zinc-300 space-y-1">
+                  <div className="text-zinc-500 font-bold uppercase tracking-wider text-[8px] mb-1">Payload parameters</div>
+                  <pre className="whitespace-pre-wrap">{JSON.stringify(pendingApproval.args, null, 2)}</pre>
+                </div>
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleUXApprovalDecision(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-zinc-900 hover:border-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
-                >
-                  Deny Action
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUXApprovalDecision(true)}
-                  className="flex-1 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-black text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
-                >
-                  Approve Action
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleUXApprovalDecision(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-zinc-900 hover:border-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                  >
+                    Deny Action
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUXApprovalDecision(true)}
+                    className="flex-1 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-black text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                  >
+                    Approve Action
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
         {/* Floating Error Toast Notification */}
         {errorToast && (
           <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 text-sm text-red-400 bg-zinc-950 border border-red-500/20 rounded-lg shadow-xl animate-fade-in-up">
