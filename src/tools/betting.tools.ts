@@ -541,16 +541,18 @@ export const bettingTools: RegisteredTool<any>[] = [
       assertNoPlaceholderLeak(resultObj);
 
       return {
-        gamePk,
+        eventId: gamePk,
         sourceMode: "live",
         computedAt: resultObj.computedAt || new Date().toISOString(),
         compositeEdge: resultObj.compositeEdge || 0,
         edgeSide: resultObj.edgeSide || "none",
         confidence: resultObj.confidence || "low",
         headline: EdgeEngine.generateHeadline(resultObj),
+        summary: EdgeEngine.generateSummary(resultObj),
+        warnings: resultObj.warnings || [],
         indicators: {
           steam: { score: resultObj.steamScore || 0 },
-          crossBook: { score: resultObj.crossBookDiverg || 0 },
+          crossBook: resultObj.crossBook || { score: 0, status: "insufficient_books", bookCount: 0 },
           sharpLeadLag: { score: resultObj.sharpLeadLag || 0 },
           fairLineGap: resultObj.fairLineResult || {},
           cobb: resultObj.cobbResult || {}

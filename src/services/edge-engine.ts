@@ -114,6 +114,12 @@ export type SharpAnchorSelection =
       confidencePenalty: number;
     }
   | {
+      type: "single_book_reference";
+      label: "Single-book reference";
+      books: NormalizedBookPrice[];
+      confidencePenalty: number;
+    }
+  | {
       type: "no_anchor";
       label: "No sharp anchor available";
       books: [];
@@ -141,15 +147,13 @@ export function assertNoPlaceholderLeak(value: any) {
     "teamAbbr",
     "opponentAbbr",
     "undefined",
+    "null",
     "${",
     "{{",
     "}}",
   ];
 
   if (typeof value === "string") {
-    if (value.toLowerCase() === "null") {
-      throw new Error("Template leak detected: null");
-    }
     for (const token of forbidden) {
       if (value.includes(token)) {
         throw new Error(`Template leak detected: ${token}`);
@@ -328,7 +332,7 @@ export class EdgeEngine {
         sql: `
           SELECT SnapshotId, Book, IsSharp, Market, Side, Price, Point, CapturedAt
           FROM OddsSnapshot
-          WHERE GamePk = @gamePk
+          WHERE GamePk = @gamePk AND Price IS NOT NULL
           ORDER BY CapturedAt DESC
         `,
         params: { gamePk }
@@ -439,21 +443,62 @@ export class EdgeEngine {
 
     // Fetch game details to construct Event fields
     const [gameRows] = await db.run({
-      sql: "SELECT HomeTeamName, AwayTeamName, StartTime FROM MlbGames WHERE EventId = @gamePk LIMIT 1",
+      sql: "SELECT HomeTeamName, AwayTeamName, StartTime, Status FROM MlbGames WHERE EventId = @gamePk LIMIT 1",
       params: { gamePk }
     });
 
     let homeTeam = "Home Team";
     let awayTeam = "Away Team";
     let startTime = new Date().toISOString();
+    let gameStatus = "scheduled";
+
     if (gameRows.length > 0) {
       const g = gameRows[0].toJSON();
       homeTeam = g.HomeTeamName || homeTeam;
       awayTeam = g.AwayTeamName || awayTeam;
       startTime = g.StartTime ? new Date(g.StartTime.value || g.StartTime).toISOString() : startTime;
+      gameStatus = g.Status || "scheduled";
     }
 
-    if (edgeSide !== "none" && compositeEdge >= 0.4) {
+    const latestSnapshotTime = snapshots.length > 0
+      ? Math.max(...snapshots.map(s => new Date(s.CapturedAt).getTime()))
+      : null;
+    const computeTime = new Date().getTime();
+    const ageSeconds = latestSnapshotTime
+      ? Math.round((computeTime - latestSnapshotTime) / 1000)
+      : 0;
+    const maxAllowedAgeSeconds = 900; // 15 minutes
+    const isCompleted = gameStatus.toLowerCase() === "final" || gameStatus.toLowerCase() === "completed";
+    const isStale = !isCompleted && latestSnapshotTime ? (ageSeconds > maxAllowedAgeSeconds) : false;
+
+    const freshness = {
+      status: isCompleted ? "historical" : (isStale ? "stale" : "fresh"),
+      ageSeconds,
+      maxAllowedAgeSeconds
+    };
+
+    const warnings: string[] = [];
+    const distinctH2hBooks = new Set(snapshots.filter(s => s.Market === "h2h").map(s => s.Book));
+
+    if (distinctH2hBooks.size === 1) {
+      warnings.push("Only one usable bookmaker found.");
+    } else if (distinctH2hBooks.size === 0) {
+      warnings.push("No usable bookmakers found.");
+    }
+
+    if (!distinctH2hBooks.has("pinnacle")) {
+      warnings.push("No Pinnacle price found for this market.");
+    }
+
+    if (isStale) {
+      warnings.push("Latest odds snapshot appears stale relative to compute time.");
+    }
+
+    // Determine if we should emit any actionable edge.
+    const allowFixtures = options?.allowFixtures === true || process.env.ALLOW_EDGE_FIXTURES === "true";
+    const isLiveAndFresh = freshness.status === "fresh" || allowFixtures;
+
+    if (edgeSide !== "none" && compositeEdge >= 0.4 && isLiveAndFresh) {
       const offeredPrice = fairLineResult.bestPrice;
       const offeredBook = fairLineResult.bestBookmaker || "unknown";
       const offeredProb = offeredPrice !== null ? americanToProbability(offeredPrice) : 0.5;
@@ -545,7 +590,7 @@ export class EdgeEngine {
     // Filter edges using compliant quality rules
     const compliantEdges = edges.filter(edge => {
       try {
-        assertNoPlaceholderLeak(JSON.stringify(edge));
+        assertNoPlaceholderLeak(edge);
       } catch (err: any) {
         logger.warn({ msg: "Filtered out edge due to template leak", edge, error: err.message });
         return false;
@@ -567,9 +612,18 @@ export class EdgeEngine {
       return true;
     });
 
+    const crossBookObj = {
+      score: crossBookDiverg,
+      status: distinctH2hBooks.size < 2 ? "insufficient_books" : "active",
+      bookCount: distinctH2hBooks.size
+    };
+
     const stateJson = {
       steamScore,
       crossBookDiverg,
+      crossBook: crossBookObj,
+      freshness,
+      warnings,
       sharpLeadLag,
       fairLineResult,
       cobbResult,
@@ -699,6 +753,9 @@ export class EdgeEngine {
     const h2hSnaps = current.filter(s => s.Market === "h2h");
     if (h2hSnaps.length < 2) return 0;
 
+    const distinctBooks = new Set(h2hSnaps.map(s => s.Book));
+    if (distinctBooks.size < 2) return 0;
+
     const homePrices = h2hSnaps.map(s => s.Price).filter(p => p !== null) as number[];
     if (homePrices.length === 0) return 0;
     
@@ -822,12 +879,21 @@ export class EdgeEngine {
           }
         }
 
-        if (tier2Books.length > 0) {
+        const distinctBooks = new Set(tier2Books.map(b => b.bookmaker));
+
+        if (distinctBooks.size >= 2) {
           anchorSelection = {
             type: "market_consensus",
             label: "Market consensus",
             books: tier2Books,
             confidencePenalty: 0.15
+          };
+        } else if (distinctBooks.size === 1) {
+          anchorSelection = {
+            type: "single_book_reference",
+            label: "Single-book reference",
+            books: tier2Books,
+            confidencePenalty: 0.35
           };
         } else {
           // 4. No anchor
@@ -835,7 +901,7 @@ export class EdgeEngine {
             type: "no_anchor",
             label: "No sharp anchor available",
             books: [],
-            confidencePenalty: 0.30
+            confidencePenalty: 0.50
           };
         }
       }
@@ -1097,6 +1163,22 @@ export class EdgeEngine {
    */
   public static generateHeadline(state: any): string {
     if (!state) return "No edge data available.";
+
+    const freshnessStatus = state.freshness?.status;
+    const bookCount = state.crossBook?.bookCount || 0;
+
+    if (freshnessStatus === "historical") {
+      return "Historical readout — game is finalized.";
+    }
+
+    if (freshnessStatus === "stale") {
+      return "No live edge — latest available odds snapshot is stale.";
+    }
+
+    if (bookCount < 2) {
+      return "No actionable edge — limited book coverage.";
+    }
+
     const comp = state.compositeEdge || 0;
     const side = state.edgeSide || "none";
     if (comp < 0.4 || side === "none") {
@@ -1125,5 +1207,49 @@ export class EdgeEngine {
     }
 
     return "Line movement detected; minor value exists on the number.";
+  }
+
+  /**
+   * Translates computed edge state to a plain language summary.
+   */
+  public static generateSummary(state: any): string {
+    if (!state) return "No edge data available.";
+
+    const freshnessStatus = state.freshness?.status;
+    const bookCount = state.crossBook?.bookCount || 0;
+    const books = state.fairLineResult?.anchorSelection?.books || [];
+    const bookNames = Array.from(new Set(books.map((b: any) => String(b.bookmaker))));
+
+    if (freshnessStatus === "historical") {
+      return "This game has completed. Storing historical computed edge state for analysis, but no live edges are emitted.";
+    }
+
+    if (freshnessStatus === "stale") {
+      const latestSnapshotTime = state.freshness?.latestSnapshotTime || "unknown";
+      return `Odds data was last updated at ${latestSnapshotTime}. Stale odds are blocked from generating live bettable edges to prevent acting on outdated lines.`;
+    }
+
+    if (bookCount < 2) {
+      const bookName = String(bookNames[0] || "unknown");
+      return `Truth only found a usable ${bookName.toUpperCase()} moneyline snapshot for this game. Without Pinnacle, Tier 1 sharp books, or multiple current books, there is not enough market depth to call this efficient or actionable.`;
+    }
+
+    const comp = state.compositeEdge || 0;
+    const side = state.edgeSide || "none";
+    if (comp < 0.4 || side === "none") {
+      return "Traditional sportsbooks and sharp references are in alignment. The market is priced efficiently, leaving no stale lines or arbitrage margins.";
+    }
+
+    // Edge exists
+    const offeredBook = state.fairLineResult?.bestBookmaker || "unknown";
+    const offeredPrice = state.fairLineResult?.bestPrice;
+    let sharpLeadWording = "";
+    if (state.sharpLeadLag > 0.6) {
+      sharpLeadWording = "Pinnacle moved first in observed snapshots, and tier-2 books followed.";
+    } else {
+      sharpLeadWording = "Pinnacle is the sharp reference here, and this book is still off the sharper number.";
+    }
+    
+    return `Stale line detected at ${offeredBook.toUpperCase()}. ${sharpLeadWording} offered price is ${offeredPrice > 0 ? '+' : ''}${offeredPrice}.`;
   }
 }

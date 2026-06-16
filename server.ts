@@ -745,16 +745,18 @@ app.get("/api/edge/game/:gamePk", async (req, res) => {
     });
 
     res.json({
-      gamePk,
+      eventId: gamePk,
       sourceMode: "live",
       computedAt: edgeState.ComputedAt,
       compositeEdge: stateJson.compositeEdge || 0,
       edgeSide: stateJson.edgeSide || "none",
       confidence: stateJson.confidence || "low",
       headline: EdgeEngine.generateHeadline(stateJson),
+      summary: EdgeEngine.generateSummary(stateJson),
+      warnings: stateJson.warnings || [],
       indicators: {
         steam: { score: stateJson.steamScore || 0 },
-        crossBook: { score: stateJson.crossBookDiverg || 0 },
+        crossBook: stateJson.crossBook || { score: 0, status: "insufficient_books", bookCount: 0 },
         sharpLeadLag: { score: stateJson.sharpLeadLag || 0 },
         fairLineGap: stateJson.fairLineResult || {},
         cobb: stateJson.cobbResult || {}

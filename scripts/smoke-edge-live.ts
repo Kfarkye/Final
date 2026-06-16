@@ -6,34 +6,29 @@ const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
 const db = spanner.instance("clearspace").database("sports-mlb-db");
 
 async function findRecentGameWithOddsHistory(): Promise<string | null> {
+  const [pinnyGames] = await db.run({
+    sql: `
+      SELECT DISTINCT EventId 
+      FROM MlbOddsHistory 
+      WHERE LOWER(Provider) = 'pinnacle'
+      LIMIT 1
+    `
+  });
+
+  if (pinnyGames.length > 0) {
+    const eventId = pinnyGames[0].toJSON().EventId;
+    console.log(`Found real game with Pinnacle odds: ${eventId}`);
+    return eventId;
+  }
+
   const [rows] = await db.run({
     sql: `
       SELECT DISTINCT EventId 
       FROM MlbOddsHistory 
-      LIMIT 10
+      LIMIT 1
     `
   });
   if (rows.length === 0) return null;
-
-  for (const r of rows) {
-    const game = r.toJSON();
-    const eventId = game.EventId;
-
-    // Prefer games that have Pinnacle odds
-    const [pinnyRows] = await db.run({
-      sql: `
-        SELECT SnapshotId 
-        FROM MlbOddsHistory 
-        WHERE EventId = @eventId AND LOWER(Provider) = 'pinnacle'
-        LIMIT 1
-      `,
-      params: { eventId }
-    });
-    if (pinnyRows.length > 0) {
-      console.log(`Found real game with Pinnacle odds: ${eventId}`);
-      return eventId;
-    }
-  }
 
   const fallbackId = rows[0].toJSON().EventId;
   console.log(`Found fallback real game: ${fallbackId}`);
