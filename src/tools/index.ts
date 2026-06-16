@@ -11,6 +11,7 @@ import { bettingTools } from './betting.tools';
 import { espnTools } from './espn.tools';
 import { mlbTools } from './mlb.tools';
 import { modelRegistryTools } from './modelRegistry.tools';
+import { forgeTools } from './forge.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -26,6 +27,7 @@ toolRegistry.registerMany([
   ...espnTools,
   ...mlbTools,
   ...modelRegistryTools,
+  ...forgeTools,
 ]);
 
 export { toolRegistry };

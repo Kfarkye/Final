@@ -345,3 +345,34 @@ contracts:
       - get_model_capabilities
       - validate_model
       - resolve_model_alias
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MCPaaS FORGE (Self-replicating pipeline tools)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: mcpaas-forge
+    name: MCPaaS Forge Pipeline
+    keywords:
+      - forge
+      - create mcp
+      - build mcp
+      - create tool
+      - create endpoint
+      - stage file
+      - write file
+      - deploy
+      - ddl
+      - create table
+      - alter table
+      - schema change
+      - new server
+      - new tool
+      - compile
+      - pipeline
+      - mcpaas
+    tools:
+      - write_staged_file
+      - list_staged_files
+      - read_staged_file
+      - execute_ddl
+      - deploy_staged_mcp
+      - forge_mcp_endpoint
