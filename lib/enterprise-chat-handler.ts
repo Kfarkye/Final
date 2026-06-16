@@ -733,16 +733,16 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
     // GROUNDED IN: https://api-docs.deepseek.com/api/create-chat-completion
     // GROUNDED IN: https://api-docs.deepseek.com/guides/thinking_mode
     //
-    // Current models: deepseek-v4-pro, deepseek-v4-flash
+    // Current models: deepseek-v3-2, deepseek-r1-0528, deepseek-v3-1, deepseek-ocr
     // Thinking mode: { thinking: { type: "enabled" } } with reasoning_effort: "high" | "max"
     // When thinking is enabled, CoT streams via delta.reasoning_content
     // Tool calling: works on all models (with or without thinking)
     // ═══════════════════════════════════════════════════════════════════
     if (targetModels.includes('deepseek') && deps.deepseek) {
       promises.push(streamModel('deepseek', (async () => {
-        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-v4-pro";
-        // V4 models all support thinking natively — no more R1 vs chat split
-        const isThinkingModel = selectedDeepseekModel.includes('v4') || selectedDeepseekModel.includes('r1');
+        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-v3-2";
+        // V3 and R1 models support thinking natively
+        const isThinkingModel = selectedDeepseekModel.includes('v3') || selectedDeepseekModel.includes('r1');
 
         const msgs: any[] = [];
         // V4 supports system messages in both thinking and non-thinking mode

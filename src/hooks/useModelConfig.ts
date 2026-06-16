@@ -82,8 +82,10 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     name: 'DeepSeek',
     accent: '#8B5CF6',
     versions: [
-      { id: 'deepseek-v4-pro', label: 'V4 Pro', hint: 'balanced' },
-      { id: 'deepseek-chat', label: 'Chat', hint: 'fast' },
+      { id: 'deepseek-v3-2', label: 'V3.2', hint: 'balanced' },
+      { id: 'deepseek-r1-0528', label: 'R1 0528', hint: 'reasoning' },
+      { id: 'deepseek-v3-1', label: 'V3.1', hint: 'fast' },
+      { id: 'deepseek-ocr', label: 'OCR', hint: 'fast' },
     ],
   },
 ];

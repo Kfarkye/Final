@@ -41,7 +41,7 @@ export default function SettingsDialog({
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'].includes(modelConfigs.chatgpt));
   const [claudeCustom, setClaudeCustom] = useState(!['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning', 'grok-build-0.1'].includes(modelConfigs.grok));
-  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-r1'].includes(modelConfigs.deepseek));
+  const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v3-2', 'deepseek-r1-0528', 'deepseek-v3-1', 'deepseek-ocr'].includes(modelConfigs.deepseek));
 
   const handleSave = async () => {
     if (!currentUser) return;
@@ -298,7 +298,7 @@ export default function SettingsDialog({
                   value={configs.deepseek}
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
                   className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
-                  placeholder="e.g. deepseek-v4-pro"
+                  placeholder="e.g. deepseek-v3-2"
                 />
               ) : (
                 <select 
@@ -306,9 +306,10 @@ export default function SettingsDialog({
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
-                  <option value="deepseek-v4-pro">DeepSeek V4 Pro (Reasoning)</option>
-                  <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
-                  <option value="deepseek-r1">DeepSeek-R1 (Legacy)</option>
+                  <option value="deepseek-v3-2">DeepSeek V3.2 (Flagship)</option>
+                  <option value="deepseek-r1-0528">DeepSeek R1 0528 (Reasoning)</option>
+                  <option value="deepseek-v3-1">DeepSeek V3.1</option>
+                  <option value="deepseek-ocr">DeepSeek OCR</option>
                 </select>
               )}
             </div>

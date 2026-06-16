@@ -84,7 +84,7 @@ export default function ChatClient() {
     chatgpt: 'gpt-5.5',
     claude: 'claude-opus-4-8',
     grok: 'grok-4.3',
-    deepseek: 'deepseek-v4-pro',
+    deepseek: 'deepseek-v3-2',
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
@@ -460,9 +460,10 @@ export default function ChatClient() {
       return `Grok (${version})`;
     }
     if (id === 'deepseek') {
-      if (version === 'deepseek-v4-pro') return 'DeepSeek V4 Pro';
-      if (version === 'deepseek-v4-flash') return 'DeepSeek V4 Flash';
-      if (version === 'deepseek-r1') return 'DeepSeek-R1 (Legacy)';
+      if (version === 'deepseek-v3-2') return 'DeepSeek V3.2';
+      if (version === 'deepseek-r1-0528') return 'DeepSeek R1';
+      if (version === 'deepseek-v3-1') return 'DeepSeek V3.1';
+      if (version === 'deepseek-ocr') return 'DeepSeek OCR';
       return `DeepSeek (${version})`;
     }
     return id;
