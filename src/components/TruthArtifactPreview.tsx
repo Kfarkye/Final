@@ -1,38 +1,35 @@
 /**
- * TRUTH ARTIFACT PREVIEW — Sandpack-Powered
+ * TRUTH ARTIFACT PREVIEW
  * 
  * Architecture:
  * ┌──────────────────────────────────────────────────────────┐
- * │  TruthArtifactPreview (outer shell)                     │
+ * │  SandpackProvider (state management, theme)              │
  * │  ┌────────────────────────────────────────────────────┐  │
- * │  │  SandpackProvider (state, files, theme)            │  │
- * │  │  ┌──────────────────────────────────────────────┐  │  │
- * │  │  │  ArtifactToolbar (useSandpack for live code) │  │  │
- * │  │  ├──────────────────────────────────────────────┤  │  │
- * │  │  │  SandpackPreview  (live HTML preview)        │  │  │
- * │  │  ├──────────────────────────────────────────────┤  │  │
- * │  │  │  SandpackCodeEditor (toggle via Source)      │  │  │
- * │  │  └──────────────────────────────────────────────┘  │  │
+ * │  │  ArtifactToolbar (useSandpack → live file access)  │  │
+ * │  │  Deploy | Copy | Download | Source | Expand        │  │
+ * │  ├────────────────────────────────────────────────────┤  │
+ * │  │  SandpackCodeEditor (CodeMirror 6, toggle)         │  │  ← Sandpack for DX
+ * │  ├────────────────────────────────────────────────────┤  │
+ * │  │  SecureRenderHost (THE MOAT)                       │  │  ← Custom for security
+ * │  │  sandbox="allow-scripts" NO allow-same-origin      │  │
+ * │  │  CSP connect-src 'none'                            │  │
+ * │  │  postMessage protocol                              │  │
+ * │  │  Choreographed reveal, living bezel, composed err  │  │
  * │  └────────────────────────────────────────────────────┘  │
  * └──────────────────────────────────────────────────────────┘
  * 
- * Key design decisions:
- * - showOpenInCodeSandbox: false — no export to CodeSandbox
- * - useSandpack() hook in ArtifactToolbar so Deploy/Copy/Download
- *   always grab the LATEST edited code, not just the initial prop
- * - Custom Truth dark theme aligned with the design system
- * - Static template with /index.html for raw HTML artifacts
+ * Sandpack's preview is NOT used. Its editor is. The preview is our
+ * SecureRenderHost — the hardened, Apple-grade render surface.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   SandpackProvider,
-  SandpackPreview,
   SandpackCodeEditor,
-  SandpackLayout,
   useSandpack,
 } from '@codesandbox/sandpack-react';
 import type { SandpackTheme } from '@codesandbox/sandpack-react';
+import { SecureRenderHost } from './SecureRenderHost';
 
 // ── Truth Dark Theme ────────────────────────────────────────────────────
 
@@ -82,29 +79,43 @@ function extractTitle(html: string): string {
   return match?.[1]?.trim() || 'Artifact';
 }
 
-// ── Toolbar (lives INSIDE SandpackProvider to access useSandpack) ────────
+// ── Inner Content (lives inside SandpackProvider for useSandpack) ────────
 
-function ArtifactToolbar({
+function ArtifactInner({
   resolvedTitle,
-  showSource,
-  setShowSource,
+  initialHtml,
   expanded,
   setExpanded,
 }: {
   resolvedTitle: string;
-  showSource: boolean;
-  setShowSource: (v: boolean) => void;
+  initialHtml: string;
   expanded: boolean;
   setExpanded: (v: boolean) => void;
 }) {
   const { sandpack } = useSandpack();
+  const [showSource, setShowSource] = useState(false);
   const [deploy, setDeploy] = useState<{ state: DeployState; url: string | null }>({ state: 'idle', url: null });
   const [copied, setCopied] = useState(false);
 
-  // Always grab the LATEST code from Sandpack state (reflects user edits)
-  const getCurrentHtml = useCallback((): string => {
+  // Track the live HTML from the Sandpack editor
+  const [liveHtml, setLiveHtml] = useState(initialHtml);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Watch for edits in the Sandpack editor — debounced feed to SecureRenderHost
+  useEffect(() => {
     const file = sandpack.files['/index.html'];
-    return file?.code || '';
+    if (file?.code && file.code !== liveHtml) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        setLiveHtml(file.code);
+      }, 500);
+    }
+    return () => clearTimeout(debounceRef.current);
+  }, [sandpack.files]);
+
+  // Always grab the LATEST code from Sandpack state
+  const getCurrentHtml = useCallback((): string => {
+    return sandpack.files['/index.html']?.code || '';
   }, [sandpack.files]);
 
   const handleCopy = useCallback(() => {
@@ -147,95 +158,103 @@ function ArtifactToolbar({
     }
   }, [getCurrentHtml, resolvedTitle]);
 
+  const previewHeight = expanded ? 800 : 480;
   const btnBase = "text-[10px] px-2.5 py-1 rounded-md font-medium tracking-wide transition-all duration-200 flex items-center gap-1.5 cursor-pointer active:scale-95";
   const btnGhost = `${btnBase} bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border border-white/[0.06]`;
 
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1117] border-b border-white/[0.06]">
-      {/* Left: dots + title */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="flex gap-1.5 shrink-0">
-          <div className="w-[10px] h-[10px] rounded-full bg-[#FF5F57]" style={{ boxShadow: '0 0 6px rgba(255,95,87,0.25)' }} />
-          <div className="w-[10px] h-[10px] rounded-full bg-[#FEBC2E]" style={{ boxShadow: '0 0 6px rgba(254,188,46,0.25)' }} />
-          <div className="w-[10px] h-[10px] rounded-full bg-[#28C840]" style={{ boxShadow: '0 0 6px rgba(40,200,64,0.25)' }} />
+    <>
+      {/* ── Toolbar ── */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1117] border-b border-white/[0.06]">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex gap-1.5 shrink-0">
+            <div className="w-[10px] h-[10px] rounded-full bg-[#FF5F57]" style={{ boxShadow: '0 0 6px rgba(255,95,87,0.25)' }} />
+            <div className="w-[10px] h-[10px] rounded-full bg-[#FEBC2E]" style={{ boxShadow: '0 0 6px rgba(254,188,46,0.25)' }} />
+            <div className="w-[10px] h-[10px] rounded-full bg-[#28C840]" style={{ boxShadow: '0 0 6px rgba(40,200,64,0.25)' }} />
+          </div>
+          <span className="text-[11px] font-medium text-white/50 tracking-wide truncate">
+            {resolvedTitle}
+          </span>
         </div>
-        <span className="text-[11px] font-medium text-white/50 tracking-wide truncate">
-          {resolvedTitle}
-        </span>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Deploy */}
+          {deploy.state === 'deployed' && deploy.url ? (
+            <a href={deploy.url} target="_blank" rel="noopener noreferrer"
+              className={`${btnBase} bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 hover:border-emerald-500/40 no-underline`}>
+              <span>🌐</span><span>Open Page</span>
+            </a>
+          ) : (
+            <button
+              onClick={deploy.state === 'idle' || deploy.state === 'error' ? handleDeploy : undefined}
+              disabled={deploy.state === 'deploying'}
+              className={`${btnBase} ${
+                deploy.state === 'deploying' ? 'bg-amber-500/10 text-amber-400/70 border border-amber-500/15 cursor-wait'
+                : deploy.state === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border border-blue-500/20 hover:border-blue-500/40'
+              }`}>
+              <span>{deploy.state === 'deploying' ? '⏳' : deploy.state === 'error' ? '⚠️' : '🚀'}</span>
+              <span>{deploy.state === 'deploying' ? 'Deploying…' : deploy.state === 'error' ? 'Retry' : 'Deploy'}</span>
+            </button>
+          )}
+
+          <button onClick={handleCopy} className={btnGhost}>
+            <span>{copied ? '✓' : '📋'}</span><span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+
+          <button onClick={handleDownload} className={btnGhost}>
+            <span>⬇️</span><span>Download</span>
+          </button>
+
+          <button
+            onClick={() => setShowSource(!showSource)}
+            className={`${btnBase} border ${showSource ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'}`}>
+            <span>{'</>'}</span><span>Source</span>
+          </button>
+
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-[10px] px-2 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.06] transition-all duration-200 cursor-pointer active:scale-95"
+            title={expanded ? 'Collapse' : 'Expand'}>
+            {expanded ? '⊟' : '⊞'}
+          </button>
+        </div>
       </div>
 
-      {/* Right: actions */}
-      <div className="flex items-center gap-1 shrink-0">
-        {/* Deploy */}
-        {deploy.state === 'deployed' && deploy.url ? (
-          <a
-            href={deploy.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${btnBase} bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 hover:border-emerald-500/40 no-underline`}
-          >
-            <span>🌐</span><span>Open Page</span>
-          </a>
-        ) : (
-          <button
-            onClick={deploy.state === 'idle' || deploy.state === 'error' ? handleDeploy : undefined}
-            disabled={deploy.state === 'deploying'}
-            className={`${btnBase} ${
-              deploy.state === 'deploying'
-                ? 'bg-amber-500/10 text-amber-400/70 border border-amber-500/15 cursor-wait'
-                : deploy.state === 'error'
-                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border border-blue-500/20 hover:border-blue-500/40'
-            }`}
-          >
-            <span>{deploy.state === 'deploying' ? '⏳' : deploy.state === 'error' ? '⚠️' : '🚀'}</span>
-            <span>{deploy.state === 'deploying' ? 'Deploying…' : deploy.state === 'error' ? 'Retry' : 'Deploy'}</span>
-          </button>
+      {/* ── Editor + Preview ── */}
+      <div className={`flex ${showSource ? '' : ''}`} style={{ flexDirection: showSource ? 'row' : 'column' }}>
+        {/* Sandpack Code Editor — the editing DX */}
+        {showSource && (
+          <div style={{ width: '50%', minWidth: 0, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+            <SandpackCodeEditor
+              showLineNumbers
+              showTabs={false}
+              readOnly={false}
+              style={{
+                height: `${previewHeight}px`,
+                maxHeight: `${previewHeight}px`,
+              }}
+            />
+          </div>
         )}
 
-        {/* Copy */}
-        <button onClick={handleCopy} className={btnGhost}>
-          <span>{copied ? '✓' : '📋'}</span><span>{copied ? 'Copied' : 'Copy'}</span>
-        </button>
-
-        {/* Download */}
-        <button onClick={handleDownload} className={btnGhost}>
-          <span>⬇️</span><span>Download</span>
-        </button>
-
-        {/* Source toggle */}
-        <button
-          onClick={() => setShowSource(!showSource)}
-          className={`${btnBase} border ${
-            showSource
-              ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20'
-              : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'
-          }`}
-        >
-          <span>{'</>'}</span><span>Source</span>
-        </button>
-
-        {/* Expand */}
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-[10px] px-2 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.06] transition-all duration-200 cursor-pointer active:scale-95"
-          title={expanded ? 'Collapse' : 'Expand'}
-        >
-          {expanded ? '⊟' : '⊞'}
-        </button>
+        {/* SecureRenderHost — THE MOAT */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <SecureRenderHost
+            html={liveHtml}
+            height={previewHeight}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
 // ── Main Component ──────────────────────────────────────────────────────
 
 export function TruthArtifactPreview({ html, title }: TruthArtifactPreviewProps) {
-  const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
-
   const resolvedTitle = title || extractTitle(html);
-  const previewHeight = expanded ? 800 : 480;
 
   const files = useMemo(() => ({
     '/index.html': { code: html, active: true },
@@ -243,8 +262,7 @@ export function TruthArtifactPreview({ html, title }: TruthArtifactPreviewProps)
 
   return (
     <div className="my-6 w-full rounded-2xl overflow-hidden border border-white/[0.06]"
-         style={{ boxShadow: '0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03)' }}
-    >
+         style={{ boxShadow: '0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03)' }}>
       <SandpackProvider
         template="static"
         theme={truthTheme}
@@ -255,43 +273,12 @@ export function TruthArtifactPreview({ html, title }: TruthArtifactPreviewProps)
           recompileDelay: 300,
         }}
       >
-        {/* Toolbar with useSandpack() for live file access */}
-        <ArtifactToolbar
+        <ArtifactInner
           resolvedTitle={resolvedTitle}
-          showSource={showSource}
-          setShowSource={setShowSource}
+          initialHtml={html}
           expanded={expanded}
           setExpanded={setExpanded}
         />
-
-        <SandpackLayout
-          style={{
-            border: 'none',
-            borderRadius: 0,
-            '--sp-layout-height': `${previewHeight}px`,
-          } as React.CSSProperties}
-        >
-          {showSource && (
-            <SandpackCodeEditor
-              showLineNumbers
-              showTabs={false}
-              readOnly={false}
-              style={{
-                height: `${previewHeight}px`,
-                maxHeight: `${previewHeight}px`,
-              }}
-            />
-          )}
-
-          <SandpackPreview
-            showOpenInCodeSandbox={false}
-            showRefreshButton={true}
-            style={{
-              height: `${previewHeight}px`,
-              maxHeight: `${previewHeight}px`,
-            }}
-          />
-        </SandpackLayout>
       </SandpackProvider>
 
       {/* Bottom accent */}
