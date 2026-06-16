@@ -87,40 +87,118 @@ User edits code in Sandpack CodeEditor
 ## State Machine
 
 ```
-ready ──▶ working ──▶ live
-  ▲          │          │
-  │          ▼          │
-  └─────── error ◄─────┘
+                  ┌────────────┐
+                  │   ready    │
+                  └─────┬──────┘
+                        │ render()
+                  ┌─────▼──────┐
+                  │  working   │ (cyan bezel glow, dot breathes)
+                  └─────┬──────┘
+                        │ postMessage 'ok'
+                  ┌─────▼──────┐
+           ┌──────│    live    │◄─────┐
+           │      └─────┬──────┘      │
+           │            │ bridge.request()
+           │      ┌─────▼──────┐      │
+           │      │  bridging  │──────┘ (response received)
+           │      └────────────┘
+           │      (PURPLE bezel glow)
+           │
+     ┌─────▼──────┐
+     │   error    │
+     └────────────┘
 ```
 
 | State | Bezel | Dot | Label | Surface |
 |---|---|---|---|---|
 | `ready` | Default shadow | Dark | "ready" | Breathing orb empty state |
-| `working` | Gradient glow travels edge | Cyan, breathing | "composing…" | Empty hidden, waiting |
+| `working` | Cyan gradient glow travels edge | Cyan, breathing | "composing…" | Empty hidden, waiting |
 | `live` | Steady cyan glow | Green, steady | "live" | Content faded+lifted in |
+| `bridging` | **Purple** gradient glow travels edge | **Purple**, breathing | "bridge…" | Content visible |
 | `error` | Default shadow | Red | "error" | Error overlay cross-dissolves |
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `src/components/SecureRenderHost.tsx` | The moat — sandboxed iframe + choreographed UX |
-| `src/components/TruthArtifactPreview.tsx` | Sandpack editor + SecureRenderHost + toolbar |
+| `src/components/SecureRenderHost.tsx` | The moat + bridge — sandboxed iframe, gate, choreographed UX |
+| `src/components/TruthArtifactPreview.tsx` | Sandpack editor + SecureRenderHost + toolbar + gate log UI |
 | `src/components/SecureIframe.tsx` | Legacy — still used for Google Docs embeds in MimeRenderer |
 | `src/components/MimeRenderer.tsx` | Markdown renderer, routes ` ```html ` to TruthArtifactPreview |
 
-## Step 2: postMessage Bridge (Next)
+## Step 2: The postMessage Bridge — Implemented ✅
 
-The bridge is the sanctioned channel for artifacts to request data from the parent
-without ever getting raw network access.
+> The artifact never touches the network. It touches the bridge.
+> The bridge touches the network — on the artifact's behalf, under the parent's rules.
 
-Protocol shape (planned):
+### The Four Bridge Invariants
+
+1. **Origin validation** — messages must match protocol shape + `__bridge_v1` tag
+2. **Typed request/response protocol** — `{ kind, id, action, payload }` — malformed = dropped
+3. **Explicit allowlist (the GATE)** — unknown action = denied, always
+4. **No raw data** — artifact never sees URLs, tokens, cookies, or fetch
+
+### Protocol
+
 ```typescript
-// Frame → Parent (request)
-{ __artifact: true, type: 'request', id: string, method: string, params: any }
+// Shared protocol tag
+const PROTO = '__bridge_v1';
 
-// Parent → Frame (response)
-{ __artifact: true, type: 'response', id: string, result?: any, error?: string }
+// Frame → Parent (request)
+{ __bridge_v1: true, kind: 'request', id: string, action: string, payload?: any }
+
+// Parent → Frame (response)  
+{ __bridge_v1: true, kind: 'response', id: string, ok: boolean, data?: any, error?: string }
+
+// Frame → Parent (status, lifecycle)
+{ __bridge_v1: true, kind: 'status', type: 'ok' | 'error', msg: string }
 ```
 
-Origin validation, request allow-listing, and response choreography TBD in Step 2.
+### The Gate (Allowlisted Actions)
+
+```typescript
+// Default gate — built into SecureRenderHost
+const DEFAULT_GATE = {
+  'time.now':      async () => ({ iso, epoch }),
+  'artifact.meta': async () => ({ platform, version, capabilities }),
+};
+
+// Custom gate — passed via props, merged with default
+<SecureRenderHost
+  gate={{
+    'data.get':    async ({ key }) => fetchSanctionedData(key),
+    'user.theme':  async () => getCurrentTheme(),
+  }}
+/>
+```
+
+> The artifact's power grows by adding entries to GATE — never by loosening the sandbox.
+
+### Bridge Data Flow
+
+```
+Artifact calls bridge.request('data.get', { key: 'users' })
+  → postMessage to parent: { __bridge_v1, kind: 'request', id, action, payload }
+  → Parent validates protocol shape (invariant 1+2)
+  → Parent checks GATE allowlist (invariant 3)
+  → If unknown → respond { ok: false, error: 'action not allowed' }
+  → If known → gate handler runs on TRUSTED side (may fetch network)
+  → Respond { ok: true, data: sanitizedResult } (invariant 4)
+  → Frame bridge client resolves the promise
+  → Bezel returns from purple (bridging) to cyan (live)
+```
+
+### Gate Log (UI)
+
+Every bridge request is logged and visible via the 🔒 Gate button in the toolbar:
+- **ASK** (cyan) — artifact requested an action
+- **OK** (green) — gate granted with sanitized data
+- **DENY** (red) — gate rejected, action not in allowlist
+
+### Production Hardening (Bridge)
+
+- [ ] Replace `'*'` targets with strict `event.origin === SANDBOX_ORIGIN` checks
+- [ ] Gate handlers must enforce auth/authz per user
+- [ ] Rate limiting + payload size caps per artifact
+- [ ] Per-artifact capability scoping (not every artifact sees the full menu)
+- [ ] Request/response timeout (currently 8s client-side)

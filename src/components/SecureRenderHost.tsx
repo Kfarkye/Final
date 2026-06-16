@@ -1,27 +1,56 @@
 /**
- * SECURE RENDER HOST — The Moat
+ * SECURE RENDER HOST — The Moat + The Bridge
  * 
- * Four immovable security pillars:
+ * IMMOVABLE SECURITY PILLARS:
  * 1. sandbox="allow-scripts" with NO allow-same-origin (opaque origin)
  * 2. CSP inside frame: connect-src 'none' (no network exfiltration)
  * 3. Curated libraries only (the capability surface you control)
  * 4. postMessage protocol — the ONLY channel between worlds
- * 
- * Everything else is choreography: the reveal, the bezel, the states.
- * Security and beauty are orthogonal — they live in different layers.
+ *
+ * BRIDGE INVARIANTS (Step 2):
+ * 1. Origin validation — messages must match protocol shape + tag
+ * 2. Typed request/response protocol — malformed messages dropped silently
+ * 3. Explicit allowlist of actions — unknown action = denied, always
+ * 4. Artifact never gets raw anything — no URLs, tokens, cookies, fetch
+ *
+ * > The artifact never touches the network. It touches the bridge.
+ * > The bridge touches the network — on the artifact's behalf, under the parent's rules.
  */
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+
+// ── Protocol ────────────────────────────────────────────────────────────
+
+const PROTO = '__bridge_v1';
 
 // ── Types ───────────────────────────────────────────────────────────────
 
-type HostState = 'ready' | 'working' | 'live' | 'error';
+type HostState = 'ready' | 'working' | 'bridging' | 'live' | 'error';
+
+/** A single gate action handler. Runs on the TRUSTED parent side. */
+export type GateHandler = (payload: any) => Promise<any>;
+
+/** The gate log entry — every request the artifact makes + the verdict */
+export interface GateLogEntry {
+  timestamp: number;
+  action: string;
+  payload?: any;
+  verdict: 'ask' | 'ok' | 'deny';
+  data?: any;
+  error?: string;
+}
 
 interface SecureRenderHostProps {
   /** The HTML content to render inside the sandboxed frame */
   html: string;
   /** Height of the render surface in pixels */
   height?: number;
+  /** The GATE — allowlisted actions the artifact can request.
+   *  Each handler runs on the trusted parent side.
+   *  The artifact can ask for anything; only these resolve. */
+  gate?: Record<string, GateHandler>;
+  /** Called when gate activity happens (for external log display) */
+  onGateLog?: (entry: GateLogEntry) => void;
   /** Called when the frame reports an error */
   onError?: (message: string) => void;
   /** Called when the frame successfully renders */
@@ -36,12 +65,12 @@ const FRAME_CSP = [
   "style-src 'unsafe-inline'",
   "img-src data: https:",
   "font-src data: https:",
-  "connect-src 'none'",         // no network exfiltration
+  "connect-src 'none'",         // no network exfiltration — EVER
   "base-uri 'none'",
   "form-action 'none'",
 ].join('; ');
 
-// ── Build the sandboxed document ────────────────────────────────────────
+// ── Build the sandboxed document with bridge client ─────────────────────
 
 function buildFrameDoc(html: string): string {
   return `<!DOCTYPE html>
@@ -52,49 +81,177 @@ function buildFrameDoc(html: string): string {
 </head><body>
 ${html}
 <script>
-  // Report status to parent via postMessage — the ONLY channel
-  function report(type, msg) {
-    parent.postMessage({ __artifact: true, type: type, msg: msg }, '*');
+/* ── BRIDGE CLIENT (untrusted side) ──
+   The ONLY way out. The artifact calls bridge.request(action, payload)
+   and gets a Promise. It NEVER sees a URL, a token, a cookie, or fetch. */
+var PROTO = ${JSON.stringify(PROTO)};
+var _pending = {};
+var bridge = {
+  request: function(action, payload) {
+    return new Promise(function(resolve, reject) {
+      var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      _pending[id] = { resolve: resolve, reject: reject };
+      parent.postMessage({
+        __bridge_v1: true,
+        kind: 'request',
+        id: id,
+        action: action,
+        payload: payload
+      }, '*');
+      setTimeout(function() {
+        if (_pending[id]) {
+          delete _pending[id];
+          reject(new Error('bridge timeout'));
+        }
+      }, 8000);
+    });
   }
-  window.addEventListener('error', function(e) { report('error', e.message); });
-  window.addEventListener('unhandledrejection', function(e) { report('error', String(e.reason)); });
-  // Signal successful load
-  report('ok', 'rendered');
+};
+window.addEventListener('message', function(e) {
+  var m = e.data;
+  if (!m || m.__bridge_v1 !== true || m.kind !== 'response') return;
+  var p = _pending[m.id];
+  if (!p) return;
+  delete _pending[m.id];
+  if (m.ok) { p.resolve(m.data); } else { p.reject(new Error(m.error || 'bridge error')); }
+});
+
+/* ── Status reporting ── */
+function _status(type, msg) {
+  parent.postMessage({
+    __bridge_v1: true,
+    kind: 'status',
+    id: '_',
+    action: '_',
+    type: type,
+    msg: msg
+  }, '*');
+}
+window.addEventListener('error', function(e) { _status('error', e.message); });
+window.addEventListener('unhandledrejection', function(e) { _status('error', String(e.reason)); });
+window.bridge = bridge;
+_status('ok', 'rendered');
 <\/script>
 </body></html>`;
 }
+
+// ── Default gate (built-in actions) ─────────────────────────────────────
+
+const DEFAULT_GATE: Record<string, GateHandler> = {
+  'time.now': async () => ({
+    iso: new Date().toISOString(),
+    epoch: Date.now(),
+  }),
+  'artifact.meta': async () => ({
+    platform: 'Truth',
+    version: '0.4',
+    capabilities: ['time.now', 'artifact.meta'],
+  }),
+};
 
 // ── The Component ───────────────────────────────────────────────────────
 
 export function SecureRenderHost({
   html,
   height = 480,
+  gate,
+  onGateLog,
   onError,
   onRender,
 }: SecureRenderHostProps) {
   const [state, setState] = useState<HostState>('ready');
   const [errorMsg, setErrorMsg] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const hasRendered = useRef(false);
+  const bridgeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Listen for postMessage from the sandboxed frame
+  // Merge default gate with custom gate (custom overrides default)
+  const resolvedGate = { ...DEFAULT_GATE, ...(gate || {}) };
+
+  // Listen for messages from the sandboxed frame
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      const d = e.data;
-      if (!d || d.__artifact !== true) return;
-      if (d.type === 'ok') {
-        setState('live');
-        onRender?.();
+    const handler = async (e: MessageEvent) => {
+      const m = e.data;
+      // INVARIANT 1+2: must match protocol shape
+      if (!m || m[PROTO] !== true) return;
+      if (typeof m.kind !== 'string' || typeof m.id !== 'string') return;
+
+      // ── Status messages (render lifecycle) ──
+      if (m.kind === 'status') {
+        if (m.type === 'ok') {
+          setState('live');
+          onRender?.();
+        }
+        if (m.type === 'error') {
+          setState('error');
+          setErrorMsg(m.msg || 'Unknown error');
+          onError?.(m.msg);
+        }
+        return;
       }
-      if (d.type === 'error') {
-        setState('error');
-        setErrorMsg(d.msg || 'Unknown error');
-        onError?.(d.msg);
+
+      // ── Bridge requests (the gate) ──
+      if (m.kind === 'request') {
+        const action = m.action;
+        if (typeof action !== 'string') return;
+
+        // Show bridge activity — purple bezel
+        setState('bridging');
+        clearTimeout(bridgeTimerRef.current);
+
+        // Log the ask
+        onGateLog?.({
+          timestamp: Date.now(),
+          action,
+          payload: m.payload,
+          verdict: 'ask',
+        });
+
+        const reply: any = { [PROTO]: true, kind: 'response', id: m.id };
+
+        try {
+          // INVARIANT 3: allowlist only — unknown action = denied
+          const gateHandler = resolvedGate[action];
+          if (!gateHandler) {
+            throw new Error('action not allowed');
+          }
+
+          // INVARIANT 4: parent does the work, returns sanitized data
+          const data = await gateHandler(m.payload || {});
+          reply.ok = true;
+          reply.data = data;
+
+          onGateLog?.({
+            timestamp: Date.now(),
+            action,
+            verdict: 'ok',
+            data,
+          });
+        } catch (err: any) {
+          reply.ok = false;
+          reply.error = err?.message || String(err);
+
+          onGateLog?.({
+            timestamp: Date.now(),
+            action,
+            verdict: 'deny',
+            error: reply.error,
+          });
+        }
+
+        // Send response back to the sandboxed frame
+        // prod: use targetOrigin = SANDBOX_ORIGIN, not '*'
+        iframeRef.current?.contentWindow?.postMessage(reply, '*');
+
+        // Return bezel to live state after bridge activity
+        bridgeTimerRef.current = setTimeout(() => {
+          setState((prev) => (prev === 'bridging' ? 'live' : prev));
+        }, 350);
       }
     };
+
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [onError, onRender]);
+  }, [resolvedGate, onError, onRender, onGateLog]);
 
   // Inject HTML into the sandboxed iframe
   const render = useCallback((content: string) => {
@@ -104,8 +261,7 @@ export function SecureRenderHost({
     }
     setState('working');
     setErrorMsg('');
-
-    // Intentional 280ms beat — the reveal should feel composed, not abrupt
+    // 280ms intentional beat — the reveal feels composed, not abrupt
     setTimeout(() => {
       if (iframeRef.current) {
         iframeRef.current.srcdoc = buildFrameDoc(content);
@@ -117,11 +273,15 @@ export function SecureRenderHost({
   useEffect(() => {
     if (html) {
       render(html);
-      hasRendered.current = true;
     }
   }, [html, render]);
 
-  const stateLabel = state === 'ready' ? 'ready' : state === 'working' ? 'composing…' : state === 'live' ? 'live' : 'error';
+  const stateLabel =
+    state === 'ready' ? 'ready' :
+    state === 'working' ? 'composing…' :
+    state === 'bridging' ? 'bridge…' :
+    state === 'live' ? 'live' :
+    'error';
 
   return (
     <div className="srh-root">
@@ -131,6 +291,8 @@ export function SecureRenderHost({
           --srh-accent-dim: #2a6b76;
           --srh-ok: #5eead4;
           --srh-err: #ff8a9b;
+          --srh-gate: #c6a3ff;
+          --srh-gate-dim: #4a3570;
           --srh-bg: #0e1018;
           --srh-edge: #1c2030;
           --srh-ease: cubic-bezier(.22, 1, .36, 1);
@@ -146,11 +308,11 @@ export function SecureRenderHost({
             0 1px 0 rgba(255,255,255,0.04) inset,
             0 30px 80px -20px rgba(0,0,0,0.8),
             0 0 0 1px var(--srh-edge);
-          transition: box-shadow 0.6s var(--srh-ease), transform 0.6s var(--srh-ease);
+          transition: box-shadow 0.6s var(--srh-ease);
           overflow: hidden;
         }
 
-        /* Living border glow — travels during work */
+        /* Living border glow — travels during work (cyan) */
         .srh-stage::before {
           content: "";
           position: absolute;
@@ -170,6 +332,13 @@ export function SecureRenderHost({
         .srh-stage.srh-working::before {
           opacity: 1;
           animation: srh-travel 1.4s linear infinite;
+        }
+        /* Bridge activity — PURPLE glow so you can SEE the gate working */
+        .srh-stage.srh-bridging::before {
+          opacity: 1;
+          animation: srh-travel 1s linear infinite;
+          background: linear-gradient(120deg, transparent 30%, var(--srh-gate) 50%, transparent 70%);
+          background-size: 200% 100%;
         }
         .srh-stage.srh-live {
           box-shadow:
@@ -209,6 +378,10 @@ export function SecureRenderHost({
         .srh-working .srh-dot {
           background: var(--srh-accent);
           animation: srh-breathe 1.4s ease-in-out infinite;
+        }
+        .srh-bridging .srh-dot {
+          background: var(--srh-gate);
+          animation: srh-breathe 1s ease-in-out infinite;
         }
         .srh-live .srh-dot {
           background: var(--srh-ok);
@@ -329,7 +502,7 @@ export function SecureRenderHost({
           white-space: pre-wrap;
         }
 
-        /* Reduced motion respect — Apple-grade means accessible */
+        /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
           .srh-stage::before,
           .srh-surface iframe,
@@ -354,12 +527,12 @@ export function SecureRenderHost({
             <div className="srh-dot" />
             <span>{stateLabel}</span>
           </div>
-          <span className="srh-tag">isolated · no-same-origin</span>
+          <span className="srh-tag">isolated · gatekept bridge</span>
         </div>
 
         {/* Render Surface */}
         <div
-          className={`srh-surface ${state === 'live' ? 'srh-revealed' : ''}`}
+          className={`srh-surface ${state === 'live' || state === 'bridging' ? 'srh-revealed' : ''}`}
           style={{ height: `${height}px` }}
         >
           <iframe

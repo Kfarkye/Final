@@ -30,6 +30,7 @@ import {
 } from '@codesandbox/sandpack-react';
 import type { SandpackTheme } from '@codesandbox/sandpack-react';
 import { SecureRenderHost } from './SecureRenderHost';
+import type { GateLogEntry } from './SecureRenderHost';
 
 // ── Truth Dark Theme ────────────────────────────────────────────────────
 
@@ -94,8 +95,16 @@ function ArtifactInner({
 }) {
   const { sandpack } = useSandpack();
   const [showSource, setShowSource] = useState(false);
+  const [showGateLog, setShowGateLog] = useState(false);
   const [deploy, setDeploy] = useState<{ state: DeployState; url: string | null }>({ state: 'idle', url: null });
   const [copied, setCopied] = useState(false);
+  const [gateLog, setGateLog] = useState<GateLogEntry[]>([]);
+
+  const handleGateLog = useCallback((entry: GateLogEntry) => {
+    setGateLog(prev => [...prev, entry]);
+    // Auto-show the gate log on first bridge activity
+    if (entry.verdict === 'ask') setShowGateLog(true);
+  }, []);
 
   // Track the live HTML from the Sandpack editor
   const [liveHtml, setLiveHtml] = useState(initialHtml);
@@ -212,6 +221,15 @@ function ArtifactInner({
             <span>{'</>'}</span><span>Source</span>
           </button>
 
+          {/* Gate log toggle */}
+          {gateLog.length > 0 && (
+            <button
+              onClick={() => setShowGateLog(!showGateLog)}
+              className={`${btnBase} border ${showGateLog ? 'bg-purple-500/15 text-purple-400 border-purple-500/20' : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'}`}>
+              <span>🔒</span><span>Gate ({gateLog.filter(e => e.verdict === 'ask').length})</span>
+            </button>
+          )}
+
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[10px] px-2 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.06] transition-all duration-200 cursor-pointer active:scale-95"
@@ -238,14 +256,63 @@ function ArtifactInner({
           </div>
         )}
 
-        {/* SecureRenderHost — THE MOAT */}
+        {/* SecureRenderHost — THE MOAT + THE BRIDGE */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <SecureRenderHost
             html={liveHtml}
             height={previewHeight}
+            onGateLog={handleGateLog}
           />
         </div>
       </div>
+
+      {/* ── Gate Log — the product's conscience, rendered ── */}
+      {showGateLog && gateLog.length > 0 && (
+        <div style={{
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          background: 'linear-gradient(180deg, #0d0f16, #0a0c11)',
+          maxHeight: '170px',
+          overflowY: 'auto',
+          padding: '8px 0',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontSize: '11.5px',
+        }}>
+          <div style={{
+            padding: '6px 16px 10px',
+            borderBottom: '1px solid rgba(255,255,255,0.04)',
+            color: '#7e879d',
+            fontSize: '10px',
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}>
+            <span>THE GATE — every artifact request, every verdict</span>
+            <span style={{ color: '#c6a3ff', fontWeight: 700 }}>{gateLog.filter(e => e.verdict === 'ask').length}</span>
+          </div>
+          {gateLog.map((entry, i) => (
+            <div key={i} style={{
+              display: 'flex',
+              gap: '10px',
+              padding: '5px 16px',
+              alignItems: 'flex-start',
+              animation: 'slidein 0.35s cubic-bezier(.22,1,.36,1)',
+            }}>
+              <span style={{
+                flex: '0 0 48px',
+                fontWeight: 700,
+                fontSize: '10px',
+                color: entry.verdict === 'ask' ? '#7df2ff' : entry.verdict === 'ok' ? '#5eead4' : '#ff8a9b',
+              }}>
+                {entry.verdict.toUpperCase()}
+              </span>
+              <span style={{ color: '#aeb6c9', wordBreak: 'break-word', fontSize: '11px' }}>
+                {entry.verdict === 'ask' && <>artifact → <em style={{ color: '#7e879d' }}>{entry.action}</em> {entry.payload ? JSON.stringify(entry.payload) : ''}</>}
+                {entry.verdict === 'ok' && <>gate → granted <em style={{ color: '#7e879d' }}>{entry.action}</em> → {JSON.stringify(entry.data)}</>}
+                {entry.verdict === 'deny' && <>gate → DENIED <em style={{ color: '#7e879d' }}>{entry.action}</em> — {entry.error}</>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
