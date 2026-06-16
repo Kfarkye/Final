@@ -257,13 +257,21 @@ This is non-negotiable. Every HTML artifact MUST be rendered inline as a code bl
             : auditDirective;
         }
 
+        // Map internal model identifiers to real Google API model IDs.
+        // Deep Think modes use the real gemini-3.1-pro-preview with different thinking levels.
+        const MODEL_ID_MAP: Record<string, string> = {
+          'gemini-3.1-pro-preview-next': 'gemini-3.1-pro-preview',  // Deep Think Next (HIGH)
+          'gemini-3.1-pre-preview': 'gemini-3.1-pro-preview',       // Deep Think (MAX + self-audit)
+        };
+        const actualModelId = MODEL_ID_MAP[selectedGeminiModel] || selectedGeminiModel;
+
         let runCount = 0;
         let continueLoop = true;
 
         while (runCount < 5 && continueLoop && !signal.aborted) {
           runCount++;
           let genStream = await deps.ai.models.generateContentStream({
-            model: selectedGeminiModel,
+            model: actualModelId,
             contents: contents,
             config: geminiConfig
           }, { signal });
