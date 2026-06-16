@@ -446,11 +446,10 @@ export default function ChatClient() {
       return `ChatGPT (${version})`;
     }
     if (id === 'claude') {
-      if (version === 'claude-3-7-sonnet-20250219') return 'Claude 3.7 Sonnet';
-      if (version === 'claude-3-5-sonnet-20241022') return 'Claude 3.5 Sonnet';
-      if (version === 'claude-3-opus-20240229') return 'Claude 3 Opus';
-      if (version === 'claude-opus-4-8') return 'Claude 4.8 Opus';
-      if (version === 'claude-opus-4-6') return 'Claude 4.6 Opus';
+      if (version === 'claude-fable-5') return 'Claude Fable 5';
+      if (version === 'claude-opus-4-8') return 'Claude Opus 4.8';
+      if (version === 'claude-opus-4-6') return 'Claude Opus 4.6';
+      if (version === 'claude-sonnet-4-6') return 'Claude Sonnet 4.6';
       return `Claude (${version})`;
     }
     if (id === 'grok') {

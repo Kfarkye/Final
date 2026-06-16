@@ -60,10 +60,10 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     name: 'Claude',
     accent: '#D97706',
     versions: [
-      { id: 'claude-opus-4-8', label: '4.8 Opus', hint: 'balanced' },
-      { id: 'claude-opus-4-6', label: '4.6 Opus', hint: 'balanced' },
-      { id: 'claude-3-7-sonnet-20250219', label: '3.7 Sonnet', hint: 'fast' },
-      { id: 'claude-3-5-sonnet-20241022', label: '3.5 Sonnet', hint: 'fast' },
+      { id: 'claude-fable-5', label: 'Fable 5', hint: 'reasoning' },
+      { id: 'claude-opus-4-8', label: 'Opus 4.8', hint: 'balanced' },
+      { id: 'claude-opus-4-6', label: 'Opus 4.6', hint: 'balanced' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'fast' },
     ],
   },
   {

@@ -39,7 +39,7 @@ export default function SettingsDialog({
   // Custom input toggles or inputs
   const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'].includes(modelConfigs.chatgpt));
-  const [claudeCustom, setClaudeCustom] = useState(!['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-opus-4-8', 'claude-opus-4-6'].includes(modelConfigs.claude));
+  const [claudeCustom, setClaudeCustom] = useState(!['claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-2-latest', 'grok-beta', 'grok-4.3'].includes(modelConfigs.grok));
   const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-r1'].includes(modelConfigs.deepseek));
 
@@ -240,11 +240,10 @@ export default function SettingsDialog({
                   onChange={(e) => handleModelChange('claude', e.target.value)}
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
                 >
+                  <option value="claude-fable-5">Claude Fable 5 (Latest)</option>
                   <option value="claude-opus-4-8">Claude Opus 4.8 (First Choice)</option>
                   <option value="claude-opus-4-6">Claude Opus 4.6</option>
-                  <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Standard)</option>
-                  <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-                  <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Fast)</option>
                 </select>
               )}
             </div>
