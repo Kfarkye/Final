@@ -150,17 +150,18 @@ export const scraperTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "search_web",
-      description: "Performs a comprehensive web search for a given query, returning grounded information and relevant URL citations.",
+      description: "Performs a web search to DISCOVER information and URLs. Returns a summary with source URLs. Use this FIRST to find relevant pages, then use fetch_html or fetch_json to read specific URLs you discover. Do NOT call search_web repeatedly — call it once, then fetch the URLs it returns.",
       schema: z.object({
         query: z.string().min(1, "Query is required"),
         domain: z.string().optional()
       })
     },
     handler: async (args, context) => {
+      if (!context.ai) {
+        return { error: "AI client is missing in the tool execution context." };
+      }
+
       try {
-        if (!context.ai) {
-          return { error: "AI client is missing in the tool execution context." };
-        }
         const response = await context.ai.models.generateContent({
           model: "gemini-3.5-flash",
           contents: `Provide a detailed overview for the search query: "${args.query}"${args.domain ? ` restricting results to the domain ${args.domain}` : ''}. Include factual data and current context.`,
@@ -186,14 +187,16 @@ export const scraperTools: RegisteredTool<any>[] = [
           mcpExecuted: "Google Gemini Grounded Web Search"
         };
       } catch (err: any) {
-        return { error: `Grounded Web Search failed: ${err.message}` };
+        const errMsg = err.message || String(err);
+        console.warn(`[search_web] Error: ${errMsg}`);
+        return { error: `Web search failed: ${errMsg}` };
       }
     }
   },
   {
     definition: {
       name: "fetch_html",
-      description: "Fetches the raw HTML body content of a public URL.",
+      description: "Fetches and returns the HTML content of a specific URL you already know. Use this AFTER search_web to inspect a page's structure, find API endpoints, scrape data tables, or read documentation. Takes a URL as input — do NOT pass search queries.",
       schema: z.object({
         url: z.string().url("Must be a valid HTTP/HTTPS URL")
       })
@@ -212,7 +215,7 @@ export const scraperTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "fetch_json",
-      description: "Fetches structured JSON data from an API endpoint or web resource.",
+      description: "Fetches structured JSON from an API endpoint. Use when you know the exact API URL (e.g., from inspecting HTML or documentation). Supports GET/POST with custom headers and body.",
       schema: z.object({
         url: z.string().url("Must be a valid HTTP/HTTPS URL"),
         method: z.string().optional(),

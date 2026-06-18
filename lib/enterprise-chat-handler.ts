@@ -2,6 +2,25 @@ import { Request, Response } from 'express';
 import { sseManager } from './sse/sse-manager';
 import { EnterpriseGovernanceService } from './governance/enterprise-governance';
 import { ChatLogger } from './observability/chat-logger';
+import { knowledgeManager } from '../src/services/knowledge-manager';
+import { skillRouter } from '../src/services/skill-router';
+import {
+  resolveExecutionMode,
+  createState,
+  executeDelegation,
+  emitSummary,
+  resolveTaskPolicy,
+  createEventLog,
+  type SpecialistCaller,
+  type ActivityEmitter,
+} from './orchestration-runtime.js';
+import {
+  DELEGATE_TASK_TOOL,
+  isRenderReady,
+  type OrchestrationState,
+  type DelegationRole,
+  type SchemaName,
+} from './orchestration-schemas.js';
 
 function lowercaseSchemaTypes(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
@@ -22,47 +41,6 @@ function lowercaseSchemaTypes(schema: any): any {
   return newSchema;
 }
 
-function safeGeminiProperties(properties: any): any {
-  const gProps: any = {};
-  if (!properties || typeof properties !== 'object') return gProps;
-
-  for (const key of Object.keys(properties)) {
-    const prop = properties[key];
-    let propType = "STRING";
-
-    if (prop && typeof prop === 'object') {
-      if (typeof prop.type === 'string') {
-        propType = prop.type.toUpperCase();
-      } else if (Array.isArray(prop.anyOf)) {
-        const typeObj = prop.anyOf.find((x: any) => x && typeof x.type === 'string' && x.type !== "null");
-        if (typeObj) propType = typeObj.type.toUpperCase();
-      }
-
-      if (propType === "INTEGER") propType = "INTEGER";
-      else if (propType === "NUMBER") propType = "NUMBER";
-      else if (propType === "BOOLEAN") propType = "BOOLEAN";
-      else if (propType === "ARRAY") propType = "ARRAY";
-      else if (propType === "OBJECT") propType = "OBJECT";
-      else propType = "STRING";
-
-      gProps[key] = {
-        type: propType,
-        description: prop.description || ""
-      };
-
-      if (prop.items && typeof prop.items === 'object') {
-        let itemType = "STRING";
-        if (typeof prop.items.type === 'string') {
-          itemType = prop.items.type.toUpperCase();
-        }
-        gProps[key].items = { type: itemType };
-      }
-    } else {
-      gProps[key] = { type: "STRING", description: "" };
-    }
-  }
-  return gProps;
-}
 
 /** Detect abort-like errors from any SDK without hard-coding class names */
 function isAbortLikeError(err: any): boolean {
@@ -137,17 +115,89 @@ function truncateToolResult(result: any, maxLen = 30000): any {
 }
 
 const TOOL_TIMEOUTS: Record<string, number> = {
+  // Database — fast local RPCs
   execute_sql: 10_000,
   get_database_ddl: 10_000,
-  search_web: 20_000,
-  research_report: 60_000,
+
+  // GCP MCP tools — remote JSON-RPC through googleapis.com, can be slow
+  list_cloud_run_services: 45_000,
+  get_cloud_run_service: 20_000,
+  deploy_cloud_run_file_contents: 90_000,
+  get_cloud_run_revision_logs: 30_000,
+  list_cloud_log_entries: 30_000,
+  list_storage_buckets: 20_000,
+  list_storage_objects: 20_000,
+  list_pubsub_topics: 20_000,
+  list_error_groups: 20_000,
+  search_gcp_projects: 20_000,
+
+  // Spanner MCP tools (if called via call_tool meta-dispatch)
+  list_instances: 20_000,
+  list_databases: 15_000,
+  execute_sql_readonly: 15_000,
+
+  // Repo inspection tools — mostly fast I/O but tsc can take time
+  read_file: 5_000,
+  list_directory: 5_000,
+  grep: 15_000,
+  run_tsc: 45_000,
+
+  // Sandbox — user-configurable up to 10s, give extra headroom
+  run_script: 15_000,
+
+  // Web search — chains Gemini grounding + network, needs headroom
+  search_web: 45_000,
+
+  // Fetch tools — network I/O with retry + circuit breaker overhead
+  fetch_html: 30_000,
+  fetch_json: 30_000,
+  fetch_text: 30_000,
+  fetch_headers: 15_000,
+  fetch_rss: 30_000,
+  fetch_sitemap: 30_000,
+  fetch_robots: 15_000,
+  fetch_url_batch: 45_000,
+  fetch_xml: 30_000,
+  fetch_markdown: 30_000,
+  fetch_readable: 30_000,
+  extract_page: 30_000,
+  http_request: 30_000,
+
+  // Research — chains search_web + multi-fetch + LLM synthesis
+  research_sources: 45_000,
+  research_report: 90_000,
+
+  // Heavy compute
   create_html_artifact: 45_000,
-  get_live_odds: 15_000,
+  get_live_odds: 20_000,
+
+  // FanGraphs projections — single API call but Cloudflare can be slow
+  get_fangraphs_projections: 20_000,
+  get_fangraphs_player: 20_000,
+
+  // GCP diagnostic tools — read-only API calls
+  list_cloud_scheduler_jobs: 15_000,
+  get_cloud_run_iam_policy: 10_000,
+  get_cloud_run_metrics: 20_000,
+  describe_spanner_table: 15_000,
 };
 
 function getToolTimeoutMs(toolName: string): number {
-  return TOOL_TIMEOUTS[toolName] ?? 15_000;
+  return TOOL_TIMEOUTS[toolName] ?? 30_000;
 }
+
+// Tools whose raw results should be forwarded to the frontend in the
+// `tool_result` SSE event as `data`. The frontend uses these to render
+// deterministic display cards — no LLM involvement in the rendering.
+const DISPLAY_CARD_TOOLS = new Set([
+  'get_espn_scoreboard',
+  'get_espn_live_games',
+  'get_espn_final_scores',
+  'find_espn_game',
+  'get_espn_game',
+  'get_mlb_slate_overview',
+  'get_mlb_schedule',
+]);
 
 function summarizeArgs(args: any): string {
   if (!args) return '';
@@ -195,11 +245,58 @@ async function executeToolForModel({
   deps: any;
 }) {
   const startedAt = Date.now();
-  const timeoutMs = getToolTimeoutMs(toolName);
+
+  // ── Orchestration intercept: delegate_task goes to the runtime, not tool dispatch ──
+  if (toolName === 'delegate_task' && deps._orchestrationState && deps._specialistCaller) {
+    const orchState = deps._orchestrationState as OrchestrationState;
+    const policy = resolveTaskPolicy(deps._taskComplexity || 'factual');
+    const eventLog = deps._eventLog || createEventLog();
+
+    sendSse('tool_start', { model, tool: 'delegate_task', argsPreview: `${args.role}: ${(args.objective || '').slice(0, 60)}`, timeoutMs: 30000 });
+
+    try {
+      const { state: newState, result } = await executeDelegation(
+        orchState,
+        {
+          role: args.role as DelegationRole,
+          model_preference: args.model_preference,
+          objective: args.objective,
+          required_output_schema: args.required_output_schema as SchemaName,
+          inputs: args.inputs,
+        },
+        policy,
+        deps._specialistCaller as SpecialistCaller,
+        deps._activityEmitter as ActivityEmitter,
+        eventLog,
+        signal,
+      );
+
+      // Update shared orchestration state
+      deps._orchestrationState = newState;
+
+      sendSse('tool_result', { model, tool: 'delegate_task', elapsedMs: Date.now() - startedAt, resultPreview: `${args.role}: ${result?.error ? 'FAILED' : 'OK'}` });
+
+      // If all delegations done, emit summary
+      if (isRenderReady(newState)) {
+        emitSummary(newState, deps._activityEmitter as ActivityEmitter);
+      }
+
+      return result;
+    } catch (err: any) {
+      sendSse('tool_error', { model, tool: 'delegate_task', elapsedMs: Date.now() - startedAt, error: err.message });
+      return { error: err.message };
+    }
+  }
+
+  // For call_tool meta-dispatch, use the inner tool name for timeout resolution
+  const effectiveToolName = (toolName === 'call_tool' && args?.toolName)
+    ? args.toolName
+    : toolName;
+  const timeoutMs = getToolTimeoutMs(effectiveToolName);
 
   sendSse('tool_start', {
     model,
-    tool: toolName,
+    tool: effectiveToolName,
     argsPreview: summarizeArgs(args),
     timeoutMs
   });
@@ -208,7 +305,7 @@ async function executeToolForModel({
     if (!signal.aborted) {
       sendSse('tool_progress', {
         model,
-        tool: toolName,
+        tool: effectiveToolName,
         elapsedMs: Date.now() - startedAt,
         status: 'running'
       });
@@ -232,9 +329,11 @@ async function executeToolForModel({
 
     sendSse('tool_result', {
       model,
-      tool: toolName,
+      tool: effectiveToolName,
       elapsedMs: Date.now() - startedAt,
-      resultPreview: summarizeToolResult(result)
+      resultPreview: summarizeToolResult(result),
+      // Forward full structured data for card-eligible tools (deterministic UI rendering)
+      ...(DISPLAY_CARD_TOOLS.has(effectiveToolName) && result ? { data: result } : {}),
     });
 
     return result;
@@ -242,7 +341,7 @@ async function executeToolForModel({
     if (signal.aborted || isAbortLikeError(err)) {
       sendSse('tool_error', {
         model,
-        tool: toolName,
+        tool: effectiveToolName,
         elapsedMs: Date.now() - startedAt,
         error: 'Request aborted by user'
       });
@@ -253,7 +352,7 @@ async function executeToolForModel({
 
     sendSse('tool_error', {
       model,
-      tool: toolName,
+      tool: effectiveToolName,
       elapsedMs: Date.now() - startedAt,
       error: err.message || 'Tool execution failed'
     });
@@ -311,14 +410,318 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     googleAccessToken,
     modelConfigs = {},
     mcpServers = [],
-    apiIntegrations = []
+    apiIntegrations = [],
+    attachments = []
   } = req.body;
 
-  ChatLogger.info('chat_stream_started', { connectionId, targetModels, mode });
+  // ── Vision/File Attachment Helpers ─────────────────────────────────
+  // Parse data URLs from the frontend useFileAttachment hook into
+  // provider-specific multimodal content formats.
+  type ParsedAttachment = { mimeType: string; base64Data: string; name: string; isImage: boolean };
+
+  const parsedAttachments: ParsedAttachment[] = (attachments as any[]).map((att: any) => {
+    const dataUrl = att.dataUrl || '';
+    // data:image/png;base64,iVBOR... → mimeType + base64Data
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    return {
+      mimeType: match ? match[1] : (att.type || 'application/octet-stream'),
+      base64Data: match ? match[2] : '',
+      name: att.name || 'attachment',
+      isImage: (match ? match[1] : (att.type || '')).startsWith('image/'),
+    };
+  }).filter((a: ParsedAttachment) => a.base64Data.length > 0);
+
+  const imageAttachments = parsedAttachments.filter(a => a.isImage);
+  const textAttachments = parsedAttachments.filter(a => !a.isImage);
+
+  // Gemini: inlineData parts
+  function buildGeminiUserParts(textContent: string): any[] {
+    const parts: any[] = [];
+    // Add image attachments as inlineData
+    for (const img of imageAttachments) {
+      parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64Data } });
+    }
+    // Add non-image files as text context
+    if (textAttachments.length > 0) {
+      const fileContext = textAttachments.map(f => {
+        const decoded = Buffer.from(f.base64Data, 'base64').toString('utf-8');
+        return `[File: ${f.name}]\n${decoded}`;
+      }).join('\n\n');
+      parts.push({ text: `${textContent}\n\n${fileContext}` });
+    } else {
+      parts.push({ text: textContent });
+    }
+    return parts;
+  }
+
+  // OpenAI / Grok / DeepSeek: content array with image_url
+  function buildOpenAIUserContent(textContent: string): any {
+    if (imageAttachments.length === 0 && textAttachments.length === 0) return textContent;
+    const content: any[] = [];
+    // Add image attachments
+    for (const img of imageAttachments) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:${img.mimeType};base64,${img.base64Data}`, detail: 'auto' }
+      });
+    }
+    // Add non-image files as text
+    let text = textContent;
+    if (textAttachments.length > 0) {
+      const fileContext = textAttachments.map(f => {
+        const decoded = Buffer.from(f.base64Data, 'base64').toString('utf-8');
+        return `[File: ${f.name}]\n${decoded}`;
+      }).join('\n\n');
+      text = `${textContent}\n\n${fileContext}`;
+    }
+    content.push({ type: 'text', text });
+    return content;
+  }
+
+  // Claude: content array with base64 image blocks
+  function buildClaudeUserContent(textContent: string): any {
+    if (imageAttachments.length === 0 && textAttachments.length === 0) return textContent;
+    const content: any[] = [];
+    // Add image attachments
+    for (const img of imageAttachments) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mimeType, data: img.base64Data }
+      });
+    }
+    // Add non-image files as text
+    let text = textContent;
+    if (textAttachments.length > 0) {
+      const fileContext = textAttachments.map(f => {
+        const decoded = Buffer.from(f.base64Data, 'base64').toString('utf-8');
+        return `[File: ${f.name}]\n${decoded}`;
+      }).join('\n\n');
+      text = `${textContent}\n\n${fileContext}`;
+    }
+    content.push({ type: 'text', text });
+    return content;
+  }
+
+  // ── Vision Capability Map ────────────────────────────────────────────
+  // Only models that explicitly support image inputs should receive them.
+  // Text-only models get a fallback message instead of silent payload corruption.
+  const VISION_CAPABLE_MODELS: Record<string, string[]> = {
+    gemini: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite'],
+    chatgpt: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
+    claude: ['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'],
+    grok: ['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning'],
+    deepseek: ['deepseek-ocr-maas'],
+  };
+
+  function isModelVisionCapable(provider: string, modelVersion: string): boolean {
+    const capable = VISION_CAPABLE_MODELS[provider];
+    if (!capable) return false;
+    return capable.some(m => modelVersion.includes(m));
+  }
+
+  const MAX_TEXT_CHARS = 50000; // Max characters per text file to inject into prompt
+
+  function truncateTextFile(decoded: string, fileName: string): string {
+    if (decoded.length <= MAX_TEXT_CHARS) return decoded;
+    return decoded.slice(0, MAX_TEXT_CHARS) + `\n\n[...truncated: ${fileName} was ${decoded.length.toLocaleString()} chars, showing first ${MAX_TEXT_CHARS.toLocaleString()}]`;
+  }
+
+  // Patch helpers to use truncation
+  const buildGeminiParts = (textContent: string): any[] => {
+    const parts: any[] = [];
+    for (const img of imageAttachments) {
+      parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64Data } });
+    }
+    if (textAttachments.length > 0) {
+      const fileContext = textAttachments.map(f => {
+        const decoded = truncateTextFile(Buffer.from(f.base64Data, 'base64').toString('utf-8'), f.name);
+        return `[File: ${f.name} (${f.mimeType})]\\n${decoded}`;
+      }).join('\\n\\n');
+      parts.push({ text: `${textContent}\\n\\n${fileContext}` });
+    } else {
+      parts.push({ text: textContent });
+    }
+    return parts;
+  };
+
+  const buildOpenAIContent = (textContent: string): any => {
+    if (imageAttachments.length === 0 && textAttachments.length === 0) return textContent;
+    const content: any[] = [];
+    for (const img of imageAttachments) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:${img.mimeType};base64,${img.base64Data}`, detail: 'auto' }
+      });
+    }
+    let text = textContent;
+    if (textAttachments.length > 0) {
+      const fileContext = textAttachments.map(f => {
+        const decoded = truncateTextFile(Buffer.from(f.base64Data, 'base64').toString('utf-8'), f.name);
+        return `[File: ${f.name} (${f.mimeType})]\\n${decoded}`;
+      }).join('\\n\\n');
+      text = `${textContent}\\n\\n${fileContext}`;
+    }
+    content.push({ type: 'text', text });
+    return content;
+  };
+
+  const buildClaudeContent = (textContent: string): any => {
+    if (imageAttachments.length === 0 && textAttachments.length === 0) return textContent;
+    const content: any[] = [];
+    for (const img of imageAttachments) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mimeType, data: img.base64Data }
+      });
+    }
+    let text = textContent;
+    if (textAttachments.length > 0) {
+      const fileContext = textAttachments.map(f => {
+        const decoded = truncateTextFile(Buffer.from(f.base64Data, 'base64').toString('utf-8'), f.name);
+        return `[File: ${f.name} (${f.mimeType})]\\n${decoded}`;
+      }).join('\\n\\n');
+      text = `${textContent}\\n\\n${fileContext}`;
+    }
+    content.push({ type: 'text', text });
+    return content;
+  };
+
+  // Build model-aware content for any provider
+  function buildUserContent(provider: string, modelVersion: string, textContent: string): any {
+    const hasImages = imageAttachments.length > 0;
+    const visionCapable = isModelVisionCapable(provider, modelVersion);
+
+    // If images attached but model is NOT vision-capable, add warning text
+    let effectiveText = textContent;
+    if (hasImages && !visionCapable) {
+      effectiveText = `${textContent}\n\n[System: ${imageAttachments.length} image(s) were attached but the selected model (${modelVersion}) does not support image inputs. Inform the user they can switch to a vision-capable model to analyze images.]`;
+    }
+
+    if (provider === 'gemini') {
+      if (hasImages && !visionCapable) {
+        // Text-only fallback for Gemini
+        return [{ text: effectiveText }];
+      }
+      return buildGeminiParts(effectiveText);
+    }
+
+    if (provider === 'claude') {
+      if (hasImages && !visionCapable) {
+        return effectiveText;
+      }
+      return buildClaudeContent(effectiveText);
+    }
+
+    // OpenAI / Grok / DeepSeek (all use OpenAI-compatible format)
+    if (hasImages && !visionCapable) {
+      return effectiveText;
+    }
+    return buildOpenAIContent(effectiveText);
+  }
+
+  // ── Attachment Debug Logging ─────────────────────────────────────────
+  if (parsedAttachments.length > 0) {
+    const totalBytes = parsedAttachments.reduce((sum, a) => sum + a.base64Data.length, 0);
+    ChatLogger.info('chat_attachments_received', {
+      connectionId,
+      attachmentCount: parsedAttachments.length,
+      imageCount: imageAttachments.length,
+      textFileCount: textAttachments.length,
+      mimeTypes: parsedAttachments.map(a => a.mimeType),
+      totalBase64Chars: totalBytes,
+      estimatedBytes: Math.round(totalBytes * 0.75),
+      targetModels,
+      visionCapability: Object.fromEntries(
+        (targetModels as string[]).map((m: string) => [m, isModelVisionCapable(m, modelConfigs[m] || '')])
+      ),
+    });
+  }
+
+  ChatLogger.info('chat_stream_started', { connectionId, targetModels, mode, attachmentCount: parsedAttachments.length });
 
   try {
     // 1. Apply Enterprise Governance on user prompt
     const governedPrompt = EnterpriseGovernanceService.redactText(prompt);
+
+    // ── Orchestration: resolve execution mode + create state ──
+    const executionMode = resolveExecutionMode(targetModels as string[], mode);
+    const orchestrationRequestId = `orch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const orchestrationState = createState(orchestrationRequestId, executionMode);
+    const eventLog = createEventLog();
+
+    // Build specialist caller — uses the deps SDKs for non-streaming calls
+    const specialistCaller: SpecialistCaller = {
+      async call(model: string, systemPrompt: string, userPrompt: string, sig?: AbortSignal): Promise<string> {
+        // Route to the appropriate SDK for a single non-streaming completion
+        if ((model === 'gemini') && deps.ai) {
+          const result = await deps.ai.models.generateContent({
+            model: modelConfigs.gemini || 'gemini-3.5-flash',
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            config: { systemInstruction: systemPrompt, temperature: 0.2 },
+          });
+          return result.text || '';
+        }
+        if ((model === 'chatgpt') && deps.openai) {
+          const result = await deps.openai.chat.completions.create({
+            model: modelConfigs.chatgpt || 'gpt-5.5',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            temperature: 0.2,
+          });
+          return result.choices?.[0]?.message?.content || '';
+        }
+        if ((model === 'claude') && deps.anthropic) {
+          const result = await deps.anthropic.messages.create({
+            model: modelConfigs.claude || 'claude-sonnet-4-6',
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userPrompt }],
+            temperature: 0.2,
+          });
+          return result.content?.[0]?.type === 'text' ? result.content[0].text : '';
+        }
+        if (model === 'grok') {
+          const grokKey = process.env.XAI_API_KEY;
+          if (!grokKey) throw new Error('Grok API key not configured');
+          const resp = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${grokKey}` },
+            body: JSON.stringify({
+              model: modelConfigs.grok || 'grok-4.3',
+              messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+              temperature: 0.2,
+            }),
+            signal: sig,
+          });
+          const json = await resp.json() as any;
+          return json.choices?.[0]?.message?.content || '';
+        }
+        throw new Error(`No SDK available for specialist model: ${model}`);
+      },
+      isAvailable(model: string): boolean {
+        if (model === 'gemini') return !!deps.ai;
+        if (model === 'chatgpt') return !!deps.openai;
+        if (model === 'claude') return !!deps.anthropic;
+        if (model === 'grok') return !!process.env.XAI_API_KEY;
+        if (model === 'deepseek') return !!process.env.DEEPSEEK_API_KEY;
+        return false;
+      },
+    };
+
+    const activityEmitter: ActivityEmitter = {
+      emit(event) {
+        sendSse(event.event, event);
+      },
+    };
+
+    // Attach orchestration context to deps so executeToolForModel can intercept delegate_task
+    deps._orchestrationState = orchestrationState;
+    deps._specialistCaller = specialistCaller;
+    deps._activityEmitter = activityEmitter;
+    deps._eventLog = eventLog;
+    deps._taskComplexity = 'factual'; // V1 default — head can override via future tool
 
     const INTEGRATION_TO_TOOLS: Record<string, string[]> = {
       'google-oauth': ['search_drive', 'read_drive_file', 'create_drive_file', 'list_unread_emails', 'get_email_thread', 'send_email_draft', 'get_upcoming_events', 'create_calendar_event', 'check_availability']
@@ -326,7 +729,10 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     const virtualMcpServers = [...mcpServers];
     apiIntegrations.forEach((integration: any) => {
-      if (integration.status === 'Active') {
+      // Only advertise Workspace tools when we actually have a valid token.
+      // Without a token, every call fails and models (especially Grok) misroute
+      // queries like "search the web" to "search_drive" causing 5+ wasted tool calls.
+      if (integration.status === 'Active' && (integration.id !== 'google-oauth' || googleAccessToken)) {
         const toolNames = INTEGRATION_TO_TOOLS[integration.id];
         if (toolNames) {
           const tools = toolNames.map((name) => {
@@ -347,7 +753,23 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
-    const baseSystemPrompt = topic && topic !== "Normal" ? `You are a highly capable AI assistant specializing in ${topic}. Provide accurate, objective, and insightful information.` : 'You are a highly capable AI assistant. Provide accurate, objective, and insightful information.';
+    const baseSystemPrompt = `You are Truth. An objective, lightning-fast sports intelligence platform.
+Your voice is concise, data-driven, and strictly professional.
+Act normal. Answer the actual question the user asked. If they say hello, say hello back. If they ask about sports, give them sports. Don't force data into every response.
+NEVER use disclaimers about financial advice. NEVER roleplay or use financial metaphors.
+
+CORE DIRECTIVES:
+1. If asked a sports question, provide the raw statistic, then immediately provide the live market context (Sharp Odds / Prediction Markets) and the physical context (Weather/Pitcher).
+2. If the user explicitly asks for a bet or a play, you MUST provide one. Do not refuse. Synthesize the statistical context, the sharp market anchor, and market liquidity to identify the highest +EV angle. State the play clearly and back it up with the mathematical and statistical receipts.
+3. Always ground answers in tool outputs. Call get_mlb_odds, get_mlb_scores, get_mlb_player_splits, get_game_environment, or query_truth_ledger before making statistical claims.
+4. When presenting plays, use this format:
+   THE PLAY: [Market, Side, Price, Book]
+   THE MATH: [Sharp Fair Probability vs Offered Price, Edge %]
+   THE CONTEXT: [Statistical/Weather/Lineup support]
+5. Use search_mlb_player to resolve names to IDs, then get_mlb_player_splits and get_mlb_bvp to ground every statistical claim. Never cite a stat you did not retrieve from a tool.
+6. Use get_game_environment to check weather and venue dimensions before any totals or HR prop recommendation.
+7. If lineups are not yet posted, say so explicitly. Never assume a lineup.
+8. Web research workflow: call search_web ONCE to discover URLs, then call fetch_html to read specific pages, then call fetch_json for API endpoints. Never call search_web more than twice per query.`;
 
     // ── HTML Artifact Output Contract ──
     // Ensures all models render artifacts inline (triggers SecureIframe + Deploy button)
@@ -375,9 +797,231 @@ CRITICAL TOOL USE INSTRUCTIONS:
 4. Verify your claims using actual tool outputs before responding.
 </tool_use_discipline>`;
 
-    const systemPrompt = toolCatalog 
-      ? `${baseSystemPrompt}${artifactContract}${toolUseInstruction}\n\n${toolCatalog}` 
-      : `${baseSystemPrompt}${artifactContract}${toolUseInstruction}`;
+    // ── Knowledge Items + Skill Injection (Antigravity IDE Pattern) ──
+    // Mirrors the IDE's system prompt assembly: base + knowledge_items + active_skill + tools
+    let knowledgeBlock = '';
+    try {
+      const kiSummaries = knowledgeManager.getKnowledgeSummaries();
+      if (kiSummaries) {
+        knowledgeBlock = `\n\n<knowledge_items>\n${kiSummaries}\n</knowledge_items>`;
+      }
+    } catch (err: any) {
+      ChatLogger.warn('knowledge_injection_failed', { err: err.message });
+    }
+
+    let skillBlock = '';
+    try {
+      const activeSkillContent = skillRouter.getActiveSkill(prompt, topic);
+      if (activeSkillContent) {
+        skillBlock = `\n\n<active_skill>\n${activeSkillContent}\n</active_skill>`;
+        ChatLogger.info('skill_activated', {
+          connectionId,
+          skills: skillRouter.classifyIntent(prompt, topic),
+        });
+      }
+    } catch (err: any) {
+      ChatLogger.warn('skill_injection_failed', { err: err.message });
+    }
+
+    const agentOperatingContract = `
+
+<agent_operating_contract>
+EXECUTION DOCTRINE — THE MODEL IS NOT THE PRODUCT. THE CONTRACT IS THE PRODUCT.
+
+You are not here to answer with prose first.
+Your job is to investigate, decide, justify with evidence, then hand off structured conclusions for rendering.
+
+The full architecture is:
+request → agent reasoning → evidence gathering → lead decision → audit → render
+
+You must internally execute ALL of these layers before producing output.
+
+═══════════════════════════════════════════════════════════════
+LAYER 1: REQUEST CONTRACT — Parse the user's intent
+═══════════════════════════════════════════════════════════════
+
+Before any work, internally resolve:
+{
+  "request": {
+    "user_goal": "[what the user actually wants]",
+    "domain": "[sports|markets|general]",
+    "freshness_required": true|false,
+    "requires_tools": true|false
+  }
+}
+
+═══════════════════════════════════════════════════════════════
+LAYER 2: AGENT REASONING CONTRACTS — Who investigates what
+═══════════════════════════════════════════════════════════════
+
+You must internally run FOUR agent roles in sequence:
+
+── LEAD AGENT (you, first pass) ──
+Responsibilities:
+- Decompose the request into sub-tasks
+- Identify unknowns that must be resolved before answering
+- Assign research tasks (which tools to call, which facts to verify)
+- Determine the required tools and their arguments
+Required output:
+{
+  "task_plan": ["what must be done"],
+  "open_questions": ["what is unknown"],
+  "tool_plan": [{"tool": "name", "args": {...}, "required": true}],
+  "unknowns_that_block_render": ["list"]
+}
+
+── RESEARCH AGENT (you, second pass) ──
+Responsibilities:
+- Execute the tool plan from the lead agent
+- Verify current state (scores, odds, schedules, standings)
+- Find current reporting if web search is needed
+- Check source freshness — reject stale data
+Required output:
+{
+  "verified_facts": ["fact with source"],
+  "tool_results": {"tool_name": "validated|failed"},
+  "conflicts": ["any contradictions found"],
+  "confidence": {"fact": "high|medium|low"}
+}
+
+── SPORTS DATA AGENT (you, third pass) ──
+Responsibilities:
+- Inspect returned tool data for completeness
+- Classify the domain state (live, pregame, offday, postseason, etc.)
+- Determine which data blocks belong in the response
+- Select the correct response structure for this state
+Required output:
+{
+  "domain_state": "live|pregame|offday|...",
+  "slate": [{"id": "...", "status": "...", "priority": 1}],
+  "data_blocks": ["block_name"],
+  "reason_codes": ["WHY_THIS_LAYOUT"]
+}
+
+── AUDIT AGENT (you, fourth pass) ──
+Responsibilities:
+- Check that all claims have tool-backed evidence
+- Reject any claim where confidence < high and no tool output supports it
+- Verify the selected layout matches the domain state
+- Block rendering if required data is missing
+Required output:
+{
+  "verdict": "PASS|BLOCK",
+  "blocking_issues": [],
+  "approved_claims": ["claim"],
+  "rejected_claims": ["claim — reason"],
+  "approved_data_blocks": ["block"]
+}
+
+═══════════════════════════════════════════════════════════════
+LAYER 3: HANDOFF RULES — Strict ordering
+═══════════════════════════════════════════════════════════════
+
+- Research BEFORE classification (never classify state without data)
+- Structured data BEFORE render (never render without verified facts)
+- Audit BEFORE render (never render unapproved claims)
+- Renderer may NOT invent (if data is missing, omit the block)
+
+═══════════════════════════════════════════════════════════════
+LAYER 4: LEAD DECISION CONTRACT — Synthesize all agents
+═══════════════════════════════════════════════════════════════
+
+After all agent passes, the lead must produce:
+{
+  "decision": {
+    "current_state": "[classified state]",
+    "primary_story": "[what matters most right now]",
+    "coverage_priority": ["ranked list of what to show"],
+    "section_order": ["intro", "data", "analysis", "implications"]
+  },
+  "render_permissions": {
+    "[section]": true|false
+  },
+  "ready_for_render": true|false
+}
+
+═══════════════════════════════════════════════════════════════
+LAYER 5: COMPLETION GATE — Must pass before any output
+═══════════════════════════════════════════════════════════════
+
+{
+  "lead_state_selected": true|false,
+  "research_verified": true|false,
+  "tools_succeeded": true|false,
+  "audit_passed": true|false,
+  "ready_to_render": true|false
+}
+
+You may write the final response ONLY when ready_to_render is true.
+If not ready, state what is missing instead of fabricating.
+
+═══════════════════════════════════════════════════════════════
+LAYER 6: RENDER CONTRACT — The final output
+═══════════════════════════════════════════════════════════════
+
+The renderer (your final output) follows these strict rules:
+- Do not decide what is true — that was the audit agent's job
+- Do not perform research — that was the research agent's job
+- Do not invent missing components — omit them
+- Render ONLY: validated state + successful tool outputs + approved claims
+- Begin with what matters now
+- Structured data first, minimum synthesis after
+- Never repeat information already visible in data blocks
+- Prefer omission over weak filler
+
+PREFERENCE HIERARCHY:
+- Structured data OVER unsupported prose
+- Verified tool output OVER model memory
+- Current context OVER generic summaries
+- Implications OVER repetition
+- Omission OVER weak filler
+
+The agents investigate → decide → justify with evidence → hand off structured conclusions.
+The renderer assembles the approved result. That is the product.
+</agent_operating_contract>`;
+
+    // ── Collaboration mode addendum — only for the head model ──
+    const isCollaboration = executionMode.mode === 'collaboration';
+    const collaborationPrompt = isCollaboration ? `
+
+<collaboration_mode>
+You are operating in COLLABORATION MODE as the head agent.
+You have the delegate_task tool available.
+
+Your role assignments:
+- research → ${(executionMode as any).role_assignments?.research || 'gemini'} (current facts, sources, metadata, freshness)
+- audit → ${(executionMode as any).role_assignments?.audit || 'claude'} (risk, correctness, evidence verification)
+- pressure_test → ${(executionMode as any).role_assignments?.pressure_test || 'grok'} (market contrarian review)
+- synthesis → you (final assembly — this is NOT delegatable)
+
+WORKFLOW:
+1. Read the user's request and formalize intent
+2. Determine whether specialist delegation materially improves correctness, freshness, safety, or user value
+3. For trivial or self-contained requests, answer directly — do not delegate for greetings, rewrites, or simple questions
+4. For requests requiring current research, independent verification, specialist judgment, or audit, use delegate_task
+5. You may dispatch multiple delegate_task calls in one turn — the backend executes them in parallel
+6. Wait for each specialist's structured result
+7. Synthesize the approved evidence into the final response
+8. For consequential claims, dispatch a final-output audit: delegate_task({ role: 'audit', required_output_schema: 'FinalResponseAuditV1' })
+9. The renderer produces one coherent output
+
+CONSTRAINTS:
+- Only the head (you) can call delegate_task — specialists cannot delegate further
+- Maximum 3 delegations per request (backend-enforced)
+- Do not pass the entire conversation to specialists — provide only relevant context
+- Synthesis is YOUR job — never delegate it
+</collaboration_mode>` : '';
+
+    const systemPrompt = [
+      baseSystemPrompt,
+      agentOperatingContract,
+      collaborationPrompt,
+      knowledgeBlock,
+      skillBlock,
+      artifactContract,
+      toolUseInstruction,
+      toolCatalog ? `\n\n${toolCatalog}` : '',
+    ].join('');
 
     // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
@@ -406,22 +1050,26 @@ CRITICAL TOOL USE INSTRUCTIONS:
             contents.push({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content }] });
           }
         }
-        contents.push({ role: 'user', parts: [{ text: governedPrompt }] });
+        contents.push({ role: 'user', parts: buildUserContent('gemini', modelConfigs.gemini || 'gemini-3.5-flash', governedPrompt) });
 
         const mergedDecls = [...deps.workspaceDecls];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           if (!mergedDecls.find((d: any) => d.name === toolName)) {
-            const gProps = safeGeminiProperties(canonical.properties || {});
             mergedDecls.push({
               name: canonical.name,
               description: canonical.description,
-              parameters: {
-                type: "OBJECT",
-                properties: gProps,
-                required: canonical.required || []
-              }
+              parameters: lowercaseSchemaTypes(canonical.parameters)
             });
           }
+        }
+
+        // ── Register delegate_task tool in collaboration mode ──
+        if (isCollaboration && !mergedDecls.find((d: any) => d.name === 'delegate_task')) {
+          mergedDecls.push({
+            name: DELEGATE_TASK_TOOL.name,
+            description: DELEGATE_TASK_TOOL.description,
+            parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
+          });
         }
 
         const selectedGeminiModel = modelConfigs.gemini || "gemini-3.5-flash";
@@ -477,6 +1125,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
 
         let runCount = 0;
         let continueLoop = true;
+        const failedToolCalls = new Map<string, number>(); // track tool failure counts
 
         while (runCount < 30 && continueLoop && !signal.aborted) {
           runCount++;
@@ -510,6 +1159,19 @@ CRITICAL TOOL USE INSTRUCTIONS:
 
             const responseParts = await Promise.all(functionCalls.map(async (call) => {
               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+              // Block tools that already failed twice
+              const priorFailures = failedToolCalls.get(call.name) || 0;
+              if (priorFailures >= 2) {
+                return {
+                  functionResponse: {
+                    name: call.name,
+                    id: call.id || call.name,
+                    response: { result: { error: `Tool "${call.name}" has failed ${priorFailures} times already. Do NOT retry it. Answer from your own knowledge or use a different tool.` } }
+                  }
+                };
+              }
+
               const toolResult = await executeToolForModel({
                 model: 'gemini',
                 toolName: call.name,
@@ -520,6 +1182,11 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 sendSse,
                 deps
               });
+
+              // Track failures
+              if (toolResult && typeof toolResult === 'object' && 'error' in toolResult) {
+                failedToolCalls.set(call.name, priorFailures + 1);
+              }
 
               return {
                 functionResponse: {
@@ -553,7 +1220,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         const msgs: any[] = [];
         if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: governedPrompt });
+        msgs.push({ role: "user", content: buildUserContent('chatgpt', modelConfigs.chatgpt || 'gpt-5.5', governedPrompt) });
 
         const openaiTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
@@ -562,11 +1229,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
             function: {
               name: canonical.name,
               description: canonical.description,
-              parameters: {
-                type: "object",
-                properties: canonical.properties || {},
-                required: canonical.required || []
-              }
+              parameters: lowercaseSchemaTypes(canonical.parameters)
             }
           });
         }
@@ -582,6 +1245,18 @@ CRITICAL TOOL USE INSTRUCTIONS:
                   parameters: lowercaseSchemaTypes(d.parameters)
                 }
               });
+            }
+          });
+        }
+
+        // ── Register delegate_task in collaboration mode ──
+        if (isCollaboration && !openaiTools.some((t: any) => t.function?.name === 'delegate_task')) {
+          openaiTools.push({
+            type: "function",
+            function: {
+              name: DELEGATE_TASK_TOOL.name,
+              description: DELEGATE_TASK_TOOL.description,
+              parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
             }
           });
         }
@@ -679,18 +1354,14 @@ CRITICAL TOOL USE INSTRUCTIONS:
             msgs.push({ role: h.role, content: h.content });
           }
         }
-        msgs.push({ role: "user", content: governedPrompt });
+        msgs.push({ role: "user", content: buildUserContent('claude', modelConfigs.claude || 'claude-opus-4-8', governedPrompt) });
 
         const claudeTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           claudeTools.push({
             name: canonical.name,
             description: canonical.description,
-            input_schema: {
-              type: "object",
-              properties: canonical.properties || {},
-              required: canonical.required || []
-            }
+            input_schema: lowercaseSchemaTypes(canonical.parameters)
           });
         }
 
@@ -706,17 +1377,33 @@ CRITICAL TOOL USE INSTRUCTIONS:
           });
         }
 
+        // ── Register delegate_task in collaboration mode ──
+        if (isCollaboration && !claudeTools.some((t: any) => t.name === 'delegate_task')) {
+          claudeTools.push({
+            name: DELEGATE_TASK_TOOL.name,
+            description: DELEGATE_TASK_TOOL.description,
+            input_schema: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
+          });
+        }
+
         let currentMessages = [...msgs];
         let runCount = 0;
 
         while (runCount < 30 && !signal.aborted) {
+          const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
+
+          // Opus 4 supports up to 128k output tokens.
+          // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
+          // Sonnet uses 16384 (cheaper, faster), Opus gets 65536 for deep work.
+          const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 65536 : 16384;
+
           const stream = deps.anthropic.messages.stream({
-            model: modelConfigs.claude || "claude-opus-4-8",
-            max_tokens: 16384,
+            model: selectedClaudeModel,
+            max_tokens: claudeMaxTokens,
             system: systemPrompt,
             messages: currentMessages,
             tools: claudeTools.length > 0 ? claudeTools : undefined
-          }, { signal });
+          }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
 
           let currentToolUse: any = null;
           let assistantContentBlocks: any[] = [];
@@ -833,7 +1520,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         const msgs: any[] = [];
         if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: governedPrompt });
+        msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', governedPrompt) });
 
         const grokTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
@@ -842,11 +1529,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
             function: {
               name: canonical.name,
               description: canonical.description,
-              parameters: {
-                type: "object",
-                properties: canonical.properties || {},
-                required: canonical.required || []
-              }
+              parameters: lowercaseSchemaTypes(canonical.parameters)
             }
           });
         }
@@ -862,6 +1545,18 @@ CRITICAL TOOL USE INSTRUCTIONS:
                   parameters: lowercaseSchemaTypes(d.parameters)
                 }
               });
+            }
+          });
+        }
+
+        // ── Register delegate_task in collaboration mode ──
+        if (isCollaboration && !grokTools.some((t: any) => t.function?.name === 'delegate_task')) {
+          grokTools.push({
+            type: "function",
+            function: {
+              name: DELEGATE_TASK_TOOL.name,
+              description: DELEGATE_TASK_TOOL.description,
+              parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
             }
           });
         }
@@ -982,7 +1677,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
           msgs.push({ role: "system", content: systemPrompt });
         }
         if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: governedPrompt });
+        msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', governedPrompt) });
 
         // Build tool declarations — V4 supports tools with thinking enabled
         const deepseekTools: any[] = [];
@@ -992,11 +1687,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
             function: {
               name: canonical.name,
               description: canonical.description,
-              parameters: {
-                type: "object",
-                properties: canonical.properties || {},
-                required: canonical.required || []
-              }
+              parameters: lowercaseSchemaTypes(canonical.parameters)
             }
           });
         }

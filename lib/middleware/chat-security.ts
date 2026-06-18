@@ -70,12 +70,40 @@ export const chatRateLimiter = async (req: Request, res: Response, next: NextFun
 };
 
 export const validateChatPayload = (req: Request, res: Response, next: NextFunction) => {
-  const { prompt } = req.body;
+  const { prompt, attachments } = req.body;
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ error: 'Invalid payload: "prompt" is required and must be a string.' });
   }
   if (prompt.length > 100000) {
     return res.status(413).json({ error: 'Payload too large.' });
   }
+
+  // Server-side attachment validation
+  if (attachments && Array.isArray(attachments)) {
+    const MAX_ATTACHMENTS = 5;
+    const MAX_ATTACHMENT_BYTES = 7 * 1024 * 1024;   // 7MB per file (base64 inflated)
+    const MAX_TOTAL_BYTES = 15 * 1024 * 1024;        // 15MB total
+
+    if (attachments.length > MAX_ATTACHMENTS) {
+      return res.status(413).json({ error: `Too many attachments: ${attachments.length}. Maximum is ${MAX_ATTACHMENTS}.` });
+    }
+
+    let totalBytes = 0;
+    for (let i = 0; i < attachments.length; i++) {
+      const att = attachments[i];
+      const dataUrl = att?.dataUrl || '';
+      const byteLength = Buffer.byteLength(dataUrl, 'utf-8');
+      totalBytes += byteLength;
+
+      if (byteLength > MAX_ATTACHMENT_BYTES) {
+        return res.status(413).json({ error: `Attachment "${att?.name || i}" exceeds 7MB limit (${(byteLength / 1024 / 1024).toFixed(1)}MB).` });
+      }
+    }
+
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      return res.status(413).json({ error: `Total attachment size (${(totalBytes / 1024 / 1024).toFixed(1)}MB) exceeds 15MB limit.` });
+    }
+  }
+
   next();
 };

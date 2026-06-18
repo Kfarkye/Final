@@ -89,7 +89,7 @@ export async function safeFetchText(
           
           // 2. 🛡️ Native AbortSignal Support (Stops Slowloris attacks)
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000); // 10 second absolute limit
+          const timeout = setTimeout(() => controller.abort(), 20000); // 20 second absolute limit per fetch attempt
 
           if (options.signal) {
             options.signal.addEventListener("abort", () => controller.abort());
@@ -228,7 +228,7 @@ export async function streamPageText(
           const requestFn = isHttps ? https.request : http.request;
           
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000); // 10 second absolute limit
+          const timeout = setTimeout(() => controller.abort(), 20000); // 20 second absolute limit per fetch attempt
 
           const store = traceContext.getStore();
           const currentTraceId = store?.traceId || "no-trace-id";

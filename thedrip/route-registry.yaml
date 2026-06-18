@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════════════════════
+# THE DRIP — Route Registry
+# ═══════════════════════════════════════════════════════════════
+# Machine-readable registry of every Drip page.
+# Used by drip.routes.ts to serve pages and by the app
+# to validate inter-page links.
+#
+# Status values: complete | template | planned
+# ═══════════════════════════════════════════════════════════════
+
+site:
+  name: The Drip
+  domain: thedrip.to
+  css: /drip.css
+  fonts: https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap
+
+pages:
+  - id: index
+    route: /
+    file: index.html
+    title: "2026 World Cup Groups — Schedule, Odds & Teams | The Drip"
+    status: complete
+    data_sources:
+      - WorldCupTeams
+      - WorldCupMatches
+      - WorldCupOdds
+    nav_active: worldcup
+
+  - id: group-detail
+    route: /group/:letter/
+    file: group-detail.html
+    title: "Group {letter} — World Cup 2026 | The Drip"
+    status: planned
+    params: [letter]
+    data_sources:
+      - WorldCupTeams
+      - WorldCupMatches
+      - WorldCupOdds
+    nav_active: worldcup
+
+  - id: match-detail
+    route: /match/:id/
+    file: match-detail.html
+    title: "{homeTeam} vs {awayTeam} — World Cup 2026 | The Drip"
+    status: template
+    params: [id]
+    data_sources:
+      - WorldCupMatches
+      - WorldCupOdds
+      - WorldCupTeams
+      - WorldCupVenues
+      - WorldCupHistoricalMatches
+    nav_active: worldcup
+
+  - id: team-profile
+    route: /team/:code/
+    file: team-profile.html
+    title: "{teamName} — World Cup 2026 | The Drip"
+    status: planned
+    params: [code]
+    data_sources:
+      - WorldCupTeams
+      - WorldCupMatches
+    nav_active: worldcup
+
+  - id: today
+    route: /today/
+    file: today.html
+    title: "Today's Matches — World Cup 2026 | The Drip"
+    status: planned
+    data_sources:
+      - WorldCupMatches
+      - WorldCupOdds
+    nav_active: worldcup
+
+  - id: odds-dashboard
+    route: /odds/
+    file: odds-dashboard.html
+    title: "Odds Board — World Cup 2026 | The Drip"
+    status: planned
+    data_sources:
+      - WorldCupOdds
+      - WorldCupMatches
+    nav_active: worldcup
+
+  - id: mlb
+    route: /mlb/
+    file: mlb.html
+    title: "MLB Today — Scores, Odds & Edges | The Drip"
+    status: planned
+    data_sources:
+      - MlbGames
+      - CurrentOdds
+      - MlbStartingPitchers
+      - GameEdgeState
+    nav_active: mlb

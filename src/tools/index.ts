@@ -15,6 +15,15 @@ import { nflTools } from './nfl.tools';
 import { nhlTools } from './nhl.tools';
 import { modelRegistryTools } from './modelRegistry.tools';
 import { forgeTools } from './forge.tools';
+import { knowledgeTools } from './knowledge.tools';
+import { oracleTools } from './oracle.tools';
+import { statsTools } from './stats.tools';
+import { slateTools } from './slate.tools';
+import { repoTools } from './repo.tools';
+import { engineeringTools } from './engineering.tools';
+import { browserTools } from './browser.tools';
+import { intelligenceTools } from './intelligence.tools';
+import { soccerTools } from './soccer.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -34,6 +43,15 @@ toolRegistry.registerMany([
   ...nhlTools,
   ...modelRegistryTools,
   ...forgeTools,
+  ...knowledgeTools,
+  ...oracleTools,
+  ...statsTools,
+  ...slateTools,
+  ...repoTools,
+  ...engineeringTools,
+  ...browserTools,
+  ...intelligenceTools,
+  ...soccerTools,
 ]);
 
 export { toolRegistry };

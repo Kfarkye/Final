@@ -4,8 +4,7 @@ import { startBackfill, stopBackfill, getBackfillStatus, findMatchingGame } from
 import { Spanner } from '@google-cloud/spanner';
 import { env } from '../config/env';
 import { EdgeEngine, assertLiveEdgeSource, assertNoPlaceholderLeak } from "../services/edge-engine";
-
-const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
+import { edgeDb } from "../db/spanner";
 
 // Helper: wrap database calls with a timeout to prevent silent hangs
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
@@ -321,7 +320,7 @@ export const bettingTools: RegisteredTool<any>[] = [
       // 2. Transform to MlbOddsHistory rows
       const rows: any[] = [];
       let skippedCount = 0;
-      const database = spanner.instance('clearspace').database('sports-mlb-db');
+      const database = edgeDb;
 
       // Load all games from Spanner for in-memory mapping
       let games: any[] = [];
@@ -492,14 +491,14 @@ export const bettingTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "get_edge_readout",
-      description: "Retrieve the narrative and quantitative edge readout for a specific MLB game using its gamePk / eventId. Returns computed indicators (Steam, Cross-Book, Sharp Lead, COBB basis) and a plain-language summary of any arbitrage or lagging value opportunity.",
+      description: "Retrieve the narrative and quantitative edge readout for a specific MLB game using its gamePk / eventId. Returns computed indicators (Steam, Cross-Book, Sharp Lead, COBB basis) and a plain-language summary of any observed market discrepancy, stale-price candidate, or lagging value opportunity.",
       schema: z.object({
         gamePk: z.string().describe("The canonical event ID (e.g. ESPN EventId as a string, e.g. '401570774')")
       })
     },
     handler: async (args) => {
       const gamePk = String(args.gamePk);
-      const db = spanner.instance("clearspace").database("sports-mlb-db");
+      const db = edgeDb;
 
       // Check if the game itself is simulated (e.g. gamePk starts with "test-")
       const isSimulated = gamePk.startsWith("test-");
@@ -560,6 +559,141 @@ export const bettingTools: RegisteredTool<any>[] = [
         edges: resultObj.edges || [],
         sourceMeta: resultObj.sourceMeta || []
       };
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  TRUTH MULTI-LENS EDGE CARDS
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_truth_edge_cards",
+      description: "Generate Truth multi-lens edge cards for a specific MLB game. Evaluates both sides of every available market (moneyline, runline, totals, pitcher Ks, batter HRs, batter hits) against the devigged Pinnacle sharp anchor. Returns only cards that pass evidence gates: sharpFairGap required, minimum 2/4 lenses passing, no unsupported claims. Cards include receipts, risk flags, and both-side evaluations for transparency.",
+      schema: z.object({
+        gamePk: z.string().describe("The event ID for the MLB game (e.g. '401815764')"),
+      })
+    },
+    handler: async (args) => {
+      const { getEventFullBoard } = await import("../services/event-full-board");
+      const { evaluateFullBoard } = await import("../services/two-way-evaluator");
+      const { renderTruthEdgeCard, validateCardNarrative } = await import("../services/truth-card-renderer");
+
+      const board = await getEventFullBoard(args.gamePk);
+      const computeTimeMs = Date.now();
+      const minutesToFirstPitch = (new Date(board.startTime).getTime() - computeTimeMs) / 60000;
+
+      const evaluations = evaluateFullBoard(board.markets, computeTimeMs, minutesToFirstPitch);
+      const eventLabel = `${board.awayTeam} @ ${board.homeTeam}`;
+      const cards: any[] = [];
+
+      for (const evaluation of evaluations) {
+        const card = renderTruthEdgeCard(evaluation, args.gamePk, eventLabel, board.startTime, false);
+        if (!card) continue;
+
+        const violations = validateCardNarrative(card);
+        if (violations.length > 0) continue;
+
+        cards.push(card);
+      }
+
+      return {
+        eventId: args.gamePk,
+        eventLabel,
+        generatedAt: new Date().toISOString(),
+        cards,
+        diagnostics: {
+          marketsAvailable: board.markets.length,
+          unavailableMarkets: board.unavailableMarkets,
+          evaluationsRun: evaluations.length,
+          candidatesFound: evaluations.filter(e => e.bestCandidate !== null).length,
+          cardsEmitted: cards.length,
+        },
+        quota: board.quota,
+      };
+    }
+  },
+  {
+    definition: {
+      name: "get_event_full_board",
+      description: "Fetch and normalize all available event-level MLB markets from the Odds API for a single game. Returns all bookmaker prices for moneyline, runline, totals, and player props. Also identifies which markets are unavailable (F5, team totals, alternates). Does NOT evaluate edges — use get_truth_edge_cards for that.",
+      schema: z.object({
+        eventId: z.string().describe("The Odds API event ID for the MLB game"),
+      })
+    },
+    handler: async (args) => {
+      const { getEventFullBoard } = await import("../services/event-full-board");
+      return getEventFullBoard(args.eventId);
+    }
+  },
+  {
+    definition: {
+      name: "get_market_relevant_news",
+      description: "Fetch market-relevant sports news from ESPN, filtered to only articles that map to active sports events or prediction markets (Kalshi/Polymarket). Returns articles with honest 'whyItMatters' explanations — never claims market movement without proof. Uses ESPN structured categories for entity resolution (teamId/athleteId). Generic, viral, and pure-fantasy articles are suppressed. Use this when the user asks about recent news, injury reports, lineup changes, or availability updates that could affect betting lines.",
+      schema: z.object({
+        league: z.enum(["mlb", "nba", "nfl", "nhl", "mls"]).optional().describe("League to fetch news for. Defaults to mlb."),
+        limit: z.number().optional().describe("Max articles to fetch from ESPN. Defaults to 20, max 50."),
+      })
+    },
+    handler: async (args) => {
+      const { fetchEspnNews } = await import("../services/news/espn-news-client");
+      const { normalizeArticleBatch } = await import("../services/news/news-normalizer");
+      const { buildScorerContext, resolveMatchedGames } = await import("../services/news/news-market-mapper");
+      const { scoreAndPartitionArticles } = await import("../services/news/news-signal-scorer");
+
+      const league = (args.league || 'mlb') as any;
+      const limit = Math.min(args.limit || 20, 50);
+
+      const espnResponse = await fetchEspnNews(league, limit);
+      const normalized = normalizeArticleBatch(espnResponse.articles, league, espnResponse.fetchedAt, espnResponse.sourceMeta.url);
+      const { scorerContext, activeGames } = await buildScorerContext();
+      const scored = scoreAndPartitionArticles(normalized, scorerContext);
+
+      return {
+        feature: 'market_relevant_news',
+        league: league.toUpperCase(),
+        generatedAt: new Date().toISOString(),
+        premiumRail: scored.premium.map(({ article, score }) => ({
+          headline: article.headline,
+          description: article.description,
+          label: score.label,
+          whyItMatters: score.whyItMatters,
+          availabilityAngle: score.availabilityAngle,
+          matchedEvents: resolveMatchedGames(score.matchedTeamIds, activeGames),
+          publishedAt: article.publishedAt,
+          url: article.url,
+          sourceMeta: article.sourceMeta,
+        })),
+        generalNews: scored.general.map(({ article, score }) => ({
+          headline: article.headline,
+          label: score.label,
+          whyItMatters: score.whyItMatters,
+          matchedEvents: resolveMatchedGames(score.matchedTeamIds, activeGames),
+          publishedAt: article.publishedAt,
+        })),
+        emptyState: scored.premium.length === 0 ? {
+          message: "No availability or prediction-market-linked news right now. This is normal on a quiet news day.",
+          showGeneralInstead: scored.general.length > 0,
+        } : null,
+        diagnostics: scored.diagnostics,
+      };
+    }
+  },
+  {
+    definition: {
+      name: "get_resolved_pm_markets",
+      description: "Fetch all available prediction market contracts (Polymarket, Kalshi) resolved to a specific sports event. Use this to see what outcomes are available to trade on prediction exchanges before checking for edges.",
+      schema: z.object({
+        eventId: z.string().describe("The event ID of the game to check prediction markets for.")
+      })
+    },
+    handler: async (args) => {
+      const port = process.env.PORT || env.PORT || 3000;
+      const url = `http://localhost:${port}/api/pm/markets/${args.eventId}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch prediction markets: ${res.statusText}`);
+      }
+      return await res.json();
     }
   }
 ];

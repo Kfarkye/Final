@@ -1,17 +1,7 @@
 import { Spanner } from "@google-cloud/spanner";
-import { env } from "../src/config/env";
+import { env } from "../../src/config/env";
 
-const DROP_STATEMENTS = [
-  "DROP TABLE PmRawMarket",
-  "DROP TABLE PmResolvedMarket",
-  "DROP TABLE PmQuarantine",
-  "DROP TABLE PmResolverMap",
-  "DROP TABLE OddsSnapshot",
-  "DROP TABLE GameEdgeState",
-  "DROP TABLE EdgeOutcome"
-];
-
-const CREATE_STATEMENTS = [
+const DDL_STATEMENTS = [
   `CREATE TABLE PmRawMarket (
     Platform        STRING(12) NOT NULL,
     MarketId        STRING(128) NOT NULL,
@@ -21,7 +11,7 @@ const CREATE_STATEMENTS = [
     OutcomesJson    JSON,
     CloseTimeUtc    TIMESTAMP,
     RawJson         JSON,
-    CapturedAt      TIMESTAMP NOT NULL,
+    CapturedAt      TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   ) PRIMARY KEY (Platform, MarketId, CapturedAt)`,
 
   `CREATE TABLE PmResolvedMarket (
@@ -41,7 +31,7 @@ const CREATE_STATEMENTS = [
     DepthUsd        FLOAT64,
     GroupId         STRING(128),
     LegIndex        INT64,
-    ResolvedAt      TIMESTAMP NOT NULL,
+    ResolvedAt      TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ResolverVersion STRING(12) NOT NULL,
   ) PRIMARY KEY (Platform, MarketId, Subject, Comparator, Line, ResolvedAt)`,
 
@@ -51,7 +41,7 @@ const CREATE_STATEMENTS = [
     Title        STRING(MAX),
     Reason       STRING(40) NOT NULL,
     Detail       STRING(MAX),
-    CapturedAt   TIMESTAMP NOT NULL,
+    CapturedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   ) PRIMARY KEY (Platform, MarketId, CapturedAt)`,
 
   `CREATE TABLE PmResolverMap (
@@ -62,7 +52,7 @@ const CREATE_STATEMENTS = [
     GroupIdOverride  STRING(128),
     PinnedBy         STRING(40),
     Confidence       FLOAT64,
-    UpdatedAt        TIMESTAMP NOT NULL,
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   ) PRIMARY KEY (Platform, MarketId)`,
 
   `CREATE TABLE OddsSnapshot (
@@ -74,12 +64,12 @@ const CREATE_STATEMENTS = [
     Side          STRING(40) NOT NULL,
     Price         INT64,
     Point         FLOAT64,
-    CapturedAt    TIMESTAMP NOT NULL,
+    CapturedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   ) PRIMARY KEY (GamePk, Market, Book, Side, CapturedAt)`,
 
   `CREATE TABLE GameEdgeState (
     GamePk          STRING(64) NOT NULL,
-    ComputedAt      TIMESTAMP NOT NULL,
+    ComputedAt      TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     SteamScore      FLOAT64,
     ReverseLineMove FLOAT64,
     CrossBookDiverg FLOAT64,
@@ -115,22 +105,16 @@ async function main() {
   const instance = spanner.instance("clearspace");
   const database = instance.database("sports-mlb-db");
 
-  console.log("Dropping tables...");
+  console.log(`Starting schema update on database: clearspace/sports-mlb-db...`);
   try {
-    const [dropOp] = await database.updateSchema({ statements: DROP_STATEMENTS });
-    await dropOp.promise();
-    console.log("Tables dropped successfully!");
+    const [operation] = await database.updateSchema({
+      statements: DDL_STATEMENTS,
+    });
+    console.log("Waiting for schema update operation to complete...");
+    await operation.promise();
+    console.log("Schema update completed successfully!");
   } catch (err: any) {
-    console.warn("Drop warning (some tables might not exist):", err.message);
-  }
-
-  console.log("Recreating tables without allow_commit_timestamp on Primary Keys...");
-  try {
-    const [createOp] = await database.updateSchema({ statements: CREATE_STATEMENTS });
-    await createOp.promise();
-    console.log("Tables recreated successfully!");
-  } catch (err: any) {
-    console.error("Recreation failed:", err.message);
+    console.error("DDL execution failed:", err.message || err);
     process.exit(1);
   } finally {
     await spanner.close();

@@ -11,7 +11,7 @@ export const chatController = {
   handleChat: catchAsync(async (req: Request, res: Response) => {
     const PORT = env.PORT || 3000;
 
-    // ── Antigravity Meta-Tool Pattern ───────────────────────────────
+    // ── Truth Meta-Tool Pattern ───────────────────────────────
     // 1. Always-on tools (core + spanner) → native function declarations
     // 2. Everything else → text catalog in system prompt
     // 3. One meta-tool `call_tool` → LLM self-routes from the catalog
@@ -32,6 +32,15 @@ export const chatController = {
     nativeSchemas['call_tool'] = {
       name: 'call_tool',
       description: 'Call any tool from the available tools catalog. Use this to invoke tools listed in <available_tools> by providing the exact tool name and its arguments as a JSON object.',
+      parameters: {
+        type: 'object',
+        properties: {
+          toolName: { type: 'string', description: 'The exact name of the tool to call (from the catalog)' },
+          arguments: { type: 'object', description: 'The arguments to pass to the tool as a JSON object' }
+        },
+        required: ['toolName', 'arguments']
+      },
+      // Backward compat
       properties: {
         toolName: { type: 'string', description: 'The exact name of the tool to call (from the catalog)' },
         arguments: { type: 'object', description: 'The arguments to pass to the tool as a JSON object' }
@@ -39,16 +48,17 @@ export const chatController = {
       required: ['toolName', 'arguments']
     };
 
-    // Generate the text catalog for the system prompt
-    const toolCatalog = generateToolCatalog(allSchemas);
+    // ── Resolve contracts FIRST to filter the catalog ────────────────
+    const userMessage = req.body.message || req.body.messages?.[req.body.messages.length - 1]?.content || '';
+    const { toolNames: matchedToolNames, prefetch, matchedContracts, domainContext } = resolveContracts(userMessage);
+
+    // Generate the text catalog — ONLY matched tools, not all 166
+    const toolCatalog = generateToolCatalog(allSchemas, matchedToolNames);
 
     // ── Executable Prefetch Contracts ─────────────────────────────────
-    // Resolve which contracts match the user's prompt.
     // If any matched contract has a `prefetch` array, those tools are
     // called IN PARALLEL right now — before the LLM runs.
     // Results are injected as grounding context so the LLM just formats them.
-    const userMessage = req.body.message || req.body.messages?.[req.body.messages.length - 1]?.content || '';
-    const { prefetch, matchedContracts } = resolveContracts(userMessage);
 
     let prefetchContext = '';
     if (prefetch.length > 0) {
@@ -82,11 +92,11 @@ export const chatController = {
       }
     }
 
-    // Inject catalog + prefetch context into the request body
-    req.body._toolCatalog = toolCatalog + prefetchContext;
+    // Inject catalog + prefetch context + domain contract into the request body
+    const domainBlock = domainContext ? `\n\n<domain_contract>\n${domainContext}\n</domain_contract>` : '';
+    req.body._toolCatalog = toolCatalog + prefetchContext + domainBlock;
 
-    const catalogToolCount = Object.keys(allSchemas).length - alwaysOnNames.length;
-    console.log(`[ContractRouter] ${alwaysOnNames.length} native + 1 meta-tool + ${catalogToolCount} cataloged = ${Object.keys(allSchemas).length} total accessible`);
+    console.log(`[ContractRouter] ${alwaysOnNames.length} native + 1 meta-tool + ${matchedToolNames.length} matched (of ${Object.keys(allSchemas).length} total) = ${alwaysOnNames.length + 1 + matchedToolNames.length} accessible`);
 
     await enterpriseChatHandler(req, res, {
       ai,
@@ -111,13 +121,15 @@ export const chatController = {
           
           console.log(`[MetaTool] call_tool → dispatching to: ${realToolName}`);
           return toolRegistry.execute(realToolName, realArgs, { 
-            googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal 
+            googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal,
+            userTimezone: req.body.userTimezone,
           });
         }
         
         // Direct execution for always-on tools (native declarations)
         return toolRegistry.execute(name, args, { 
-          googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal 
+          googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal,
+          userTimezone: req.body.userTimezone,
         });
       },
       workspaceDecls,

@@ -1,0 +1,7 @@
+{
+  "title": "User Preferences",
+  "summary": "Tracked user betting style, favorite teams, risk tolerance, and preferred markets across conversations.",
+  "freshnessClass": "static",
+  "tags": ["user", "preferences", "teams", "style"],
+  "references": []
+}

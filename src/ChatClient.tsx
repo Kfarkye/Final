@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, getAccessToken, initAuth } from './lib/firebase';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc, collection, setDoc, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, setDoc, addDoc, serverTimestamp, updateDoc, onSnapshot, query, orderBy, deleteDoc, getDocs, limit } from 'firebase/firestore';
 import WorkspaceHub from './components/WorkspaceHub';
 import GitWorkspaceHub from './components/GitWorkspaceHub';
 import WorkspaceModeToggle from './components/WorkspaceModeToggle';
@@ -15,6 +15,7 @@ import ExportDialog from './components/ExportDialog';
 import AuditDialog from './components/AuditDialog';
 import SettingsDialog from './components/SettingsDialog';
 import { MimeRenderer } from './components/MimeRenderer';
+import { ToolTrace, ToolTraceEntry } from './components/ToolTrace';
 import { ModelSelector } from './components/ModelSelector';
 
 import { useFileAttachment } from './components/attachments/useFileAttachment';
@@ -35,6 +36,7 @@ interface Turn {
   responses: Responses | null;
   targeted: string[];
   attachments?: { name: string; size: number; type: string }[];
+  trace?: ToolTraceEntry[];
 }
 
 export interface ModelConfigs {
@@ -60,6 +62,14 @@ const TOPICS = [
   "Travel"
 ];
 
+interface Conversation {
+  id: string;
+  title: string;
+  mode: string;
+  topic: string;
+  updatedAt: any;
+}
+
 export default function ChatClient() {
   const navigate = useNavigate();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -68,6 +78,7 @@ export default function ChatClient() {
   const [mode, setMode] = useState<'compare' | 'shared' | 'solo'>('compare');
   const [sharedModel, setSharedModel] = useState<string>('gemini');
   const [topic, setTopic] = useState('Normal');
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -179,6 +190,84 @@ export default function ChatClient() {
   }, [navigate]);
 
   useEffect(() => {
+    if (!currentUser) return;
+    const q = query(
+      collection(db, 'users', currentUser.uid, 'conversations'),
+      orderBy('updatedAt', 'desc'),
+      limit(50)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const convs: Conversation[] = [];
+      snapshot.forEach(d => {
+        const data = d.data();
+        convs.push({
+          id: d.id,
+          title: data.title || 'New Conversation',
+          mode: data.mode,
+          topic: data.topic,
+          updatedAt: data.updatedAt
+        });
+      });
+      setConversations(convs);
+    }, (err) => {
+      console.error('Firestore conversations listener error:', err);
+    });
+    return () => unsub();
+  }, [currentUser]);
+
+  const loadConversation = async (convId: string) => {
+    if (!currentUser) return;
+    setTurns([]);
+    setConversationId(convId);
+    if (showMenu) setShowMenu(false);
+
+    const conv = conversations.find(c => c.id === convId);
+    if (conv) {
+      setTopic(conv.topic || 'Normal');
+      if (['compare', 'shared', 'solo'].includes(conv.mode)) {
+        setMode(conv.mode as 'compare' | 'shared' | 'solo');
+      }
+    }
+
+    try {
+      const turnsQuery = query(
+        collection(db, 'users', currentUser.uid, 'conversations', convId, 'turns'),
+        orderBy('createdAt', 'asc')
+      );
+      const snapshot = await getDocs(turnsQuery);
+      const loadedTurns: Turn[] = [];
+      snapshot.forEach(d => {
+        const data = d.data();
+        loadedTurns.push({
+          id: data.createdAt?.toMillis() || Date.now() + Math.random(),
+          prompt: data.prompt,
+          responses: data.responses,
+          targeted: data.targeted || []
+        });
+      });
+      setTurns(loadedTurns);
+    } catch (err) {
+      console.error("Failed to load turns", err);
+    }
+  };
+
+  const deleteConversation = async (convId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const confirm = window.confirm("Delete this conversation?");
+    if (!confirm || !currentUser) return;
+
+    try {
+      await deleteDoc(doc(db, 'users', currentUser.uid, 'conversations', convId));
+      if (conversationId === convId) {
+        setConversationId(null);
+        setTurns([]);
+      }
+    } catch (err) {
+      console.error("Failed to delete conversation", err);
+    }
+  };
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);
 
@@ -225,6 +314,7 @@ export default function ChatClient() {
         const newConvRef = doc(collection(db, 'users', currentUser.uid, 'conversations'));
         await setDoc(newConvRef, {
           userId: currentUser.uid,
+          title: userText.substring(0, 40) + (userText.length > 40 ? '...' : ''),
           mode: mode,
           topic: topic,
           createdAt: serverTimestamp(),
@@ -372,9 +462,67 @@ export default function ChatClient() {
                 });
               }
             } catch (e) { }
-          } else if (eventName === 'tool_result') {
+          } else if (eventName === 'tool_start') {
+            // ── Trace: new tool call started ──
             try {
               const data = JSON.parse(dataStr);
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId) {
+                  const newEntry: ToolTraceEntry = {
+                    id: `${data.tool}-${Date.now()}`,
+                    tool: data.tool,
+                    model: data.model || '',
+                    status: 'running',
+                    argsPreview: data.argsPreview ? (typeof data.argsPreview === 'string' ? data.argsPreview : JSON.stringify(data.argsPreview, null, 2)) : undefined,
+                    startedAt: Date.now(),
+                  };
+                  return { ...t, trace: [...(t.trace || []), newEntry] };
+                }
+                return t;
+              }));
+            } catch (e) { }
+          } else if (eventName === 'tool_progress') {
+            // ── Trace: update elapsed time ──
+            try {
+              const data = JSON.parse(dataStr);
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId && t.trace) {
+                  const updatedTrace = [...t.trace];
+                  for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                    if (updatedTrace[i].tool === data.tool && updatedTrace[i].status === 'running') {
+                      updatedTrace[i] = { ...updatedTrace[i], elapsedMs: data.elapsedMs };
+                      break;
+                    }
+                  }
+                  return { ...t, trace: updatedTrace };
+                }
+                return t;
+              }));
+            } catch (e) { }
+          } else if (eventName === 'tool_result') {
+            // ── Trace: tool completed + email persistence ──
+            try {
+              const data = JSON.parse(dataStr);
+              // Update trace entry to success
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId && t.trace) {
+                  const updatedTrace = [...t.trace];
+                  for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                    if (updatedTrace[i].tool === data.tool && updatedTrace[i].status === 'running') {
+                      updatedTrace[i] = {
+                        ...updatedTrace[i],
+                        status: 'success',
+                        elapsedMs: data.elapsedMs,
+                        resultPreview: data.resultPreview ? (typeof data.resultPreview === 'string' ? data.resultPreview : JSON.stringify(data.resultPreview)) : undefined,
+                      };
+                      break;
+                    }
+                  }
+                  return { ...t, trace: updatedTrace };
+                }
+                return t;
+              }));
+              // Email persistence (existing behavior)
               if (data.tool === 'sendEmail' || data.tool === 'send_email_draft' || data.tool === 'send_email') {
                 if (currentUser) {
                   const emailsCol = collection(db, 'users', currentUser.uid, 'emails');
@@ -387,6 +535,29 @@ export default function ChatClient() {
                   });
                 }
               }
+            } catch (e) { }
+          } else if (eventName === 'tool_error') {
+            // ── Trace: tool failed ──
+            try {
+              const data = JSON.parse(dataStr);
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId && t.trace) {
+                  const updatedTrace = [...t.trace];
+                  for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                    if (updatedTrace[i].tool === data.tool && updatedTrace[i].status === 'running') {
+                      updatedTrace[i] = {
+                        ...updatedTrace[i],
+                        status: 'error',
+                        elapsedMs: data.elapsedMs,
+                        error: data.error || 'Tool execution failed',
+                      };
+                      break;
+                    }
+                  }
+                  return { ...t, trace: updatedTrace };
+                }
+                return t;
+              }));
             } catch (e) { }
           }
         }
@@ -514,11 +685,10 @@ export default function ChatClient() {
 
   return (
     <div className="flex flex-col h-screen bg-black text-white font-sans pb-safe pt-safe selection:bg-zinc-800 relative overflow-hidden">
-      {/* Ambient gradient orbs for glassmorphism depth */}
+      {/* Ambient depth — pure aura black, no color tints */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute -top-[40%] -left-[20%] w-[60vw] h-[60vw] rounded-full bg-indigo-950/30 blur-[120px]" />
-        <div className="absolute -bottom-[30%] -right-[10%] w-[50vw] h-[50vw] rounded-full bg-violet-950/20 blur-[120px]" />
-        <div className="absolute top-[30%] right-[20%] w-[30vw] h-[30vw] rounded-full bg-cyan-950/15 blur-[100px]" />
+        <div className="absolute -top-[40%] -left-[20%] w-[60vw] h-[60vw] rounded-full bg-white/[0.015] blur-[120px]" />
+        <div className="absolute -bottom-[30%] -right-[10%] w-[50vw] h-[50vw] rounded-full bg-white/[0.01] blur-[120px]" />
       </div>
       {/* Header */}
       <header className="flex-shrink-0 px-6 py-4 border-b border-white/[0.08] bg-white/[0.03] backdrop-blur-2xl backdrop-saturate-150 flex justify-between items-center sticky top-0 z-20 w-full text-center sm:text-left">
@@ -662,6 +832,16 @@ export default function ChatClient() {
                 </button>
                 <button
                   onClick={() => {
+                    setConversationId(null);
+                    setTurns([]);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                >
+                  New Chat
+                </button>
+                <button
+                  onClick={() => {
                     const confirm = window.confirm("Clear conversation history?");
                     if (confirm) {
                       setTurns([]);
@@ -705,18 +885,53 @@ export default function ChatClient() {
               exit={{ width: 0, opacity: 0 }}
               className="border-r border-white/[0.06] bg-zinc-950/70 backdrop-blur-2xl backdrop-saturate-150 flex flex-col flex-shrink-0 overflow-hidden"
             >
-              <div className="p-6 w-[260px] h-full flex flex-col">
-                <h3 className="text-xs uppercase tracking-widest font-bold text-zinc-500 mb-6 pl-2">Topic Focus</h3>
-                <div className="space-y-1.5 flex-1 overflow-y-auto">
-                  {TOPICS.map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setTopic(t)}
-                      className={`w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all duration-300 ${topic === t ? 'bg-white text-black font-medium shadow-[0_0_15px_rgba(255,255,255,0.1)]' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
-                    >
-                      {t}
-                    </button>
-                  ))}
+              <div className="p-4 w-[260px] h-full flex flex-col">
+                <button
+                  onClick={() => {
+                    setConversationId(null);
+                    setTurns([]);
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center justify-between mb-6 group shadow-sm"
+                >
+                  <span>New Chat</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50 group-hover:opacity-100 transition-opacity"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+
+                <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-3 pl-2">History</h3>
+                <div className="space-y-1 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                  {conversations.length === 0 ? (
+                    <div className="text-zinc-600 text-xs px-2 py-4 italic">No previous conversations</div>
+                  ) : (
+                    conversations.map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => loadConversation(c.id)}
+                        className={`group w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 cursor-pointer flex justify-between items-center ${conversationId === c.id ? 'bg-white/10 text-white font-medium border border-white/5' : 'text-zinc-400 hover:text-white hover:bg-white/[0.03] border border-transparent'}`}
+                      >
+                        <span className="truncate pr-2 flex-1 text-[13px]">{c.title}</span>
+                        <button
+                          onClick={(e) => deleteConversation(c.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-red-400 transition-all rounded-md hover:bg-white/5"
+                          title="Delete thread"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-white/[0.06]">
+                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-3 pl-2">Topic Focus</h3>
+                  <select
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    className="w-full bg-zinc-900 border border-white/10 text-zinc-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-white/20"
+                  >
+                    {TOPICS.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </motion.aside>
@@ -787,6 +1002,13 @@ export default function ChatClient() {
                       )}
                     </div>
                   </div>
+
+                  {/* Agentic Tool Trace */}
+                  {turn.trace && turn.trace.length > 0 && (
+                    <div className="max-w-[85%] sm:max-w-[60%]">
+                      <ToolTrace entries={turn.trace} />
+                    </div>
+                  )}
 
                   {/* Model Responses Grid */}
                   <div className="relative group">

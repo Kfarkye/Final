@@ -14,17 +14,24 @@ class ToolRegistry {
     for (const tool of tools) this.register(tool);
   }
 
-  // Automatically converts Zod definitions to LLM-compatible JSON schemas (DRY pattern)
+  // Converts Zod definitions to LLM-compatible JSON schemas
+  // Preserves full schema depth (nested objects, arrays, enums, $defs) — matches Antigravity pattern
   public getSchemas(): Record<string, CanonicalTool> {
     const schemas: Record<string, CanonicalTool> = {};
     for (const [name, tool] of this.tools.entries()) {
       const jsonSchema = zodToJsonSchema(tool.definition.schema, "toolArgs") as any;
+      const toolSchema = jsonSchema.definitions?.toolArgs || {};
       
       schemas[name] = {
         name: tool.definition.name,
         description: tool.definition.description,
-        properties: jsonSchema.definitions?.toolArgs?.properties || {},
-        required: jsonSchema.definitions?.toolArgs?.required || [],
+        parameters: {
+          type: "object",
+          ...toolSchema,
+        },
+        // Backward compatibility — deprecated, use parameters instead
+        properties: toolSchema.properties || {},
+        required: toolSchema.required || [],
       };
     }
     return schemas;

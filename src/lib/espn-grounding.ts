@@ -29,7 +29,10 @@ export interface NormalizedEspnEvent {
   date: string;
   home_team: string;
   away_team: string;
+  home_team_id?: string;
+  away_team_id?: string;
   status: "upcoming" | "live" | "final";
+  status_type?: string;  // Raw ESPN status name (e.g., "STATUS_POSTPONED", "STATUS_SUSPENDED")
   home_score?: string;
   away_score?: string;
   score_summary?: string;
@@ -174,6 +177,23 @@ function startOfDay(date: Date): Date {
   return d;
 }
 
+/**
+ * Returns "today" in America/New_York timezone.
+ * MLB scheduling is anchored to ET — this prevents Cloud Run (UTC)
+ * from rolling over to "tomorrow" when it's still game time on the coasts.
+ */
+function todayInET(): Date {
+  const etStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  // etStr is "YYYY-MM-DD" — parse as local date
+  const [y, m, d] = etStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function toEspnDateParam(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -188,10 +208,10 @@ function toPrettyLabel(date: Date): string {
 /**
  * Parses a date from a user message or parameter.
  * Supports: "today", "tomorrow", "yesterday", YYYYMMDD, YYYY-MM-DD, MM/DD
+ * Uses America/New_York as the reference timezone for relative dates.
  */
 export function parseDateIntent(input?: string): DateIntent {
-  const now = new Date();
-  const today = startOfDay(now);
+  const today = todayInET();
 
   if (!input) return { date: today, label: "today", espnParam: toEspnDateParam(today) };
 
@@ -364,11 +384,14 @@ export function normalizeEspnEvent(event: any, fetchedAt: string): NormalizedEsp
   if (!eventId) return null;
 
   const status = normalizeStatus(event?.status?.type?.state || "");
+  const statusType = norm(event?.status?.type?.name) || undefined;
   const league = norm(event?.league?.abbreviation) || "MLB";
   const dateIso = norm(event?.date) || fetchedAt;
 
   const homeTeam = norm(home?.team?.displayName);
   const awayTeam = norm(away?.team?.displayName);
+  const homeTeamId = norm(home?.team?.id) || undefined;
+  const awayTeamId = norm(away?.team?.id) || undefined;
   if (!homeTeam || !awayTeam) return null;
 
   const inning = competition?.status?.period ?? event?.status?.period;
@@ -401,7 +424,10 @@ export function normalizeEspnEvent(event: any, fetchedAt: string): NormalizedEsp
     date: dateIso,
     home_team: homeTeam,
     away_team: awayTeam,
+    home_team_id: homeTeamId,
+    away_team_id: awayTeamId,
     status,
+    status_type: statusType,
     home_score: homeScore,
     away_score: awayScore,
     score_summary: scoreSummary,

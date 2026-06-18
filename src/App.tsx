@@ -1,8 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import LandingPage from './LandingPage';
 import Onboarding from './Onboarding';
 import ChatClient from './ChatClient';
+
+const MobileChat = lazy(() => import('./MobileChat'));
 
 export default function App() {
   return (
@@ -11,6 +13,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/chat" element={<ChatClient />} />
+        <Route path="/mobile" element={<Suspense fallback={<div style={{background:'#0A0A0F',height:'100dvh'}} />}><MobileChat /></Suspense>} />
       </Routes>
     </Router>
   );

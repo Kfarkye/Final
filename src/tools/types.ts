@@ -6,7 +6,11 @@ import Anthropic from "@anthropic-ai/sdk";
 export interface CanonicalTool {
   name: string;
   description: string;
+  /** Full JSON Schema for the tool's parameters (preserves nested types, $defs, items, enum, etc.) */
+  parameters: Record<string, any>;
+  /** @deprecated Use parameters.properties instead. Kept for backward compatibility. */
   properties?: Record<string, any>;
+  /** @deprecated Use parameters.required instead. Kept for backward compatibility. */
   required?: string[];
 }
 
@@ -21,6 +25,7 @@ export interface ToolContext {
   getDeepSeekClient?: () => Promise<OpenAI>;
   connectionId?: string;
   signal?: AbortSignal;
+  userTimezone?: string;
 }
 
 export interface RegisteredTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {

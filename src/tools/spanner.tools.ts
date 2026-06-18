@@ -112,5 +112,89 @@ export const spannerTools: RegisteredTool<any>[] = [
         return { instanceId: args.instanceId, databaseId: args.databaseId, sql, rows: plainRows };
       }
     }
+  },
+
+  // ── Describe Single Table (DDL-parsed) ────────────────────────────
+  {
+    definition: {
+      name: "describe_spanner_table",
+      description:
+        "Get the schema for a SINGLE Spanner table: columns (name, type, nullable), " +
+        "primary key, and indexes. Far more efficient than get_database_ddl (which dumps " +
+        "the entire DB). Use this BEFORE writing any SQL query to ensure you reference " +
+        "real column names — this eliminates hallucinated column references.",
+      schema: z.object({
+        instanceId: z.string().min(1, "Instance ID is required"),
+        databaseId: z.string().min(1, "Database ID is required"),
+        tableName: z.string().min(1, "Table name is required")
+      })
+    },
+    handler: async (args) => {
+      const database = spanner.instance(args.instanceId).database(args.databaseId);
+      const [ddlStatements] = await withTimeout(database.getSchema());
+
+      const tableName = args.tableName;
+      const tableRegex = new RegExp(
+        `CREATE TABLE\\s+${tableName}\\s*\\(([\\s\\S]*?)\\)\\s*PRIMARY KEY\\s*\\(([^)]+)\\)`,
+        "i"
+      );
+
+      let tableDefinition: string | null = null;
+      let primaryKey: string | null = null;
+      const indexes: { name: string; columns: string; unique: boolean; storing?: string }[] = [];
+
+      for (const stmt of ddlStatements) {
+        const tableMatch = stmt.match(tableRegex);
+        if (tableMatch) {
+          tableDefinition = tableMatch[1];
+          primaryKey = tableMatch[2].trim();
+        }
+
+        // Collect indexes for this table
+        const indexRegex = new RegExp(
+          `CREATE\\s+(UNIQUE\\s+)?(?:NULL_FILTERED\\s+)?INDEX\\s+(\\w+)\\s+ON\\s+${tableName}\\s*\\(([^)]+)\\)(?:\\s+STORING\\s*\\(([^)]+)\\))?`,
+          "i"
+        );
+        const indexMatch = stmt.match(indexRegex);
+        if (indexMatch) {
+          indexes.push({
+            name: indexMatch[2],
+            columns: indexMatch[3].trim(),
+            unique: !!indexMatch[1],
+            storing: indexMatch[4]?.trim() || undefined
+          });
+        }
+      }
+
+      if (!tableDefinition) {
+        return { error: `Table '${tableName}' not found in database '${args.databaseId}'` };
+      }
+
+      // Parse columns
+      const columns = tableDefinition
+        .split(",\n")
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .map(line => {
+          const parts = line.match(/^(\w+)\s+(.+?)(\s+NOT NULL)?$/i);
+          if (!parts) return { raw: line };
+          return {
+            name: parts[1],
+            type: parts[2].trim(),
+            nullable: !parts[3]
+          };
+        });
+
+      return {
+        table: tableName,
+        database: args.databaseId,
+        instance: args.instanceId,
+        columnCount: columns.length,
+        columns,
+        primaryKey,
+        indexCount: indexes.length,
+        indexes
+      };
+    }
   }
 ];

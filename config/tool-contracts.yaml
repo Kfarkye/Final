@@ -9,7 +9,43 @@ contracts:
       - get_current_time
       - run_script
       - execute_javascript
+      - search_web
 
+  # ═══════════════════════════════════════════════════════════════════════
+  # SOCCER / WORLD CUP
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: soccer
+    name: Soccer & World Cup
+    keywords:
+      - soccer
+      - world cup
+      - fifa
+      - futbol
+      - fútbol
+      - football
+      - colombia
+      - argentina
+      - brazil
+      - mexico
+      - usa soccer
+      - usmnt
+      - premier league
+      - la liga
+      - champions league
+      - mls
+      - copa america
+      - euro
+      - group stage
+      - qualifier
+      - match
+    tools:
+      - get_world_cup_schedule
+      - get_world_cup_odds
+      - get_live_odds
+      - get_scores
+      - list_sports
+      - list_events
+      - get_event_odds
   # ═══════════════════════════════════════════════════════════════════════
   # WEB RESEARCH & SCRAPING
   # ═══════════════════════════════════════════════════════════════════════
@@ -56,6 +92,33 @@ contracts:
       - research_report
       - fetch_readable
 
+  # ═══════════════════════════════════════════════════════════════════════
+  # DEVBROWSER / PUPPETEER AUTOMATION
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: devbrowser
+    name: Headless Browser Automation
+    keywords:
+      - puppeteer
+      - devbrowser
+      - headless
+      - browser
+      - screenshot
+      - interact
+      - click
+      - fill
+      - evaluate
+      - spa
+      - react app
+      - navigate
+      - dynamic page
+    tools:
+      - browser_navigate
+      - browser_screenshot
+      - browser_extract_table
+      - browser_evaluate
+      - browser_click
+      - browser_fill
+      - browser_close
   # ═══════════════════════════════════════════════════════════════════════
   # GOOGLE WORKSPACE (Drive, Gmail, Calendar)
   # ═══════════════════════════════════════════════════════════════════════
@@ -117,6 +180,7 @@ contracts:
       - list_databases
       - get_database_ddl
       - execute_sql
+      - describe_spanner_table
 
   # ═══════════════════════════════════════════════════════════════════════
   # MLB — Games, Pitchers, Stats (ESPN + MLB Stats API)
@@ -124,6 +188,7 @@ contracts:
   # ═══════════════════════════════════════════════════════════════════════
   - id: mlb
     name: MLB Games & Stats
+    system_prompt_file: mlb-local-agent.yaml
     keywords:
       - mlb
       - baseball
@@ -195,6 +260,20 @@ contracts:
       - search_mlb_player
       - get_mlb_play_by_play
       - get_mlb_teams
+      - get_fangraphs_player
+      - get_fangraphs_projections
+      - get_game_environment
+      - get_mlb_bvp
+      - get_mlb_lineups
+      - get_mlb_player_splits
+      - get_mlb_slate_overview
+      - get_team_bullpen_risk
+      - get_team_f5_profile
+      - get_team_form
+      - get_team_intelligence_card
+      - get_team_market_profit
+      - get_team_strength
+      - get_team_yrfi_nrfi
     # ── Executable Contract ──
     # When this contract matches, these tools are called AUTOMATICALLY
     # before the LLM runs. Results are injected as grounding context.
@@ -204,6 +283,175 @@ contracts:
         args: {}
       - tool: get_espn_pitchers
         args: {}
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # NBA — Games, Stats, Standings, Playoffs
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: nba
+    name: NBA Games & Stats
+    keywords:
+      - nba
+      - basketball
+      - lakers
+      - celtics
+      - knicks
+      - warriors
+      - nuggets
+      - bucks
+      - heat
+      - suns
+      - 76ers
+      - sixers
+      - nets
+      - clippers
+      - mavericks
+      - grizzlies
+      - cavaliers
+      - thunder
+      - pacers
+      - hawks
+      - raptors
+      - kings
+      - pelicans
+      - magic
+      - bulls
+      - spurs
+      - pistons
+      - hornets
+      - wizards
+      - timberwolves
+      - blazers
+      - jazz
+      - quarter
+      - three pointer
+      - rebound
+      - assist
+      - dunk
+      - playoff
+      - playoffs
+      - nba finals
+    tools:
+      - get_nba_schedule
+      - get_nba_boxscore
+      - get_nba_standings
+      - get_nba_player_stats
+      - search_nba_player
+      - get_nba_teams
+      - get_nba_game_leaders
+      - get_nba_playoff_bracket
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # NFL — Games, Stats, Depth Charts, Injuries
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: nfl
+    name: NFL Games & Stats
+    keywords:
+      - nfl
+      - football
+      - chiefs
+      - eagles
+      - 49ers
+      - niners
+      - cowboys
+      - bills
+      - ravens
+      - bengals
+      - dolphins
+      - lions
+      - packers
+      - jets
+      - seahawks
+      - chargers
+      - steelers
+      - jaguars
+      - saints
+      - falcons
+      - bears
+      - vikings
+      - panthers
+      - broncos
+      - colts
+      - texans
+      - titans
+      - commanders
+      - rams
+      - buccaneers
+      - raiders
+      - browns
+      - quarterback
+      - touchdown
+      - interception
+      - sack
+      - rushing
+      - passing
+      - receiving
+      - depth chart
+      - injury report
+      - practice report
+      - super bowl
+    tools:
+      - get_nfl_schedule
+      - get_nfl_boxscore
+      - get_nfl_standings
+      - get_nfl_teams
+      - get_nfl_depth_chart
+      - get_nfl_practice_report
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # NHL — Games, Stats, Goalies, Lines
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: nhl
+    name: NHL Games & Stats
+    keywords:
+      - nhl
+      - hockey
+      - bruins
+      - maple leafs
+      - canadiens
+      - rangers
+      - islanders
+      - devils
+      - flyers
+      - penguins
+      - capitals
+      - hurricanes
+      - blue jackets
+      - lightning
+      - panthers
+      - red wings
+      - senators
+      - sabres
+      - blackhawks
+      - wild
+      - predators
+      - blues
+      - jets
+      - stars
+      - avalanche
+      - flames
+      - oilers
+      - canucks
+      - kraken
+      - golden knights
+      - ducks
+      - sharks
+      - coyotes
+      - goalie
+      - goaltender
+      - save percentage
+      - hat trick
+      - power play
+      - penalty
+      - stanley cup
+    tools:
+      - get_nhl_schedule
+      - get_nhl_boxscore
+      - get_nhl_standings
+      - get_nhl_teams
+      - get_nhl_starting_goalies
+      - get_nhl_lines
+      - get_nhl_player_stats
+      - search_nhl_player
 
   # ═══════════════════════════════════════════════════════════════════════
   # SPORTS BETTING & LIVE ODDS
@@ -248,6 +496,10 @@ contracts:
       - stop_odds_backfill
       - get_backfill_status
       - get_edge_readout
+      - get_truth_edge_cards
+      - get_event_full_board
+      - get_market_relevant_news
+      - get_resolved_pm_markets
 
   # ═══════════════════════════════════════════════════════════════════════
   # STRIPE & PAYMENTS
@@ -330,6 +582,13 @@ contracts:
       - get_cloud_run_service_logs
       - list_error_groups
       - search_gcp_projects
+      - list_cloud_run_services
+      - get_cloud_run_service
+      - get_cloud_run_revision_logs
+      - deploy_cloud_run_file_contents
+      - get_cloud_run_iam_policy
+      - get_cloud_run_metrics
+      - list_cloud_scheduler_jobs
 
   # ═══════════════════════════════════════════════════════════════════════
   # GIT OPERATIONS
@@ -459,3 +718,71 @@ contracts:
       - execute_ddl
       - deploy_staged_mcp
       - forge_mcp_endpoint
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # ENGINEERING WORKSPACE
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: engineering-workspace
+    name: Engineering Workspace
+    keywords:
+      - file
+      - code
+      - read
+      - write
+      - edit
+      - grep
+      - search
+      - directory
+      - tsc
+      - test
+      - bash
+      - command
+      - shell
+      - execute
+      - git branch
+      - ops
+    tools:
+      - read_file
+      - write_file
+      - edit_file
+      - list_directory
+      - grep
+      - exec_command
+      - git_branch_ops
+      - run_tests
+      - run_tsc
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # KNOWLEDGE SYSTEM
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: knowledge-system
+    name: Knowledge System
+    keywords:
+      - knowledge
+      - memo
+      - standard
+      - guide
+      - doc
+      - best practice
+    tools:
+      - list_knowledge
+      - read_knowledge
+      - search_knowledge
+      - write_knowledge
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # TRUTH LEDGER
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: truth-ledger
+    name: Truth Operations Ledger
+    keywords:
+      - ledger
+      - operation
+      - undo
+      - history
+      - tracking
+      - rollback
+    tools:
+      - operation_ledger
+      - query_truth_ledger
+      - undo_operation

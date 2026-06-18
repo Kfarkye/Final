@@ -1,0 +1,492 @@
+/* ═══════════════════════════════════════════════════════════════
+   THE DRIP — Design System
+   ═══════════════════════════════════════════════════════════════
+   Single CSS file for all Drip pages. Extracted from:
+   - thedrip-source.html (Groups Overview)
+   - match-detail-fra-sen.html (Match Detail)
+   
+   Warm light theme. Inter + DM Sans. CSS-only animations.
+   NO external JS libraries (no GSAP, no jQuery).
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Reset ── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ── Tokens ── */
+:root {
+  --bg: #FAFAF8;
+  --surface: #FFFFFF;
+  --text-primary: #1A1A18;
+  --text-secondary: #5A5A56;
+  --text-tertiary: #9B9B91;
+  --border: rgba(0,0,0,0.06);
+  --border-hover: rgba(0,0,0,0.12);
+  --accent: #C85A3A;
+  --green: #2D8A4E;
+  --blue: #2563EB;
+  --serif: 'Inter', -apple-system, sans-serif;
+  --sans: 'DM Sans', -apple-system, sans-serif;
+}
+
+/* ── Base ── */
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--text-primary); font-family: var(--sans); line-height: 1.5; }
+
+/* ── Animation ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes staggerIn {
+  from { opacity: 0; transform: translateY(15px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYOUT: Header + Nav
+   ═══════════════════════════════════════════════════════════════ */
+.drip-header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(250,250,248,0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.drip-nav {
+  max-width: 1060px; margin: 0 auto;
+  padding: 14px 20px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.drip-nav-left {
+  display: flex; align-items: center; gap: 24px;
+}
+.drip-wordmark {
+  font-family: var(--serif); font-weight: 700;
+  font-size: 1.125rem; color: var(--text-primary);
+  text-decoration: none; letter-spacing: -0.03em;
+}
+.drip-nav-links { display: flex; gap: 2px; }
+.drip-nav-link {
+  font-family: var(--sans); font-size: .8125rem; font-weight: 600;
+  color: var(--text-tertiary); text-decoration: none;
+  padding: 6px 12px; border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.drip-nav-link:hover { color: var(--text-primary); background: rgba(0,0,0,0.03); }
+.drip-nav-link.active { color: var(--text-primary); }
+
+/* ── Breadcrumb ── */
+.drip-breadcrumb {
+  max-width: 1060px; margin: 0 auto;
+  padding: 10px 20px;
+  font-size: .75rem; color: var(--text-tertiary);
+}
+.drip-breadcrumb a { color: var(--text-secondary); text-decoration: none; }
+.drip-breadcrumb a:hover { color: var(--text-primary); }
+.drip-breadcrumb .sep { margin: 0 6px; }
+
+/* ── Group Nav (A–L letter strip) ── */
+.drip-group-nav {
+  max-width: 1060px; margin: 0 auto;
+  padding: 12px 20px;
+  display: flex; gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.drip-group-nav a {
+  font-family: var(--sans); font-size: 0.75rem; font-weight: 600;
+  color: var(--text-secondary); text-decoration: none;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface);
+  transition: all 0.12s ease;
+}
+.drip-group-nav a:hover {
+  color: var(--text-primary);
+  background: rgba(0,0,0,0.04);
+  border-color: var(--text-tertiary);
+}
+
+/* ── Footer ── */
+.drip-footer {
+  max-width: 1060px; margin: 0 auto;
+  padding: 20px; border-top: 1px solid var(--border);
+}
+.drip-footer p {
+  font-size: .6875rem; color: var(--text-tertiary);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYOUT: Page Containers
+   ═══════════════════════════════════════════════════════════════ */
+.drip-container {
+  max-width: 1060px; margin: 0 auto; padding: 0 20px;
+}
+
+/* ── Hero (Groups Overview) ── */
+.drip-hero {
+  max-width: 1060px; margin: 0 auto;
+  padding: 36px 20px 12px;
+}
+.drip-hero h1 {
+  font-family: var(--serif); font-size: 2.5rem;
+  font-weight: 700; line-height: 1.1;
+  letter-spacing: -0.03em; margin-bottom: 10px;
+}
+.drip-hero-sub {
+  font-size: 1rem; color: var(--text-secondary);
+}
+.drip-hero-meta {
+  display: flex; gap: 16px; margin-top: 16px;
+}
+.drip-hero-stat {
+  font-size: 0.75rem; color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.drip-hero-stat strong {
+  color: var(--text-primary); font-weight: 600;
+}
+
+/* ── Match Hero ── */
+.drip-match-hero {
+  max-width: 1060px; margin: 0 auto;
+  padding: 20px 20px 28px;
+  animation: fadeUp .5s ease both;
+}
+.drip-match-status-bar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+}
+
+/* ── Two-column layout (main + sidebar) ── */
+.drip-content-grid {
+  max-width: 1060px; margin: 0 auto;
+  padding: 0 20px 60px;
+  display: grid; grid-template-columns: 1fr 340px; gap: 24px;
+}
+@media (max-width: 800px) {
+  .drip-content-grid { grid-template-columns: 1fr; }
+  .drip-sidebar { order: -1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Badges
+   ═══════════════════════════════════════════════════════════════ */
+.drip-badge {
+  font-size: .625rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+  padding: 3px 10px; border-radius: 20px;
+  display: inline-flex; align-items: center;
+}
+.drip-badge-final { background: rgba(0,0,0,0.04); color: var(--text-secondary); }
+.drip-badge-live  { background: #FFF0ED; color: var(--accent); }
+.drip-badge-sharp {
+  font-size: .5rem;
+  background: rgba(200,90,58,0.08); color: var(--accent);
+  padding: 1px 5px; border-radius: 3px;
+  font-weight: 700; letter-spacing: .04em;
+  margin-left: 4px;
+}
+
+.drip-meta-tag {
+  font-size: .6875rem; color: var(--text-tertiary); font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Score Block (Match Hero)
+   ═══════════════════════════════════════════════════════════════ */
+.drip-score-block {
+  display: flex; align-items: center; justify-content: center;
+  gap: 24px; padding: 20px 0;
+}
+.drip-score-team {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 8px; min-width: 140px;
+}
+.drip-score-team-name {
+  font-family: var(--serif); font-size: 1.125rem;
+  font-weight: 700; letter-spacing: -0.02em; text-align: center;
+}
+.drip-score-team-detail {
+  font-size: .6875rem; color: var(--text-tertiary); text-align: center;
+}
+.drip-score-center { display: flex; align-items: center; gap: 12px; }
+.drip-score-num {
+  font-family: var(--serif); font-size: 3.5rem; font-weight: 800;
+  letter-spacing: -0.04em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.drip-score-num.winner { color: var(--text-primary); }
+.drip-score-num.loser  { color: var(--text-tertiary); }
+.drip-score-dash { font-size: 2rem; color: var(--text-tertiary); font-weight: 300; }
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Team Flag
+   ═══════════════════════════════════════════════════════════════ */
+.drip-flag {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #F4F4F2;
+  display: flex; align-items: center; justify-content: center;
+}
+.drip-flag img { object-fit: contain; }
+
+/* Small — group cards, inline (24×24) */
+.drip-flag-sm {
+  width: 24px; height: 24px; border-radius: 4px;
+}
+.drip-flag-sm img { width: 18px; height: 18px; }
+
+/* Large — match hero (72×72) */
+.drip-flag-lg {
+  width: 72px; height: 72px; border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+}
+.drip-flag-lg img { width: 52px; height: 52px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Cards
+   ═══════════════════════════════════════════════════════════════ */
+.drip-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+  transition: transform 0.2s cubic-bezier(0.4,0,0.2,1),
+              box-shadow 0.2s cubic-bezier(0.4,0,0.2,1),
+              border-color 0.2s ease;
+  animation: fadeUp .5s ease both;
+}
+.drip-card + .drip-card { margin-top: 16px; }
+.drip-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.06);
+  border-color: var(--border-hover);
+}
+/* Link card variant (e.g. group cards) */
+a.drip-card { text-decoration: none; color: inherit; }
+
+.drip-card-header {
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.drip-card-title {
+  font-family: var(--serif); font-size: 1rem;
+  font-weight: 700; letter-spacing: -0.02em;
+}
+.drip-card-subtitle {
+  font-size: .625rem; color: var(--text-tertiary);
+  font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+}
+.drip-card-body { padding: 16px 20px; }
+.drip-card-footer {
+  padding: 10px 20px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+/* Group card (14px radius variant for overview page) */
+.drip-group-card { border-radius: 14px; }
+.drip-group-card .drip-card-header {
+  padding: 16px 20px 12px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Group Card — Team Row
+   ═══════════════════════════════════════════════════════════════ */
+.drip-group-teams { padding: 4px 0; }
+.drip-team-row {
+  padding: 10px 20px;
+  display: grid;
+  grid-template-columns: 28px 1fr auto auto;
+  gap: 10px; align-items: center;
+}
+.drip-team-row:not(:last-child) {
+  border-bottom: 1px solid rgba(232,231,227,0.5);
+}
+.drip-team-name {
+  font-size: 0.875rem; font-weight: 600; color: var(--text-primary);
+}
+.drip-team-rank {
+  font-size: 0.6875rem; color: var(--text-tertiary);
+  text-align: right; min-width: 28px;
+  font-variant-numeric: tabular-nums;
+}
+.drip-team-odds {
+  font-size: 0.8125rem; font-weight: 600;
+  color: var(--text-primary); text-align: right; min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.drip-team-odds.fav { font-weight: 700; }
+
+/* Group card meta (footer) */
+.drip-group-meta {
+  font-size: 0.625rem; color: var(--text-tertiary);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+/* Group letter */
+.drip-group-letter {
+  font-family: var(--serif); font-size: 1.5rem;
+  font-weight: 700; color: var(--text-primary); line-height: 1;
+}
+.drip-group-host {
+  font-size: 0.5625rem; font-weight: 600;
+  color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Odds Table
+   ═══════════════════════════════════════════════════════════════ */
+.drip-odds-table { width: 100%; border-collapse: collapse; }
+.drip-odds-table thead th {
+  font-size: .5625rem; font-weight: 600;
+  color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: .05em; padding: 6px 8px;
+  text-align: center; border-bottom: 1px solid var(--border);
+}
+.drip-odds-table thead th:first-child { text-align: left; }
+.drip-odds-table tbody td {
+  font-size: .8125rem; padding: 8px; text-align: center;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid rgba(0,0,0,0.03);
+}
+.drip-odds-table tbody td:first-child {
+  text-align: left; font-weight: 600; font-size: .75rem;
+}
+.drip-odds-table tbody tr.sharp {
+  background: rgba(200,90,58,0.03);
+}
+.drip-odds-table tbody tr.sharp td:first-child {
+  color: var(--accent); font-weight: 700;
+}
+.drip-odds-fav  { color: var(--green); font-weight: 600; }
+.drip-odds-dog  { color: var(--accent); font-weight: 600; }
+.drip-odds-draw { color: var(--text-secondary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Group Mini Table (sidebar)
+   ═══════════════════════════════════════════════════════════════ */
+.drip-mini-table { width: 100%; border-collapse: collapse; }
+.drip-mini-table thead th {
+  font-size: .5625rem; font-weight: 600;
+  color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: .05em; padding: 4px 6px; text-align: center;
+}
+.drip-mini-table thead th:first-child { text-align: left; }
+.drip-mini-table tbody td {
+  font-size: .8125rem; padding: 6px; text-align: center;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid rgba(0,0,0,0.03);
+}
+.drip-mini-table tbody td:first-child { text-align: left; font-weight: 600; }
+.drip-mini-table tbody tr.highlighted {
+  background: rgba(200,90,58,0.04);
+}
+.drip-mini-table tbody tr.highlighted td:first-child {
+  color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Devig Grid (fair probability)
+   ═══════════════════════════════════════════════════════════════ */
+.drip-devig-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px; text-align: center;
+}
+.drip-devig-label {
+  font-size: .5625rem; font-weight: 600;
+  color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 4px;
+}
+.drip-devig-value {
+  font-size: 1.5rem; font-weight: 800;
+  font-family: var(--serif); letter-spacing: -0.03em;
+}
+.drip-devig-odds {
+  font-size: .75rem; color: var(--text-secondary); margin-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: H2H History
+   ═══════════════════════════════════════════════════════════════ */
+.drip-h2h-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.03);
+  font-size: .8125rem;
+}
+.drip-h2h-row:last-child { border-bottom: none; }
+.drip-h2h-date {
+  color: var(--text-tertiary); font-size: .6875rem; min-width: 80px;
+}
+.drip-h2h-tournament {
+  color: var(--text-secondary); font-size: .6875rem;
+  flex: 1; text-align: center;
+}
+.drip-h2h-result {
+  font-weight: 700; font-variant-numeric: tabular-nums;
+  min-width: 60px; text-align: right;
+}
+.drip-h2h-summary {
+  display: flex; gap: 16px; padding: 12px 0 4px;
+  border-top: 1px solid var(--border); margin-top: 8px;
+}
+.drip-h2h-stat { text-align: center; flex: 1; }
+.drip-h2h-stat-value {
+  font-size: 1.25rem; font-weight: 800; font-family: var(--serif);
+}
+.drip-h2h-stat-label {
+  font-size: .5625rem; color: var(--text-tertiary);
+  text-transform: uppercase; font-weight: 600; letter-spacing: .04em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS: Venue / Detail Items
+   ═══════════════════════════════════════════════════════════════ */
+.drip-detail-item { padding: 10px 0; }
+.drip-detail-item:not(:last-child) {
+  border-bottom: 1px solid rgba(0,0,0,0.03);
+}
+.drip-detail-label {
+  font-size: .5625rem; font-weight: 600;
+  color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 2px;
+}
+.drip-detail-value { font-size: .875rem; font-weight: 600; }
+.drip-detail-value.highlight { color: var(--accent); }
+.drip-detail-value.blue { color: var(--blue); }
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYOUT: Groups Grid (3-col → 2-col → 1-col)
+   ═══════════════════════════════════════════════════════════════ */
+.drip-groups-container {
+  max-width: 1060px; margin: 0 auto; padding: 20px 20px 60px;
+}
+.drip-groups-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .drip-groups-grid { grid-template-columns: repeat(2, 1fr); }
+  .drip-hero h1 { font-size: 2rem; }
+}
+@media (max-width: 600px) {
+  .drip-groups-grid { grid-template-columns: 1fr; }
+  .drip-hero h1 { font-size: 1.75rem; }
+  .drip-hero-meta { flex-direction: column; gap: 6px; }
+  .drip-score-num { font-size: 2.5rem; }
+  .drip-score-block { gap: 16px; }
+  .drip-score-team { min-width: 100px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+.text-accent { color: var(--accent); }
+.text-green  { color: var(--green); }
+.text-blue   { color: var(--blue); }

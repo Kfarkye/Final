@@ -58,7 +58,7 @@ const executeGenericTask = async <T>(task: () => Promise<T>): Promise<T> => awai
 export function getCircuitBreaker(name: string): CircuitBreaker {
   if (!breakers.has(name)) {
     const breaker = new CircuitBreaker(executeGenericTask, {
-      timeout: 15000,               // If operation takes > 15s (including retries), count as failure
+      timeout: 45000,               // If operation takes > 45s (including retries), count as failure
       errorThresholdPercentage: 50, // Trip the breaker if 50% of requests fail
       resetTimeout: 30000,          // Wait 30s before attempting a probe request
     });

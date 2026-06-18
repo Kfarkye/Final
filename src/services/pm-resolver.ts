@@ -1,21 +1,10 @@
 import { Spanner } from "@google-cloud/spanner";
 import { env } from "../config/env";
-import { getTeamNickname } from "../workers/odds-backfill-worker";
+import { teamFromAbbr, getTeamAliases, normalizeTeamString, MLB_TEAMS } from "../utils/mlb-teams";
 import { logger } from "../utils/logger";
 import { randomUUID } from "crypto";
-
-const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
-
-export interface RawMarketPayload {
-  platform: 'kalshi' | 'polymarket';
-  marketId: string;
-  title: string;
-  subtitle?: string;
-  rulesText?: string;
-  outcomesJson: any; // array or object of outcomes
-  closeTimeUtc?: string;
-  rawJson: any;
-}
+import { edgeDb } from "../db/spanner";
+import { RawMarketPayload } from "../types/pm.types";
 
 /**
  * Step 1: Validation Gate (Failure Mode #1)
@@ -27,19 +16,153 @@ export function containsTemplateVariables(text: string): boolean {
   return templateRegex.test(text) || placeholderRegex.test(text);
 }
 
+// ── Kalshi-specific parsers ─────────────────────────────────────────
+
+/** Extract spread subject from title: "A's wins by over 3.5 runs?" → "A's" */
+function extractSpreadSubject(title: string): string | null {
+  const match = title.match(/^(.+?)\s+wins?\s+by\s+/i);
+  return match ? match[1].trim() : null;
+}
+
 /**
- * Normalizes a team name/nickname into a standardized key.
+ * Extract spread line + direction from title.
+ * "wins by over 3.5 runs"  → { line: 3.5, comparator: "over" }
+ * "wins by under 2 runs"   → { line: 2,   comparator: "under" }
+ * "wins by 3 or more runs" → { line: 3,   comparator: "over" }
  */
-function normalizeTeamString(name: string): string {
-  return name.toLowerCase().replace(/[\.\-']/g, '').replace(/baseball|team|club/gi, '').trim();
+function extractSpreadFromTitle(title: string): { line: number; comparator: string } | null {
+  // over/under N runs
+  let m = title.match(/\b(over|under)\s+(\d+(?:\.\d+)?)\s+runs?\b/i);
+  if (m) return { line: Number(m[2]), comparator: m[1].toLowerCase() };
+  // "N or more runs" / "N+ runs" → treat as over
+  m = title.match(/\b(\d+(?:\.\d+)?)\s*(?:\+|or\s+more)\s+runs?\b/i);
+  if (m) return { line: Number(m[1]), comparator: "over" };
+  // bare "by N runs" → exact-margin, default over
+  m = title.match(/\bby\s+(\d+(?:\.\d+)?)\s+runs?\b/i);
+  if (m) return { line: Number(m[1]), comparator: "over" };
+  return null;
+}
+
+/**
+ * Extract total line + direction.
+ * Prefers ticker (e.g. KXMLBTOTAL-...-8 → 8) but falls back to title.
+ * "Over 8.5 total runs" → { line: 8.5, comparator: "over" }
+ */
+function extractTotalFromMarket(marketId: string, title: string): { line: number; comparator: string } | null {
+  const compMatch = title.match(/\b(over|under)\b/i);
+  const comparator = compMatch ? compMatch[1].toLowerCase() : "over";
+
+  // ticker suffix: a bare number after the final dash
+  const tickerMatch = marketId.match(/-(\d+(?:\.\d+)?)$/);
+  if (tickerMatch) return { line: Number(tickerMatch[1]), comparator };
+
+  // title: "over/under N runs" or "total ... N"
+  let m = title.match(/\b(?:over|under)\s+(\d+(?:\.\d+)?)\b/i);
+  if (m) return { line: Number(m[1]), comparator };
+  m = title.match(/\btotal\b[^0-9]*(\d+(?:\.\d+)?)/i);
+  if (m) return { line: Number(m[1]), comparator };
+  return null;
+}
+
+/** Extract moneyline team abbr from ticker: KXMLBGAME-...-BOS → "BOS" */
+function extractTeamFromTicker(ticker: string): string | null {
+  const match = ticker.match(/-([A-Z]+)\d*$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Non-Kalshi spread: extract signed line near a team, not just the first number.
+ * "Yankees -1.5 vs Red Sox +1.5" → { line: -1.5, comparator: "spread" }
+ * Picks the FIRST signed number but only when adjacent to "run line"/"spread"/whitespace,
+ * avoiding years/team-number noise.
+ */
+function extractSpreadLineGeneric(text: string): number | null {
+  // signed number with optional decimal, must be a standalone token
+  const m = text.match(/(?:^|\s)([-+]\d+(?:\.\d+)?)(?=\s|$)/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Non-Kalshi total: only grab a number in over/under/total context. */
+function extractTotalLineGeneric(text: string): number | null {
+  const m = text.match(/\b(?:over|under|total)\b[^0-9]*(\d+(?:\.\d+)?)/i);
+  return m ? Number(m[1]) : null;
+}
+/**
+ * Parse game date from Kalshi ticker middle segment.
+ * "26JUN172140PITATH" → "2026-06-17"
+ * Format: YY + MON(3-letter) + DD + HHMM + TEAMS
+ */
+function parseGameDateFromTicker(tickerMiddle: string): string | null {
+  const MONTHS: Record<string, string> = {
+    JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
+    JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12'
+  };
+  const m = tickerMiddle.match(/^(\d{2})([A-Z]{3})(\d{2})/);
+  if (!m) return null;
+  const [, yy, mon, dd] = m;
+  const mm = MONTHS[mon];
+  if (!mm) return null;
+  return `20${yy}-${mm}-${dd}`;
+}
+
+/**
+ * Parse team abbreviations from Kalshi ticker.
+ * Uses the per-market suffix (e.g. "-PIT") as the primary single-team key,
+ * and extracts both teams from the event-level middle segment by matching
+ * known abbreviations against the teams blob — avoiding the variable-length
+ * bisection problem (SDTEX = SD+TEX, not SDT+EX).
+ */
+function parseTickerTeams(marketId: string): { awayAbbr: string | null; homeAbbr: string | null; singleTeamAbbr: string | null } {
+  const segments = marketId.split('-');
+  // Per-market suffix: KXMLBGAME-...-BOS → "BOS"
+  const singleTeamAbbr = segments.length >= 3 ? segments[segments.length - 1].replace(/\d+$/, '') : null;
+
+  if (segments.length < 2) return { awayAbbr: null, homeAbbr: null, singleTeamAbbr };
+
+  // Extract teams blob from middle segment: "26JUN172140PITATH" → "PITATH"
+  const middle = segments[1];
+  const teamsBlob = middle.replace(/^\d{2}[A-Z]{3}\d{6}/, ''); // strip "26JUN172140"
+
+  // Try all known abbreviations against the blob, longest-first to avoid partial matches
+  const allAbbrs = Array.from(
+    new Set(MLB_TEAMS.flatMap(t => t.abbr))
+  ).sort((a, b) => b.length - a.length);
+
+  let awayAbbr: string | null = null;
+  let homeAbbr: string | null = null;
+
+  // Away team is first in the blob, home team second
+  for (const abbr of allAbbrs) {
+    if (teamsBlob.startsWith(abbr)) {
+      awayAbbr = abbr;
+      const remainder = teamsBlob.substring(abbr.length);
+      for (const abbr2 of allAbbrs) {
+        if (remainder === abbr2) {
+          homeAbbr = abbr2;
+          break;
+        }
+      }
+      if (homeAbbr) break;
+      // If no match for remainder, reset and try next prefix
+      awayAbbr = null;
+    }
+  }
+
+  return { awayAbbr, homeAbbr, singleTeamAbbr };
 }
 
 /**
  * Resolver Service for Prediction Markets
  */
 export class PmResolver {
+  private static dbInstance = edgeDb;
+
+  public static _setTestDatabase(db: any) {
+    this.dbInstance = db;
+  }
+
   private static getDatabase() {
-    return spanner.instance("clearspace").database("sports-mlb-db");
+    return this.dbInstance;
   }
 
   public static async quarantineMarket(
@@ -99,72 +222,171 @@ export class PmResolver {
       logger.error({ msg: "Failed to write raw market tick", error: err.message });
     }
 
-    // --- STEP 2: EVENT RESOLUTION ---
-    // Fetch all active/recent MLB games from Spanner (+/- 2 days window around close time)
-    const targetDate = closeTimeUtc ? new Date(closeTimeUtc) : new Date();
-    const dateStart = new Date(targetDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const dateEnd = new Date(targetDate.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    let games: any[] = [];
-    try {
-      const [rows] = await db.run({
-        sql: `
-          SELECT EventId, HomeTeamName, AwayTeamName, GameDate, StartTime
-          FROM MlbGames
-          WHERE GameDate >= @dateStart AND GameDate <= @dateEnd
-        `,
-        params: { dateStart, dateEnd }
-      });
-      games = rows.map((r: any) => r.toJSON());
-    } catch (err: any) {
-      logger.error({ msg: "Failed to fetch games for resolver", error: err.message });
-      await this.quarantineMarket(platform, marketId, title, "database_error", err.message);
-      return { status: 'quarantined', count: 0 };
-    }
-
-    // Match title teams against games list
-    let matchedGame: any = null;
-    let matchReason = "";
-
+    // --- STEP 1B: OUTRIGHT / FUTURES DETECTION ---
     const titleNormalized = normalizeTeamString(title + " " + subtitle);
+    const outrightKeywords = ["champion", "to win", "outright", "awards"];
+    // "winner" is excluded: Kalshi binary moneylines use "Winner?" in titles
+    // (e.g. "Toronto vs Boston Winner?") which are NOT outrights.
+    
+    const outcomes = Array.isArray(outcomesJson) ? outcomesJson : (outcomesJson?.outcomes || outcomesJson?.tokens || []);
+    const isPlayerProp = titleNormalized.includes("hit a home run") || titleNormalized.includes("home run") || titleNormalized.includes("strikeouts") || titleNormalized.includes("hit") || titleNormalized.includes("hr");
 
-    for (const game of games) {
-      const homeNick = getTeamNickname(game.HomeTeamName);
-      const awayNick = getTeamNickname(game.AwayTeamName);
-      const homeNickNorm = normalizeTeamString(homeNick);
-      const awayNickNorm = normalizeTeamString(awayNick);
-      const homeTeamNorm = normalizeTeamString(game.HomeTeamName);
-      const awayTeamNorm = normalizeTeamString(game.AwayTeamName);
+    const hasOutrightKeyword = outrightKeywords.some(keyword => titleNormalized.includes(keyword));
+    // Only treat "winner" as outright if outcomes > 2 (true multi-way market, not binary Yes/No)
+    const hasWinnerWithMultiOutcome = titleNormalized.includes("winner") && outcomes.length > 2;
+    const isMultiOutcomeNonProp = outcomes.length > 3 && !isPlayerProp;
+    const tokensAreYesNo = outcomes.length === 2 && outcomes.some((o: any) => {
+      const n = (o.name || o.title || o.label || "").toLowerCase();
+      return n === "yes" || n === "no";
+    });
+    const isOutright = (hasOutrightKeyword || hasWinnerWithMultiOutcome || isMultiOutcomeNonProp) && !tokensAreYesNo;
 
-      // Check if both teams in the game are mentioned in the title/subtitle
-      const homeMatches = titleNormalized.includes(homeNickNorm) || titleNormalized.includes(homeTeamNorm);
-      const awayMatches = titleNormalized.includes(awayNickNorm) || titleNormalized.includes(awayTeamNorm);
+    let matchedGame: any = null;
+    let isForcedOutrightType = false;
 
-      if (homeMatches && awayMatches) {
-        if (matchedGame) {
-          // Ambiguous: matched more than one game
-          await this.quarantineMarket(platform, marketId, title, "ambiguous_event", `Matched EventIds: ${matchedGame.EventId} and ${game.EventId}`);
-          return { status: 'quarantined', count: 0 };
+    if (isOutright) {
+      // Bypass H2H lookup and create a tournament slug
+      const slug = (title + " " + subtitle).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      matchedGame = { EventId: slug, League: "TOURNAMENT" };
+      isForcedOutrightType = true;
+    } else {
+      // --- STEP 2: EVENT RESOLUTION ---
+      // Fetch all active/recent MLB games from Spanner (+/- 2 days window around close time)
+      let targetDate = closeTimeUtc ? new Date(closeTimeUtc) : new Date();
+
+      if (platform === 'kalshi') {
+        const segments = marketId.split('-');
+        if (segments.length >= 2) {
+          const dateMatchPart = segments[1];
+          const dateStrMatch = dateMatchPart.match(/^(\d{2})([A-Z]{3})(\d{2})/);
+          if (dateStrMatch) {
+            const [ , yy, mon, dd ] = dateStrMatch;
+            const months: Record<string, string> = { "JAN":"01", "FEB":"02", "MAR":"03", "APR":"04", "MAY":"05", "JUN":"06", "JUL":"07", "AUG":"08", "SEP":"09", "OCT":"10", "NOV":"11", "DEC":"12" };
+            if (months[mon]) {
+              const fullYear = "20" + yy;
+              const isoDateStr = `${fullYear}-${months[mon]}-${dd}T12:00:00Z`;
+              targetDate = new Date(isoDateStr);
+            }
+          }
         }
-        matchedGame = game;
       }
-    }
 
-    if (!matchedGame) {
-      await this.quarantineMarket(platform, marketId, title, "no_event_match", "Could not resolve title to any game in MlbGames schedule window");
-      return { status: 'quarantined', count: 0 };
+      const dateStart = new Date(targetDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const dateEnd = new Date(targetDate.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      let games: any[] = [];
+      const tags = payload.rawJson?.eventTags || [];
+      const isSoccerTag = tags.some((t: any) => (t.label || "").toLowerCase() === "soccer" || (t.slug || "").toLowerCase() === "soccer");
+      const isMlbTag = tags.some((t: any) => (t.label || "").toLowerCase() === "mlb" || (t.slug || "").toLowerCase() === "mlb" || (t.label || "").toLowerCase() === "baseball");
+      const forceSoccer = isSoccerTag || payload.rawJson?.league === 'soccer';
+      const forceMlb = isMlbTag || payload.rawJson?.league === 'mlb';
+
+      if (!forceSoccer) {
+        try {
+          const [rows] = await db.run({
+            sql: `
+              SELECT EventId, HomeTeamName, AwayTeamName, GameDate, StartTime, 'MLB' as League
+              FROM MlbGames
+              WHERE GameDate >= @dateStart AND GameDate <= @dateEnd
+            `,
+            params: { dateStart, dateEnd }
+          });
+          games.push(...rows.map((r: any) => r.toJSON()));
+        } catch (err: any) {
+          logger.error({ msg: "Failed to fetch MlbGames for resolver", error: err.message });
+        }
+      }
+
+      if (!forceMlb && games.length === 0) {
+        try {
+          const [rows] = await db.run({
+            sql: `
+              SELECT EventId, HomeTeamName, AwayTeamName, GameDate, StartTime, 'SOCCER' as League
+              FROM SoccerGames
+              WHERE GameDate >= @dateStart AND GameDate <= @dateEnd
+            `,
+            params: { dateStart, dateEnd }
+          });
+          games.push(...rows.map((r: any) => r.toJSON()));
+        } catch (err: any) {
+          logger.error({ msg: "Failed to fetch SoccerGames for resolver", error: err.message });
+        }
+      }
+
+      if (games.length === 0) {
+        await this.quarantineMarket(platform, marketId, title, "database_error_or_no_games", "Could not fetch games or no games scheduled in window");
+        return { status: 'quarantined', count: 0 };
+      }
+
+      // Match title teams against games list
+      let matchReason = "";
+
+      for (const game of games) {
+        // Step 1: Attempt ticker-based match for Kalshi
+        if (platform === 'kalshi') {
+          const { awayAbbr, homeAbbr } = parseTickerTeams(marketId);
+          if (awayAbbr && homeAbbr) {
+            const awayTeamObj = teamFromAbbr(awayAbbr);
+            const homeTeamObj = teamFromAbbr(homeAbbr);
+
+            if (!awayTeamObj || !homeTeamObj) {
+              // Dictionary gap — NOT a no_event_match. Tag it distinctly.
+              await this.quarantineMarket(
+                platform, marketId, title,
+                "unmapped_ticker_abbr",
+                `away=${awayAbbr}(${awayTeamObj ? "ok" : "MISS"}) home=${homeAbbr}(${homeTeamObj ? "ok" : "MISS"})`
+              );
+              return { status: 'quarantined', count: 0 };
+            }
+              
+            // Match game teams against ticker teams using aliases (handles "Athletics" vs "Oakland Athletics")
+            const homeGameNorm = normalizeTeamString(game.HomeTeamName);
+            const awayGameNorm = normalizeTeamString(game.AwayTeamName);
+            const homeTickerAliases = getTeamAliases(homeTeamObj.fullName);
+            const awayTickerAliases = getTeamAliases(awayTeamObj.fullName);
+
+            const homeMatch = homeTickerAliases.some(a => homeGameNorm === a || homeGameNorm.includes(a));
+            const awayMatch = awayTickerAliases.some(a => awayGameNorm === a || awayGameNorm.includes(a));
+
+            if (homeMatch && awayMatch) {
+              matchedGame = game;
+              break;
+            }
+          }
+        }
+        // Step 2: Fallback to title alias matching
+        if (!matchedGame) {
+          const homeAliases = getTeamAliases(game.HomeTeamName);
+          const awayAliases = getTeamAliases(game.AwayTeamName);
+
+          const homeMatches = homeAliases.some(a => titleNormalized.includes(a));
+          const awayMatches = awayAliases.some(a => titleNormalized.includes(a));
+
+          if (homeMatches && awayMatches) {
+            if (matchedGame) {
+              // Ambiguous: matched more than one game
+              await this.quarantineMarket(platform, marketId, title, "ambiguous_event", `Matched EventIds: ${matchedGame.EventId} and ${game.EventId}`);
+              return { status: 'quarantined', count: 0 };
+            }
+            matchedGame = game;
+          }
+        }
+      }
+
+      if (!matchedGame) {
+        await this.quarantineMarket(platform, marketId, title, "no_event_match", "Could not resolve title to any game in scheduled window");
+        return { status: 'quarantined', count: 0 };
+      }
     }
 
     // --- STEP 3: GROUPING / EXPLOSION (Failure Mode #2) ---
     // If outcomes list is an array of size > 2 with separate player entries, or structured as props
-    const isPlayerProp = titleNormalized.includes("hit a home run") || titleNormalized.includes("home run") || titleNormalized.includes("strikeouts") || titleNormalized.includes("hit") || titleNormalized.includes("hr");
-    const outcomes = Array.isArray(outcomesJson) ? outcomesJson : (outcomesJson?.outcomes || outcomesJson?.tokens || []);
 
     const resolvedLegs: any[] = [];
     const groupId = payload.rawJson?.eventId || payload.rawJson?.group_ticker || marketId;
 
-    if (isPlayerProp && outcomes.length > 2) {
-      // Explode grouped props (e.g. Player A, Player B to hit HR)
+    if ((isPlayerProp && outcomes.length > 2) || isForcedOutrightType) {
+      // Explode grouped props (e.g. Player A, Player B to hit HR) or outright futures
       let legIndex = 0;
       for (const token of outcomes) {
         const tokenName = token.name || token.title || "";
@@ -180,11 +402,11 @@ export class PmResolver {
           Platform: platform,
           MarketId: marketId,
           CanonicalEventId: matchedGame.EventId,
-          League: "MLB",
-          MarketType: "player_prop",
+          League: matchedGame.League,
+          MarketType: isForcedOutrightType ? "outright_future" : "player_prop",
           Subject: tokenName,
-          SubjectKind: "player",
-          Line: 0.5, // Default for anytime hits/HRs
+          SubjectKind: isForcedOutrightType ? "team" : "player",
+          Line: 0.5, // Default for anytime hits/HRs or outrights
           Comparator: "yes",
           HomeAwayContext: "unknown", // Derived later if rosters joined
           YesProb: yesProb,
@@ -197,49 +419,91 @@ export class PmResolver {
       }
     } else {
       // Standard binary outcome (Moneyline, spread, total)
-      // Determine Market Type
-      let marketType = "moneyline";
+      let marketType = isForcedOutrightType ? "outright_future" : "moneyline";
       let line = 0;
       let comparator = "yes";
       let subject = "yes";
       let subjectKind = "team";
 
-      if (titleNormalized.includes("run line") || titleNormalized.includes("spread") || titleNormalized.includes("win by")) {
-        marketType = "spread";
-      } else if (titleNormalized.includes("total runs") || titleNormalized.includes("over/under") || titleNormalized.includes("total")) {
-        marketType = "total";
+      if (platform === "kalshi" && payload.rawJson?.eventDetails?.series_ticker) {
+        const st = payload.rawJson.eventDetails.series_ticker;
+        if (st.includes("KXMLBGAME")) {
+          marketType = "moneyline";
+          subject = extractTeamFromTicker(marketId) ?? subject;
+          comparator = "win";
+        } else if (st.includes("KXMLBSPREAD")) {
+          marketType = "spread";
+          subject = extractSpreadSubject(title) ?? subject;
+          const sp = extractSpreadFromTitle(title);
+          if (sp) { line = sp.line; comparator = sp.comparator; }
+        } else if (st.includes("KXMLBTOTAL")) {
+          marketType = "total";
+          const tot = extractTotalFromMarket(marketId, title);
+          if (tot) { line = tot.line; comparator = tot.comparator; }
+        }
+      } else if (!isForcedOutrightType) {
+        if (titleNormalized.includes("run line") || titleNormalized.includes("spread") ||
+            titleNormalized.includes("win by") || subtitle.match(/[-+]\d+\.\d+/)) {
+          marketType = "spread";
+          const l = extractSpreadLineGeneric(title) ?? extractSpreadLineGeneric(subtitle);
+          if (l !== null) line = l;
+          comparator = "spread";
+        } else if (titleNormalized.includes("total runs") || titleNormalized.includes("over/under") ||
+                   titleNormalized.includes("total") || subtitle.toLowerCase().includes("over")) {
+          marketType = "total";
+          const l = extractTotalLineGeneric(title) ?? extractTotalLineGeneric(subtitle);
+          if (l !== null) line = l;
+          const compMatch = (title + " " + subtitle).match(/\b(over|under)\b/i);
+          comparator = compMatch ? compMatch[1].toLowerCase() : "over";
+        }
       }
 
-      // Populate bids/asks from YES token or outcome list
-      let yesProb = 0.5;
-      let bestBid = 0.5;
-      let bestAsk = 0.5;
-      let depth = 0;
+      // Populate bids/asks using the SAME normalized `outcomes` array used elsewhere.
+      let yesProb = 0.5, bestBid = 0.5, bestAsk = 0.5, depth = 0;
+      let pricesFound = false;
 
-      if (Array.isArray(outcomesJson)) {
-        const yesToken = outcomesJson.find((o: any) => (o.name || "").toLowerCase() === "yes" || (o.label || "").toLowerCase() === "yes");
-        if (yesToken) {
-          yesProb = yesToken.price !== undefined ? parseFloat(yesToken.price) : (yesToken.probability || 0.5);
-          bestBid = yesToken.best_bid !== undefined ? parseFloat(yesToken.best_bid) : yesProb;
-          bestAsk = yesToken.best_ask !== undefined ? parseFloat(yesToken.best_ask) : yesProb;
-          depth = yesToken.depth !== undefined ? parseFloat(yesToken.depth) : 0;
-        } else if (outcomesJson.length === 2) {
-          // e.g. outcome[0] is home, outcome[1] is away
-          // For simplicity, we treat the first outcome as the primary resolved leg
-          const primary = outcomesJson[0];
-          yesProb = primary.price !== undefined ? parseFloat(primary.price) : (primary.probability || 0.5);
-          bestBid = primary.best_bid !== undefined ? parseFloat(primary.best_bid) : yesProb;
-          bestAsk = primary.best_ask !== undefined ? parseFloat(primary.best_ask) : yesProb;
-          depth = primary.depth !== undefined ? parseFloat(primary.depth) : 0;
-          subject = primary.name || primary.title || "home";
+      const pickNum = (v: any, fallback: number) =>
+        v !== undefined && v !== null && !Number.isNaN(parseFloat(v)) ? parseFloat(v) : fallback;
+
+      if (Array.isArray(outcomes) && outcomes.length > 0) {
+        const yesToken = outcomes.find((o: any) =>
+          (o.name || o.label || o.title || "").toLowerCase() === "yes");
+
+        const token = yesToken ?? (outcomes.length === 2 ? outcomes[0] : null);
+
+        if (token) {
+          yesProb = pickNum(token.price, pickNum(token.probability, 0.5));
+          bestBid = pickNum(token.best_bid, yesProb);
+          bestAsk = pickNum(token.best_ask, yesProb);
+          depth   = pickNum(token.depth, 0);
+          pricesFound = true;
+
+          // Subject inference for non-Kalshi binary markets
+          if (subject === "yes") {
+            if (platform !== "kalshi" && subtitle) {
+              subject = subtitle;
+            } else if (!yesToken) {
+              subject = token.name || token.title || "home";
+            }
+          }
         }
+      }
+
+      // Don't silently emit a fabricated 50/50 leg.
+      if (!pricesFound) {
+        await this.quarantineMarket(
+          platform, marketId, title,
+          "no_priced_outcome",
+          `Could not locate a priced YES/primary token. outcomes.length=${Array.isArray(outcomes) ? outcomes.length : "n/a"}`
+        );
+        return { status: 'quarantined', count: 0 };
       }
 
       resolvedLegs.push({
         Platform: platform,
         MarketId: marketId,
         CanonicalEventId: matchedGame.EventId,
-        League: "MLB",
+        League: matchedGame.League,
         MarketType: marketType,
         Subject: subject,
         SubjectKind: subjectKind,
@@ -285,17 +549,37 @@ export class PmResolver {
               marketType: leg.MarketType,
               subject: leg.Subject,
               subjectKind: leg.SubjectKind,
-              line: leg.Line,
+              line: Spanner.float(leg.Line ?? 0.0),
               comparator: leg.Comparator,
               homeAwayContext: leg.HomeAwayContext,
-              yesProb: leg.YesProb,
-              bestBid: leg.BestBid,
-              bestAsk: leg.BestAsk,
-              depthUsd: leg.DepthUsd,
+              yesProb: leg.YesProb !== null && leg.YesProb !== undefined ? Spanner.float(leg.YesProb) : null,
+              bestBid: leg.BestBid !== null && leg.BestBid !== undefined ? Spanner.float(leg.BestBid) : null,
+              bestAsk: leg.BestAsk !== null && leg.BestAsk !== undefined ? Spanner.float(leg.BestAsk) : null,
+              depthUsd: leg.DepthUsd !== null && leg.DepthUsd !== undefined ? Spanner.float(leg.DepthUsd) : null,
               groupId: leg.GroupId,
               legIndex: leg.LegIndex,
               resolvedAt: resolvedAt,
               resolverVersion: '1.1.0'
+            },
+            types: {
+              platform: "string",
+              marketId: "string",
+              canonicalEventId: "string",
+              league: "string",
+              marketType: "string",
+              subject: "string",
+              subjectKind: "string",
+              line: "float64",
+              comparator: "string",
+              homeAwayContext: "string",
+              yesProb: "float64",
+              bestBid: "float64",
+              bestAsk: "float64",
+              depthUsd: "float64",
+              groupId: "string",
+              legIndex: "int64",
+              resolvedAt: "timestamp",
+              resolverVersion: "string"
             }
           });
         }

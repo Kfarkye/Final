@@ -17,6 +17,7 @@
 
 import { Spanner } from '@google-cloud/spanner';
 import { env } from '../config/env.js';
+import { getTeamNickname } from '../utils/mlb-teams.js';
 
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 const DEFAULT_BOOKMAKERS = 'draftkings,fanduel,betmgm,caesars,circasports,pinnacle,betonlineag,betus,bovada';
@@ -35,18 +36,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): P
     clearTimeout(timeoutId);
   });
 }
-
-export function getTeamNickname(name: string): string {
-  const normalized = name.toLowerCase().replace(/[\.\-']/g, '').trim();
-  if (normalized.endsWith('red sox')) return 'redsox';
-  if (normalized.endsWith('white sox')) return 'whitesox';
-  if (normalized.endsWith('blue jays')) return 'bluejays';
-  if (normalized.includes('dbacks') || normalized.includes('diamondbacks') || normalized.includes('d-backs')) return 'diamondbacks';
-
-  const parts = normalized.split(/\s+/);
-  return parts[parts.length - 1] || normalized;
-}
-
 export function findMatchingGame(
   event: { home_team: string; away_team: string; commence_time: string },
   games: any[]

@@ -1,0 +1,7 @@
+{
+  "title": "Platform Knowledge",
+  "summary": "Durable technical knowledge about the Reverie/Truth platform: Spanner schema, parser rules, deployment patterns, and infrastructure notes.",
+  "freshnessClass": "static",
+  "tags": ["platform", "infrastructure", "spanner", "parser"],
+  "references": []
+}

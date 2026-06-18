@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026 World Cup Groups — Schedule, Odds & Teams | The Drip</title>
+<meta name="description" content="All 12 groups for the 2026 FIFA World Cup. 48 teams, group winner odds, FIFA rankings, and schedule. June 11 – July 19.">
+<link rel="canonical" href="https://thedrip.to/">
+<meta property="og:title" content="2026 World Cup Groups — Schedule, Odds & Teams | The Drip">
+<meta property="og:description" content="All 12 groups for the 2026 FIFA World Cup. 48 teams, group winner odds, FIFA rankings, and schedule.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://thedrip.to/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="2026 World Cup Groups — Schedule, Odds & Teams | The Drip">
+<meta name="twitter:description" content="All 12 groups for the 2026 FIFA World Cup. 48 teams, group winner odds, FIFA rankings, and schedule.">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #FAFAF8;
+    --surface: #FFFFFF;
+    --text-primary: #1A1A18;
+    --text-secondary: #5A5A56;
+    --text-tertiary: #9B9B91;
+    --border: rgba(0,0,0,0.06); --border-hover: rgba(0,0,0,0.12);
+    --accent: #C85A3A;
+    --serif: 'Inter', -apple-system, sans-serif;
+    --sans: 'DM Sans', -apple-system, sans-serif;
+    --mono: 'DM Sans', -apple-system, sans-serif; --mono-nums: tabular-nums;
+  }
+
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body { background: var(--bg); color: var(--text-primary); font-family: var(--sans); line-height: 1.5; }
+
+  header { position: sticky; top: 0; z-index: 100; background: rgba(250,250,248,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+  nav { max-width: 1060px; margin: 0 auto; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .nav-left { display: flex; align-items: center; gap: 24px; }
+  .wordmark { font-family: var(--serif); font-weight: 700; font-size: 1.125rem; color: var(--text-primary); text-decoration: none; }
+  .nav-links { display: flex; gap: 6px; }
+  .nav-link { font-family: var(--sans); font-size: 0.8125rem; font-weight: 600; color: var(--text-tertiary); text-decoration: none; padding: 4px 10px; }
+  .nav-link:hover { color: var(--text-primary); }
+  .nav-link.active { color: var(--text-primary); }
+
+  .group-nav { max-width: 1060px; margin: 0 auto; padding: 12px 20px; display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+  .group-nav a { font-family: var(--mono); font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); text-decoration: none; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); transition: all 0.12s ease; }
+  .group-nav a:hover { color: var(--text-primary); background: rgba(0,0,0,0.04); border-color: var(--text-tertiary); }
+
+  .hero { max-width: 1060px; margin: 0 auto; padding: 36px 20px 12px; }
+  .hero h1 { font-family: var(--serif); font-size: 2.5rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; margin-bottom: 10px; }
+  .hero-sub { font-family: var(--sans); font-size: 1rem; color: var(--text-secondary); margin-bottom: 0; }
+  .hero-meta { display: flex; gap: 16px; margin-top: 16px; }
+  .hero-stat { font-family: var(--mono); font-size: 0.75rem; color: var(--text-tertiary); }
+  .hero-stat strong { color: var(--text-primary); font-weight: 600; }
+
+  .groups-container { max-width: 1060px; margin: 0 auto; padding: 20px 20px 60px; }
+  .groups-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+  .group-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; text-decoration: none; color: inherit; transition: border-color 0.15s ease; }
+  .group-card:hover { border-color: var(--text-tertiary); }
+  .group-card-header { padding: 16px 20px 12px; display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--border); }
+  .group-letter { font-family: var(--serif); font-size: 1.5rem; font-weight: 700; color: var(--text-primary); line-height: 1; }
+  .group-host { font-family: var(--mono); font-size: 0.5625rem; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .group-teams { padding: 4px 0; }
+  .group-team-row { padding: 10px 20px; display: grid; grid-template-columns: 28px 1fr auto auto; gap: 10px; align-items: center; }
+  .group-team-row:not(:last-child) { border-bottom: 1px solid rgba(232,231,227,0.5); }
+  .gt-flag { width: 24px; height: 24px; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); background: #F4F4F2; display: flex; align-items: center; justify-content: center; }
+  .gt-flag img { width: 18px; height: 18px; object-fit: contain; }
+  .gt-name { font-family: var(--sans); font-size: 0.875rem; font-weight: 600; color: var(--text-primary); }
+  .gt-rank { font-family: var(--mono); font-size: 0.6875rem; color: var(--text-tertiary); text-align: right; min-width: 28px; }
+  .gt-odds { font-family: var(--mono); font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); text-align: right; min-width: 52px; }
+  .gt-odds.fav { font-weight: 700; }
+
+  .group-card-footer { padding: 10px 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .gcf-matches { font-family: var(--mono); font-size: 0.625rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .gcf-dates { font-family: var(--mono); font-size: 0.625rem; color: var(--text-tertiary); }
+
+  .page-footer { max-width: 1060px; margin: 0 auto; padding: 0 20px 40px; border-top: 1px solid var(--border); padding-top: 20px; }
+  .page-footer p { font-family: var(--mono); font-size: 0.6875rem; color: var(--text-secondary); }
+
+  @media (max-width: 900px) { .groups-grid { grid-template-columns: repeat(2, 1fr); } .hero h1 { font-size: 2rem; } }
+  @media (max-width: 600px) { .groups-grid { grid-template-columns: 1fr; } .hero h1 { font-size: 1.75rem; } .hero-meta { flex-direction: column; gap: 6px; } }
+  [style*="font-family"] { font-variant-numeric: tabular-nums; }
+
+  /* --- PREMIUM DESIGN OVERRIDES --- */
+  .hero h1, .section-header, .group-letter, .wordmark { letter-spacing: -0.03em; }
+  .group-card, .fixture-card, .sidebar-card, .gw-card, .venue-card {
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
+  }
+  .group-card:hover, .fixture-card:hover, a.gw-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+    border-color: var(--border-hover) !important;
+  }
+  
+  /* Bespoke FAQ Chevron */
+  .faq-icon::before, .faq-icon::after { display: none !important; }
+  .faq-icon {
+    width: 20px !important; height: 20px !important; border: none !important; background: transparent !important;
+    background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="none" stroke="%239B9B91" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>') !important;
+    background-repeat: no-repeat !important; background-position: center !important; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+  .faq-q[aria-expanded="true"] .faq-icon {
+    transform: rotate(-180deg) !important;
+    background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="none" stroke="%23C85A3A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>') !important;
+  }
+  
+  /* Layout fix for sidebar */
+  @media (min-width: 769px) { .page-layout { gap: 60px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <nav>
+    <div class="nav-left">
+      <a href="/" class="wordmark">The Drip</a>
+      <div class="nav-links">
+        <a href="/" class="nav-link active">World Cup 2026</a>
+      </div>
+    </div>
+  </nav>
+</header>
+
+<div class="group-nav">
+  <a href="#A">A</a><a href="#B">B</a><a href="#C">C</a><a href="#D">D</a>
+  <a href="#E">E</a><a href="#F">F</a><a href="#G">G</a><a href="#H">H</a>
+  <a href="#I">I</a><a href="#J">J</a><a href="#K">K</a><a href="#L">L</a>
+</div>
+
+<div class="hero">
+  <h1>World Cup 2026</h1>
+  <p class="hero-sub">48 teams. 12 groups. 104 matches across the US, Mexico, and Canada.</p>
+  <div class="hero-meta">
+    <span class="hero-stat"><strong>June 11</strong> – July 19, 2026</span>
+    <span class="hero-stat"><strong>16</strong> venues</span>
+    <span class="hero-stat"><strong>3</strong> host nations</span>
+  </div>
+</div>
+
+<div class="groups-container">
+  <div class="groups-grid">
+
+    <a href="/group/a/" class="group-card" id="A">
+      <div class="group-card-header"><span class="group-letter">A</span><span class="group-host">Host: Mexico</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/mex.png" alt="Mexico"></div><span class="gt-name">Mexico</span><span class="gt-rank">#15</span><span class="gt-odds fav">-200</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/kor.png" alt="South Korea"></div><span class="gt-name">South Korea</span><span class="gt-rank">#22</span><span class="gt-odds">+350</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/rsa.png" alt="South Africa"></div><span class="gt-name">South Africa</span><span class="gt-rank">#58</span><span class="gt-odds">+800</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/cze.png" alt="Czechia"></div><span class="gt-name">Czechia</span><span class="gt-rank">#36</span><span class="gt-odds">+500</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 11 – 26</span></div>
+    </a>
+
+    <a href="/group/b/" class="group-card" id="B">
+      <div class="group-card-header"><span class="group-letter">B</span><span class="group-host">Host: Canada</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/sui.png" alt="Switzerland"></div><span class="gt-name">Switzerland</span><span class="gt-rank">#19</span><span class="gt-odds fav">-110</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/can.png" alt="Canada"></div><span class="gt-name">Canada</span><span class="gt-rank">#38</span><span class="gt-odds">+250</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/qat.png" alt="Qatar"></div><span class="gt-name">Qatar</span><span class="gt-rank">#41</span><span class="gt-odds">+600</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/bih.png" alt="Bosnia"></div><span class="gt-name">Bosnia & Herz.</span><span class="gt-rank">#52</span><span class="gt-odds">+700</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 12 – 26</span></div>
+    </a>
+
+    <a href="/group/c/" class="group-card" id="C">
+      <div class="group-card-header"><span class="group-letter">C</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/bra.png" alt="Brazil"></div><span class="gt-name">Brazil</span><span class="gt-rank">#5</span><span class="gt-odds fav">-300</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/mar.png" alt="Morocco"></div><span class="gt-name">Morocco</span><span class="gt-rank">#14</span><span class="gt-odds">+400</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/sco.png" alt="Scotland"></div><span class="gt-name">Scotland</span><span class="gt-rank">#42</span><span class="gt-odds">+1000</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/hai.png" alt="Haiti"></div><span class="gt-name">Haiti</span><span class="gt-rank">#87</span><span class="gt-odds">+5000</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 13 – 27</span></div>
+    </a>
+
+    <a href="/group/d/" class="group-card" id="D">
+      <div class="group-card-header"><span class="group-letter">D</span><span class="group-host">Host: USA</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/usa.png" alt="USA"></div><span class="gt-name">United States</span><span class="gt-rank">#16</span><span class="gt-odds fav">-150</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/tur.png" alt="Türkiye"></div><span class="gt-name">Türkiye</span><span class="gt-rank">#28</span><span class="gt-odds">+300</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/par.png" alt="Paraguay"></div><span class="gt-name">Paraguay</span><span class="gt-rank">#50</span><span class="gt-odds">+800</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/aus.png" alt="Australia"></div><span class="gt-name">Australia</span><span class="gt-rank">#24</span><span class="gt-odds">+600</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 12 – 26</span></div>
+    </a>
+
+    <a href="/group/e/" class="group-card" id="E">
+      <div class="group-card-header"><span class="group-letter">E</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/ger.png" alt="Germany"></div><span class="gt-name">Germany</span><span class="gt-rank">#11</span><span class="gt-odds fav">-250</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/ecu.png" alt="Ecuador"></div><span class="gt-name">Ecuador</span><span class="gt-rank">#30</span><span class="gt-odds">+400</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/civ.png" alt="Ivory Coast"></div><span class="gt-name">Ivory Coast</span><span class="gt-rank">#39</span><span class="gt-odds">+600</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/cur.png" alt="Curaçao"></div><span class="gt-name">Curaçao</span><span class="gt-rank">#109</span><span class="gt-odds">+8000</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 13 – 27</span></div>
+    </a>
+
+    <a href="/group/f/" class="group-card" id="F">
+      <div class="group-card-header"><span class="group-letter">F</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/ned.png" alt="Netherlands"></div><span class="gt-name">Netherlands</span><span class="gt-rank">#7</span><span class="gt-odds fav">-120</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/jpn.png" alt="Japan"></div><span class="gt-name">Japan</span><span class="gt-rank">#13</span><span class="gt-odds">+200</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/tun.png" alt="Tunisia"></div><span class="gt-name">Tunisia</span><span class="gt-rank">#34</span><span class="gt-odds">+800</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/swe.png" alt="Sweden"></div><span class="gt-name">Sweden</span><span class="gt-rank">#48</span><span class="gt-odds">+900</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 14 – 27</span></div>
+    </a>
+
+    <a href="/group/g/" class="group-card" id="G">
+      <div class="group-card-header"><span class="group-letter">G</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/bel.png" alt="Belgium"></div><span class="gt-name">Belgium</span><span class="gt-rank">#6</span><span class="gt-odds fav">-200</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/egy.png" alt="Egypt"></div><span class="gt-name">Egypt</span><span class="gt-rank">#33</span><span class="gt-odds">+500</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/irn.png" alt="Iran"></div><span class="gt-name">Iran</span><span class="gt-rank">#20</span><span class="gt-odds">+400</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/nzl.png" alt="New Zealand"></div><span class="gt-name">New Zealand</span><span class="gt-rank">#93</span><span class="gt-odds">+3000</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 14 – 27</span></div>
+    </a>
+
+    <a href="/group/h/" class="group-card" id="H">
+      <div class="group-card-header"><span class="group-letter">H</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/esp.png" alt="Spain"></div><span class="gt-name">Spain</span><span class="gt-rank">#2</span><span class="gt-odds fav">-400</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/uru.png" alt="Uruguay"></div><span class="gt-name">Uruguay</span><span class="gt-rank">#12</span><span class="gt-odds">+300</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/ksa.png" alt="Saudi Arabia"></div><span class="gt-name">Saudi Arabia</span><span class="gt-rank">#56</span><span class="gt-odds">+1200</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/cpv.png" alt="Cape Verde"></div><span class="gt-name">Cape Verde</span><span class="gt-rank">#68</span><span class="gt-odds">+2500</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 15 – 26</span></div>
+    </a>
+
+    <a href="/group/i/" class="group-card" id="I">
+      <div class="group-card-header"><span class="group-letter">I</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/fra.png" alt="France"></div><span class="gt-name">France</span><span class="gt-rank">#2</span><span class="gt-odds fav">-500</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/sen.png" alt="Senegal"></div><span class="gt-name">Senegal</span><span class="gt-rank">#21</span><span class="gt-odds">+500</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/nor.png" alt="Norway"></div><span class="gt-name">Norway</span><span class="gt-rank">#46</span><span class="gt-odds">+800</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/irq.png" alt="Iraq"></div><span class="gt-name">Iraq</span><span class="gt-rank">#55</span><span class="gt-odds">+3000</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 16 – 27</span></div>
+    </a>
+
+    <a href="/group/j/" class="group-card" id="J">
+      <div class="group-card-header"><span class="group-letter">J</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/arg.png" alt="Argentina"></div><span class="gt-name">Argentina</span><span class="gt-rank">#1</span><span class="gt-odds fav">-600</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/aut.png" alt="Austria"></div><span class="gt-name">Austria</span><span class="gt-rank">#25</span><span class="gt-odds">+600</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/alg.png" alt="Algeria"></div><span class="gt-name">Algeria</span><span class="gt-rank">#31</span><span class="gt-odds">+800</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/jor.png" alt="Jordan"></div><span class="gt-name">Jordan</span><span class="gt-rank">#62</span><span class="gt-odds">+5000</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 16 – 27</span></div>
+    </a>
+
+    <a href="/group/k/" class="group-card" id="K">
+      <div class="group-card-header"><span class="group-letter">K</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/por.png" alt="Portugal"></div><span class="gt-name">Portugal</span><span class="gt-rank">#4</span><span class="gt-odds fav">-350</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/col.png" alt="Colombia"></div><span class="gt-name">Colombia</span><span class="gt-rank">#10</span><span class="gt-odds">+350</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/uzb.png" alt="Uzbekistan"></div><span class="gt-name">Uzbekistan</span><span class="gt-rank">#53</span><span class="gt-odds">+2000</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/pan.png" alt="Panama"></div><span class="gt-name">Panama</span><span class="gt-rank">#43</span><span class="gt-odds">+2500</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 14 – 27</span></div>
+    </a>
+
+    <a href="/group/l/" class="group-card" id="L">
+      <div class="group-card-header"><span class="group-letter">L</span></div>
+      <div class="group-teams">
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/eng.png" alt="England"></div><span class="gt-name">England</span><span class="gt-rank">#8</span><span class="gt-odds fav">-300</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/cro.png" alt="Croatia"></div><span class="gt-name">Croatia</span><span class="gt-rank">#9</span><span class="gt-odds">+350</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/gha.png" alt="Ghana"></div><span class="gt-name">Ghana</span><span class="gt-rank">#65</span><span class="gt-odds">+1500</span></div>
+        <div class="group-team-row"><div class="gt-flag"><img src="https://a.espncdn.com/i/teamlogos/countries/500/pan.png" alt="Panama"></div><span class="gt-name">Panama</span><span class="gt-rank">#43</span><span class="gt-odds">+2500</span></div>
+      </div>
+      <div class="group-card-footer"><span class="gcf-matches">6 matches</span><span class="gcf-dates">Jun 14 – 27</span></div>
+    </a>
+
+  </div>
+</div>
+
+<footer class="page-footer">
+  <p>Group winner odds from DraftKings. Updated April 1, 2026.</p>
+</footer>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": "2026 World Cup Groups — Schedule, Odds & Teams",
+  "url": "https://thedrip.to/",
+  "description": "All 12 groups for the 2026 FIFA World Cup. 48 teams, group winner odds, FIFA rankings, and schedule.",
+  "mainEntity": {
+    "@type": "SportsEvent",
+    "name": "2026 FIFA World Cup",
+    "startDate": "2026-06-11",
+    "endDate": "2026-07-19",
+    "location": [
+      {"@type": "Place", "name": "United States"},
+      {"@type": "Place", "name": "Mexico"},
+      {"@type": "Place", "name": "Canada"}
+    ]
+  }
+}
+</script>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    gsap.from(".group-card, .gw-card, .fixture-card, .venue-card", {
+      y: 15,
+      opacity: 0,
+      duration: 0.6,
+      stagger: 0.04,
+      ease: "power2.out",
+      clearProps: "all"
+    });
+  });
+</script>
+</body>
+</html>

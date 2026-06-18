@@ -1,0 +1,22 @@
+{
+  "name": "Truth Intelligence",
+  "short_name": "Truth",
+  "description": "AI-powered sports intelligence agent",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/truth-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/truth-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

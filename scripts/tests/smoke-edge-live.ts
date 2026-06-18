@@ -1,6 +1,6 @@
 import { Spanner } from "@google-cloud/spanner";
-import { env } from "../src/config/env";
-import { EdgeEngine, assertLiveEdgeSource, assertNoPlaceholderLeak } from "../src/services/edge-engine";
+import { env } from "../../src/config/env";
+import { EdgeEngine, assertLiveEdgeSource, assertNoPlaceholderLeak } from "../../src/services/edge-engine";
 
 const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
 const db = spanner.instance("clearspace").database("sports-mlb-db");
@@ -73,6 +73,12 @@ async function main() {
 
     const anchorType = state.fairLineResult?.anchorSelection?.type || "no_anchor";
     console.log(`- Anchor used: ${anchorType} (${state.fairLineResult?.anchorSelection?.label || "none"})`);
+
+    if (!pinnaclePresent) {
+      console.log(`Pinnacle absent for selected game; fallback used: ${anchorType}`);
+    } else {
+      console.log(`Pinnacle is present; anchor used: ${anchorType}`);
+    }
 
     const sourceMeta = state.sourceMeta || [];
     console.log(`- Number of sourceMeta entries: ${sourceMeta.length}`);

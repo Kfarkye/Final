@@ -19,13 +19,13 @@
   
   --color-truth-navy: #0B0F19;
   --color-truth-slateDark: #161F30;
-  --color-truth-accentCyan: #06b6d4;
-  --color-truth-accentPurple: #a855f7;
+  --color-truth-accentCyan: #94a3b8;
+  --color-truth-accentPurple: #94a3b8;
 
   /* Shadcn / Tailwind UI Generic variables mapped to Truth palette */
-  --color-background: #0B0F19;
+  --color-background: #000000;
   --color-muted: #131825;
-  --color-primary: #06b6d4;
+  --color-primary: #ffffff;
   --color-primary-foreground: #ffffff;
   --color-muted-foreground: #94a3b8;
   --color-border: rgba(255, 255, 255, 0.08);
@@ -128,3 +128,15 @@ body {
   font-size: 1em;
   border-radius: 0;
 }
+
+/* Mobile Chat Animations */
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Scrollbar hide */
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+

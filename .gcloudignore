@@ -1,0 +1,16 @@
+# This file specifies files that are NOT uploaded to Google Cloud Build.
+# Without this file, gcloud uploads EVERYTHING including node_modules (841MB+).
+
+node_modules/
+dist/
+.git/
+.github/
+.env
+.env.local
+.env.example
+.DS_Store
+*.log
+.pytest_cache/
+aura/
+scripts/test-*.ts
+scripts/check-*.ts

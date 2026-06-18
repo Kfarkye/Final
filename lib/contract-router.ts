@@ -1,7 +1,7 @@
 /**
- * TRUTH PLATFORM — Contract-Based Tool Router (Antigravity Pattern)
+ * TRUTH PLATFORM — Contract-Based Tool Router (Truth Pattern)
  * 
- * Architecture mirrors Antigravity's lazy-loading MCP pattern:
+ * Architecture mirrors Truth's lazy-loading MCP pattern:
  * 
  * 1. ALWAYS-ON tools get native function declarations (full schemas)
  *    → core + spanner = 7 tools
@@ -36,6 +36,7 @@ interface Contract {
   keywords?: string[];
   tools: string[];
   prefetch?: PrefetchSpec[];
+  system_prompt_file?: string;
 }
 
 interface ContractsFile {
@@ -77,7 +78,7 @@ try {
 }
 
 // ============================================================================
-// Router — Antigravity Meta-Tool Pattern
+// Router — Truth Meta-Tool Pattern
 // ============================================================================
 
 /**
@@ -109,13 +110,14 @@ export function getCatalogOnlyToolNames(): string[] {
 
 /**
  * Generates the text catalog to inject into the system prompt.
- * Lists all non-always-on tools with name + description so the LLM
- * knows what's available via `call_tool`.
+ * When matchedToolNames is provided, ONLY those tools appear in the catalog.
+ * This prevents the LLM from seeing 166 irrelevant tools per request.
  */
 export function generateToolCatalog(
-  allSchemas: Record<string, { name: string; description: string }>
+  allSchemas: Record<string, { name: string; description: string }>,
+  matchedToolNames?: string[]
 ): string {
-  const catalogTools = getCatalogOnlyToolNames();
+  const catalogTools = matchedToolNames || getCatalogOnlyToolNames();
   
   if (catalogTools.length === 0) return '';
 
@@ -153,6 +155,7 @@ export function resolveContracts(
   toolNames: string[];
   matchedContracts: string[];
   prefetch: PrefetchSpec[];
+  domainContext?: string;
   stats: { totalAvailable: number; selected: number; reduction: string };
 } {
   const lower = prompt.toLowerCase();
@@ -193,10 +196,26 @@ export function resolveContracts(
     .filter(c => c.prefetch && c.prefetch.length > 0)
     .flatMap(c => c.prefetch!);
 
+  // Load domain-specific system prompt content from matched contracts
+  const domainContext = matched
+    .filter(c => c.system_prompt_file)
+    .map(c => {
+      try {
+        const filePath = path.join(getDirname(), '..', 'config', 'contracts', c.system_prompt_file!);
+        return fs.readFileSync(filePath, 'utf8');
+      } catch (err: any) {
+        console.warn(`[ContractRouter] Failed to load system_prompt_file for ${c.id}: ${err.message}`);
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .join('\n\n');
+
   return {
     toolNames,
     matchedContracts: matched.map(c => c.id),
     prefetch,
+    domainContext: domainContext || undefined,
     stats: {
       totalAvailable,
       selected: toolNames.length,

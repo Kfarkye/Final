@@ -15,7 +15,9 @@ const MCP_ENDPOINTS = {
   logging: "https://logging.googleapis.com/mcp",
   errorReporting: "https://clouderrorreporting.googleapis.com/mcp",
   resourceManager: "https://cloudresourcemanager.googleapis.com/mcp",
+  cloudRun: "https://run.googleapis.com/mcp",
 } as const;
+
 
 const projectId = env.GCP_PROJECT;
 
@@ -199,7 +201,7 @@ export const gcpTools: RegisteredTool<any>[] = [
       // Build a Cloud Logging filter for the specific Cloud Run service
       const filter = `resource.type="cloud_run_revision" AND resource.labels.service_name="${args.serviceName}"${args.severity ? ` AND severity>=${args.severity}` : ''}`;
       return callGcpMcpTool(MCP_ENDPOINTS.logging, "list_log_entries", {
-        ...withProject(args),
+        projectId: args.projectId || projectId,
         filter,
         pageSize: args.pageSize || 20,
         orderBy: "timestamp desc"
@@ -306,6 +308,243 @@ export const gcpTools: RegisteredTool<any>[] = [
       }
 
       return await res.json();
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  CLOUD RUN TOOLS — Service Deployment & Management
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "list_cloud_run_services",
+      description: "List all Cloud Run services in the project. Defaults to us-central1.",
+      schema: z.object({
+        project: z.string().optional(),
+        region: z.string().default("us-central1")
+      })
+    },
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.cloudRun, "list_services", {
+      project: args.project || projectId,
+      region: args.region || "us-central1"
+    })
+  },
+  {
+    definition: {
+      name: "get_cloud_run_service",
+      description: "Get detailed information about a specific Cloud Run service including URL, last deployer, and revision.",
+      schema: z.object({
+        service: z.string().min(1, "Service name is required"),
+        project: z.string().optional(),
+        region: z.string().default("us-central1")
+      })
+    },
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.cloudRun, "get_service", {
+      service: args.service,
+      project: args.project || projectId,
+      region: args.region
+    })
+  },
+  {
+    definition: {
+      name: "deploy_cloud_run_file_contents",
+      description: "Deploy file contents directly to a Cloud Run service. Useful for deploying HTML dashboards, single-file apps, or lightweight services. For full app deployments, use gcloud CLI instead.",
+      schema: z.object({
+        service: z.string().min(1, "Service name is required"),
+        project: z.string().optional(),
+        region: z.string().default("us-central1"),
+        files: z.record(z.string(), z.string()).describe("Map of filename to file content, e.g. { 'index.html': '<html>...', 'server.js': '...' }")
+      })
+    },
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.cloudRun, "deploy_file_contents", {
+      service: args.service,
+      project: args.project || projectId,
+      region: args.region,
+      files: args.files
+    })
+  },
+  {
+    definition: {
+      name: "get_cloud_run_revision_logs",
+      description: "Get recent logs from a Cloud Run service revision. Useful for debugging deployment failures or runtime errors.",
+      schema: z.object({
+        service: z.string().min(1, "Service name is required"),
+        project: z.string().optional(),
+        region: z.string().default("us-central1"),
+        limit: z.number().default(50)
+      })
+    },
+    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.cloudRun, "get_service_log", {
+      service: args.service,
+      project: args.project || projectId,
+      region: args.region,
+      limit: args.limit
+    })
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  CLOUD SCHEDULER TOOLS — Deterministic cron trigger inspection
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "list_cloud_scheduler_jobs",
+      description:
+        "List all Cloud Scheduler jobs in the project. Returns job name, schedule (cron), " +
+        "state (ENABLED/PAUSED/DISABLED), target type (HTTP/Pub/Sub), last attempt time, " +
+        "and last attempt status. Use this to verify if a cron trigger exists for a Cloud Run " +
+        "service or to diagnose why a scheduled pipeline stopped running.",
+      schema: z.object({
+        region: z.string().default("us-central1").describe("Location/region"),
+        projectId: z.string().optional()
+      })
+    },
+    handler: async (args) => {
+      const { GoogleAuth } = await import("google-auth-library");
+      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+      const proj = args.projectId || projectId;
+      const region = args.region || "us-central1";
+
+      const res = await fetch(
+        `https://cloudscheduler.googleapis.com/v1/projects/${proj}/locations/${region}/jobs`,
+        { headers: { Authorization: `Bearer ${token.token}` } }
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        return { error: `Cloud Scheduler API ${res.status}: ${errText}` };
+      }
+      const data = await res.json() as any;
+      const jobs = (data.jobs || []).map((j: any) => ({
+        name: j.name?.split("/").pop(),
+        fullName: j.name,
+        schedule: j.schedule,
+        timeZone: j.timeZone,
+        state: j.state,
+        targetType: j.httpTarget ? "HTTP" : j.pubsubTarget ? "Pub/Sub" : "App Engine",
+        targetUri: j.httpTarget?.uri || j.pubsubTarget?.topicName || null,
+        lastAttemptTime: j.lastAttemptTime || null,
+        scheduleTime: j.scheduleTime || null,
+        status: j.status?.code === 0 ? "OK" : j.status ? `ERROR(${j.status.code}): ${j.status.message}` : "NEVER_RUN"
+      }));
+      return { project: proj, region, jobCount: jobs.length, jobs };
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  IAM POLICY TOOLS — Service account binding verification
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_cloud_run_iam_policy",
+      description:
+        "Get the IAM policy for a Cloud Run service. Shows which principals have " +
+        "roles/run.invoker and other bindings. Critical for diagnosing silent 403 failures " +
+        "when Cloud Scheduler or Pub/Sub tries to invoke a Cloud Run service.",
+      schema: z.object({
+        service: z.string().min(1, "Service name is required"),
+        region: z.string().default("us-central1"),
+        projectId: z.string().optional()
+      })
+    },
+    handler: async (args) => {
+      const { GoogleAuth } = await import("google-auth-library");
+      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+      const proj = args.projectId || projectId;
+
+      const res = await fetch(
+        `https://run.googleapis.com/v2/projects/${proj}/locations/${args.region}/services/${args.service}:getIamPolicy`,
+        { headers: { Authorization: `Bearer ${token.token}` } }
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        return { error: `IAM Policy API ${res.status}: ${errText}` };
+      }
+      const policy = await res.json() as any;
+      const bindings = (policy.bindings || []).map((b: any) => ({
+        role: b.role,
+        members: b.members
+      }));
+      return {
+        service: args.service,
+        region: args.region,
+        bindingCount: bindings.length,
+        bindings,
+        hasAllUsersInvoker: bindings.some(
+          (b: any) => b.role === "roles/run.invoker" && b.members?.includes("allUsers")
+        ),
+        invokerMembers: bindings.find((b: any) => b.role === "roles/run.invoker")?.members || []
+      };
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  CLOUD MONITORING — Aggregated metrics (request counts, error rates)
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_cloud_run_metrics",
+      description:
+        "Query Cloud Monitoring time-series for a Cloud Run service. Returns aggregated " +
+        "request counts by response code class (2xx/4xx/5xx) over a configurable window. " +
+        "Use this to determine the EXACT minute a service stopped receiving traffic or started " +
+        "returning errors — far more reliable than log sampling.",
+      schema: z.object({
+        service: z.string().min(1, "Service name is required"),
+        metric: z.enum([
+          "request_count",
+          "request_latencies",
+          "instance_count",
+          "billable_instance_time"
+        ]).default("request_count").describe("Metric type"),
+        windowMinutes: z.number().default(60).describe("Lookback window in minutes (max 1440)"),
+        projectId: z.string().optional()
+      })
+    },
+    handler: async (args) => {
+      const { GoogleAuth } = await import("google-auth-library");
+      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/monitoring.read"] });
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+      const proj = args.projectId || projectId;
+
+      const metricType = `run.googleapis.com/${args.metric}`;
+      const now = new Date();
+      const start = new Date(now.getTime() - (args.windowMinutes || 60) * 60_000);
+
+      const filter = encodeURIComponent(
+        `metric.type="${metricType}" AND resource.type="cloud_run_revision" AND resource.labels.service_name="${args.service}"`
+      );
+      const interval = `interval.startTime=${start.toISOString()}&interval.endTime=${now.toISOString()}`;
+      const aggregation = `aggregation.alignmentPeriod=${Math.max(60, Math.floor((args.windowMinutes || 60) * 60 / 20))}s&aggregation.perSeriesAligner=ALIGN_SUM&aggregation.crossSeriesReducer=REDUCE_SUM&aggregation.groupByFields=metric.labels.response_code_class`;
+
+      const url = `https://monitoring.googleapis.com/v3/projects/${proj}/timeSeries?filter=${filter}&${interval}&${aggregation}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token.token}` }
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return { error: `Monitoring API ${res.status}: ${errText}` };
+      }
+
+      const data = await res.json() as any;
+      const series = (data.timeSeries || []).map((ts: any) => ({
+        responseCodeClass: ts.metric?.labels?.response_code_class || "unknown",
+        points: (ts.points || []).map((p: any) => ({
+          time: p.interval?.endTime,
+          value: p.value?.int64Value || p.value?.doubleValue || 0
+        }))
+      }));
+
+      return {
+        service: args.service,
+        metric: args.metric,
+        windowMinutes: args.windowMinutes,
+        seriesCount: series.length,
+        series
+      };
     }
   }
 ];
