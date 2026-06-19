@@ -46,7 +46,7 @@ const TOOL_LINGER_MS = 800;
 const COPY_FEEDBACK_MS = 2000;
 const HISTORY_WINDOW = 40;
 const API_ENDPOINT = '/api/truth/chat';
-const CONNECTION_TIMEOUT_MS = 120_000;
+const IDLE_TIMEOUT_MS = 30_000;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -220,6 +220,9 @@ function useChat(config: ChatConfig = {}) {
   } = config;
 
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
+  const msgsRef = useRef(msgs);
+  useEffect(() => { msgsRef.current = msgs; }, [msgs]);
+
   const [busy, setBusy] = useState(false);
   const [tools, setTools] = useState<ToolRun[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
@@ -231,36 +234,39 @@ function useChat(config: ChatConfig = {}) {
   const flushRafRef = useRef<number | undefined>(undefined);
   const toolCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
+  // ── Flush buffer → state (sync) ──
+  const flushNow = useCallback(() => {
+    const id = activeIdRef.current;
+    const chunk = streamBufferRef.current;
+    if (!id || !chunk) return;
+    streamBufferRef.current = '';
+    setMsgs(prev => {
+      const idx = prev.findIndex(m => m.id === id);
+      if (idx === -1) return prev;
+      const msg = prev[idx];
+      const newContent = (msg.content + chunk).slice(0, MAX_CONTENT_LENGTH);
+      if (newContent === msg.content) return prev;
+
+      // Append to last text segment or create new one
+      const segs = [...msg.segments];
+      const lastSeg = segs[segs.length - 1];
+      if (lastSeg?.kind === 'text') {
+        segs[segs.length - 1] = { ...lastSeg, content: lastSeg.content + chunk };
+      } else {
+        segs.push({ kind: 'text', content: chunk });
+      }
+
+      const next = [...prev];
+      next[idx] = { ...msg, content: newContent, segments: segs };
+      return next;
+    });
+  }, []);
+
   // ── Flush buffer → state (rAF-throttled) ──
   const flushBuffer = useCallback(() => {
     if (flushRafRef.current) cancelAnimationFrame(flushRafRef.current);
-    flushRafRef.current = requestAnimationFrame(() => {
-      const id = activeIdRef.current;
-      const chunk = streamBufferRef.current;
-      if (!id || !chunk) return;
-      streamBufferRef.current = '';
-      setMsgs(prev => {
-        const idx = prev.findIndex(m => m.id === id);
-        if (idx === -1) return prev;
-        const msg = prev[idx];
-        const newContent = (msg.content + chunk).slice(0, MAX_CONTENT_LENGTH);
-        if (newContent === msg.content) return prev;
-
-        // Append to last text segment or create new one
-        const segs = [...msg.segments];
-        const lastSeg = segs[segs.length - 1];
-        if (lastSeg?.kind === 'text') {
-          segs[segs.length - 1] = { ...lastSeg, content: lastSeg.content + chunk };
-        } else {
-          segs.push({ kind: 'text', content: chunk });
-        }
-
-        const next = [...prev];
-        next[idx] = { ...msg, content: newContent, segments: segs };
-        return next;
-      });
-    });
-  }, []);
+    flushRafRef.current = requestAnimationFrame(flushNow);
+  }, [flushNow]);
 
   // ── Tool cleanup — remove lingered tools ──
   const scheduleToolCleanup = useCallback((toolId: string) => {
@@ -298,25 +304,30 @@ function useChat(config: ChatConfig = {}) {
       }
       case 'tool_start': {
         const name = typeof d.tool === 'string' ? d.tool : '';
+        const id = typeof d.id === 'string' ? d.id : crypto.randomUUID();
         if (!name) break;
-        const id = `${name}-${Date.now()}`;
         setTools(prev => [...prev, { id, name, state: 'active', start: Date.now() }]);
         break;
       }
       case 'tool_result': {
         const name = typeof d.tool === 'string' ? d.tool : '';
-        if (!name) break;
+        const id = typeof d.id === 'string' ? d.id : null;
+        if (!name && !id) break;
+        let toolIdToCleanup: string | null = null;
         setTools(prev => {
-          const idx = prev.findIndex(t => t.name === name && t.state === 'active');
+          const idx = id 
+            ? prev.findIndex(t => t.id === id) 
+            : prev.findIndex(t => t.name === name && t.state === 'active');
           if (idx === -1) return prev;
           const updated = [...prev];
-          const toolId = updated[idx].id;
+          toolIdToCleanup = updated[idx].id;
           updated[idx] = { ...updated[idx], state: 'done', end: Date.now() };
-          setTimeout(() => scheduleToolCleanup(toolId), 0);
           return updated;
         });
+        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
+
         // Inject card segment into the stream — preserves interleaving order
-        if (CARD_REGISTRY[name] && d.data && activeIdRef.current) {
+        if (name && CARD_REGISTRY[name] && d.data && activeIdRef.current) {
           const aId = activeIdRef.current;
           setMsgs(prev => prev.map(m => {
             if (m.id !== aId) return m;
@@ -330,16 +341,20 @@ function useChat(config: ChatConfig = {}) {
       }
       case 'tool_error': {
         const name = typeof d.tool === 'string' ? d.tool : '';
-        if (!name) break;
+        const id = typeof d.id === 'string' ? d.id : null;
+        if (!name && !id) break;
+        let toolIdToCleanup: string | null = null;
         setTools(prev => {
-          const idx = prev.findIndex(t => t.name === name && t.state === 'active');
+          const idx = id 
+            ? prev.findIndex(t => t.id === id) 
+            : prev.findIndex(t => t.name === name && t.state === 'active');
           if (idx === -1) return prev;
           const updated = [...prev];
-          const toolId = updated[idx].id;
+          toolIdToCleanup = updated[idx].id;
           updated[idx] = { ...updated[idx], state: 'error', end: Date.now() };
-          setTimeout(() => scheduleToolCleanup(toolId), 0);
           return updated;
         });
+        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
         break;
       }
       case 'error': {
@@ -354,13 +369,17 @@ function useChat(config: ChatConfig = {}) {
   }, [flushBuffer, scheduleToolCleanup]);
 
   // ── Parse SSE stream ──
-  const parseStream = useCallback(async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+  const parseStream = useCallback(async (
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    resetIdle: () => void
+  ) => {
     const dec = new TextDecoder();
     let buf = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      resetIdle();
       buf += dec.decode(value, { stream: true });
       const parts = buf.split(/\r?\n\r?\n/);
       buf = parts.pop() || '';
@@ -424,13 +443,19 @@ function useChat(config: ChatConfig = {}) {
     setTools([]);
 
     // Cap history window to prevent oversized payloads
-    const history = msgs
+    const history = msgsRef.current
       .slice(-HISTORY_WINDOW)
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    const timeout = setTimeout(() => ctrl.abort(), CONNECTION_TIMEOUT_MS);
+    
+    let idleTimer: ReturnType<typeof setTimeout>;
+    const resetIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => ctrl.abort(), IDLE_TIMEOUT_MS);
+    };
+    resetIdle();
 
     try {
       const res = await fetch(apiEndpoint, {
@@ -459,12 +484,26 @@ function useChat(config: ChatConfig = {}) {
       }
       if (!res.body) throw new Error('No response body');
 
-      await parseStream(res.body.getReader());
+      await parseStream(res.body.getReader(), resetIdle);
 
       // Final flush
-      if (streamBufferRef.current) flushBuffer();
+      if (streamBufferRef.current) flushNow();
 
-      setMsgs(prev => prev.map(m => m.id === aId ? { ...m, streaming: false } : m));
+      // Empty-turn guard: stream closed cleanly but produced no content + no cards
+      setMsgs(prev => prev.map(m => {
+        if (m.id !== aId) return m;
+        const hasContent = m.content.length > 0;
+        const hasCard = m.segments.some(s => s.kind === 'card');
+        if (!hasContent && !hasCard) {
+          return {
+            ...m,
+            streaming: false,
+            content: 'No response received. The stream closed without data.',
+            segments: [{ kind: 'text', content: 'No response received. The stream closed without data.' }],
+          };
+        }
+        return { ...m, streaming: false };
+      }));
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         setMsgs(prev => prev.map(m =>
@@ -478,12 +517,12 @@ function useChat(config: ChatConfig = {}) {
         m.id === aId ? { ...m, streaming: false, content: m.content || '' } : m
       ));
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(idleTimer!);
       setBusy(false);
       activeIdRef.current = null;
       abortRef.current = null;
     }
-  }, [busy, msgs, model, modelConfig, topic, apiEndpoint, parseStream, flushBuffer]);
+  }, [busy, model, modelConfig, topic, apiEndpoint, parseStream, flushNow]);
 
   const cancel = useCallback(() => { abortRef.current?.abort(); }, []);
 
@@ -661,9 +700,9 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={spring.gentle}
-        className="mb-5 flex justify-end"
+        className="flex justify-end w-full"
       >
-        <div className="max-w-[85%] bg-white/[0.07] rounded-[20px] rounded-br-[6px] px-4 py-2.5">
+        <div className="max-w-[85%] bg-white/[0.07] rounded-[20px] rounded-br-[6px] px-5 py-3.5">
           <span className="text-[15px] text-white/90 whitespace-pre-wrap leading-relaxed break-words"
             style={{ fontFamily: FONT_STACK }}>{msg.content}</span>
         </div>
@@ -674,7 +713,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
   if (isEmpty) {
     return (
       <motion.div layout="position" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-        transition={spring.gentle} className="mb-5">
+        transition={spring.gentle} className="w-full">
         <ThinkingDots />
       </motion.div>
     );
@@ -686,7 +725,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={spring.gentle}
-      className="mb-5 w-full"
+      className="w-full relative group"
     >
       {/* Render segments in stream order — text and cards interleaved */}
       {msg.segments.map((seg, si) => (
@@ -809,15 +848,16 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
   }, [inputRef]);
 
   return (
-    <div className="px-4 pt-2 pb-2 flex-shrink-0"
-      style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 10px)' }}>
-      <div className={cn(
-        'relative flex items-end gap-2 bg-white/[0.05] rounded-[26px]',
-        'border transition-all duration-300 ease-out',
-        focused
-          ? 'border-white/[0.15] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_2px_12px_rgba(255,255,255,0.03)]'
-          : 'border-white/[0.06]',
-      )}>
+    <div className="px-4 pt-3 pb-3 flex-shrink-0 z-20 border-t border-white/5 bg-black/95 backdrop-blur"
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 12px)' }}>
+      <div className="mx-auto max-w-chat w-full">
+        <div className={cn(
+          'relative flex items-end gap-2 bg-white/[0.05] rounded-[26px]',
+          'border transition-all duration-300 ease-out',
+          focused
+            ? 'border-white/[0.15] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_2px_12px_rgba(255,255,255,0.03)]'
+            : 'border-white/[0.06]',
+        )}>
         <textarea
           ref={inputRef}
           value={input}
@@ -860,6 +900,10 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
           </motion.button>
         </div>
       </div>
+      <p className="mt-2 text-center text-[10px] text-white/30" style={{ fontFamily: FONT_STACK }}>
+        Optimized for deep, readable responses
+      </p>
+      </div>
     </div>
   );
 });
@@ -873,34 +917,30 @@ export default function MobileChat() {
   const scroll = useAutoScroll();
   const msgCount = chat.msgs.length;
   const lastContent = chat.msgs.at(-1)?.content;
+  const lastSegmentCount = chat.msgs.at(-1)?.segments.length;
 
-  useEffect(() => { scroll.scrollToEndIfNear(); }, [msgCount, lastContent, scroll]);
+  useEffect(() => { scroll.scrollToEndIfNear(); }, [msgCount, lastContent, lastSegmentCount, scroll.scrollToEndIfNear]);
 
   const handleSend = useCallback((text: string) => { chat.send(text); }, [chat]);
 
   return (
     <div className="flex flex-col h-dvh w-full bg-black text-white antialiased overflow-hidden">
       {/* ── Header ── */}
-      <AnimatePresence>
-        {msgCount > 0 && (
-          <motion.header
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={spring.gentle}
-            className="flex items-center justify-between px-5 py-2.5 z-20 flex-shrink-0"
-            style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}
-          >
-            <span className="text-[15px] font-semibold text-white/60 tracking-tight"
-              style={{ fontFamily: FONT_STACK }}>Truth</span>
-            <button onClick={chat.reset}
-              className="p-1.5 rounded-full text-white/25 hover:text-white/60 active:scale-90 transition-all duration-150"
-              aria-label="New conversation">
-              <PenLine className="size-4" strokeWidth={1.8} />
-            </button>
-          </motion.header>
-        )}
-      </AnimatePresence>
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-black/95 px-4 py-3 backdrop-blur flex-shrink-0"
+           style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
+        <div className="mx-auto max-w-chat flex items-center justify-between w-full">
+          <div className="text-sm text-white/50 flex items-center" style={{ fontFamily: FONT_STACK }}>
+            <span className="font-semibold text-white/80 tracking-tight">Truth</span>
+            <span className="mx-2 opacity-30">•</span>
+            <span>Long-form AI Workspace</span>
+          </div>
+          <button onClick={chat.reset}
+            className="p-1.5 rounded-full text-white/25 hover:text-white/60 active:scale-90 transition-all duration-150"
+            aria-label="New conversation">
+            <PenLine className="size-4" strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
 
       {/* ── Messages ── */}
       <div ref={scroll.scrollRef}
@@ -908,9 +948,19 @@ export default function MobileChat() {
         onScroll={scroll.onScroll}
         style={{ WebkitOverflowScrolling: 'touch' }}>
         {msgCount === 0 ? (
-          <div className="h-full" aria-hidden />
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+            <div className="mb-4 size-12 rounded-2xl bg-white/[0.03] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] flex items-center justify-center">
+              <span className="text-xl font-bold text-white/80" style={{ fontFamily: FONT_STACK }}>T</span>
+            </div>
+            <h1 className="text-xl font-medium tracking-tight text-white/90" style={{ fontFamily: FONT_STACK }}>
+              How can I help you today?
+            </h1>
+            <p className="mt-2 text-sm text-white/40 max-w-[280px]">
+              Optimized for deep, long-form exploration and research.
+            </p>
+          </div>
         ) : (
-          <div className="px-5 pt-3 pb-2">
+          <div className="px-5 pt-8 pb-4 mx-auto max-w-chat w-full flex flex-col space-y-6">
             <AnimatePresence mode="popLayout">
               {chat.msgs.map((msg, i) => (
                 <Bubble key={msg.id} msg={msg} isLast={i === msgCount - 1} onRetry={chat.retry} />
