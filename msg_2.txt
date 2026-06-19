@@ -1,0 +1,96 @@
+<USER_REQUEST>
+no this doenst have the sam ecode 
+
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>LIVE: NYY 3, BOS 1 — T5 | The Drip</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root,html[data-theme="dark"]{
+  --bg:#0C0C0E;--surface:#16161A;--surface-alt:#1C1C21;--surface-raised:#222228;
+  --text-1:#EDEDEC;--text-2:#A0A09A;--text-3:#6B6B65;--text-4:#3E3E3A;
+  --rule:#2A2A2E;--rule-dim:#1F1F23;--rule-hair:rgba(255,255,255,.04);
+  --hover:rgba(255,255,255,.02);--best-bg:rgba(255,255,255,.05);
+  --backdrop:rgba(12,12,14,.85);
+  --diamond-on:#EDEDEC;--diamond-off:#2A2A2E;
+}
+html[data-theme="light"]{
+  --bg:#EEEBE3;--surface:#FCFBF8;--surface-alt:#F5F3ED;--surface-raised:#FFFFFF;
+  --text-1:#14130C;--text-2:#413F37;--text-3:#67655B;--text-4:#928F84;
+  --rule:#DBD8CF;--rule-dim:#E6E3DB;--rule-hair:rgba(20,19,12,.05);
+  --hover:rgba(20,19,12,.02);--best-bg:rgba(14,133,82,.09);
+  --backdrop:rgba(238,235,227,.86);
+  --diamond-on:#14130C;--diamond-off:#D2CFC5;
+  --card-shadow:0 1px 2px rgba(34,30,18,.04),0 4px 16px rgba(34,30,18,.05);
+  --card-border:#E0DDD4;
+}
+html[data-theme="dark"]{
+  --card-shadow:none;
+  --card-border:var(--rule);
+}
+html{font-size:16px;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text-1);font-family:'DM Sans',system-ui,sans-serif;line-height:1.55;font-weight:400;transition:background .2s,color .2s}
+*{font-variant-numeric:tabular-nums}
+
+.font-mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.font-display{font-family:'Source Serif 4',Georgia,serif}
+.font-body{font-family:'DM Sans',system-ui,sans-serif}
+
+.shell{max-width:1080px;margin:0 auto;padding:0
+<truncated 18821 bytes>
+
+  var best=null, bestScore=-Infinity;
+  for(var key in markets){
+    var s = scoreMarket(key, markets[key], gs);
+    if(s > bestScore){ bestScore=s; best=key; }
+  }
+  return best;
+}
+
+function renderMarket(key){
+  var m = markets[key];
+  document.getElementById('marketName').textContent = m.name;
+  var grid = document.getElementById('anchorGrid');
+  grid.innerHTML = m.cells.map(function(c){
+    var arrow = c.arrow ? '<span class="arrow">'+(c.arrow==='down'?'↓':'↑')+'</span> ' : '';
+    return '<div class="anchor-cell"><span class="anchor-num">'+arrow+c.num+'</span><span class="anchor-cap">'+c.cap+'</span></div>';
+  }).join('');
+  document.getElementById('anchorRead').textContent = m.read;
+}
+
+// On load: selector picks the story, card renders it.
+renderMarket(pickMarket(gameState));
+
+function applyScoreDimming(away, home){
+  var a=document.getElementById('awayScore'), h=document.getElementById('homeScore');
+  a.classList.remove('trailing'); h.classList.remove('trailing');
+  if(away===home) return;
+  (away<home?a:h).classList.add('trailing');
+}
+applyScoreDimming(3,1);
+</script>
+</body>
+</html>
+
+
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-19T00:29:20-07:00.
+
+The user's current state is as follows:
+Active Document: /Users/k.far.88/Downloads/reverie/lib/orchestration-schemas.ts (LANGUAGE_TYPESCRIPT)
+Cursor is on line: 465
+Other open documents:
+- /Users/k.far.88/Downloads/reverie/src/db/schema.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/thedrip/player-page-schema.json (LANGUAGE_JSON)
+- /Users/k.far.88/Downloads/reverie/src/components/dashboard/dashboard.css (LANGUAGE_CSS)
+- /Users/k.far.88/Downloads/reverie/lib/enterprise-chat-handler.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/lib/contract-router.ts (LANGUAGE_TYPESCRIPT)
+Browser State:
+  Page 9DEF47FA3AA41F1C1062E435FB3C9397 (LIVE: NYY 3, BOS 1 — T5 | The Drip) - file:///Users/k.far.88/Downloads/reverie/thedrip/live-game.html [ACTIVE]
+    Viewport: 2240x1172, Page Height: 1172
+</ADDITIONAL_METADATA>

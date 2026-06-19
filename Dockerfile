@@ -10,14 +10,14 @@ ENV PATH="$DENO_INSTALL/bin:$PATH"
 
 # Copy package configurations and install dependencies
 COPY package*.json ./
-RUN npm ci
+RUN rm -f package-lock.json && npm install
 
 # Copy the rest of the source code and run the build script
 COPY . .
 RUN npm run build
 
-# Clean devDependencies by running npm prune or a clean production install
-RUN rm -rf node_modules && npm ci --only=production
+# Clean devDependencies by running a clean production install
+RUN rm -rf node_modules package-lock.json && npm install --omit=dev
 
 # Stage 2: Production runner stage
 FROM node:24-slim AS runner
@@ -58,7 +58,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/mcp-servers ./mcp-servers
 COPY --from=builder /app/config ./config
-
+COPY --from=builder /app/thedrip ./thedrip
 # Copy compiled MCP servers to the expected location
 RUN mkdir -p /opt/truth/mcp-servers && cp -r mcp-servers/* /opt/truth/mcp-servers/
 

@@ -349,9 +349,9 @@ const browserNavigateTool: RegisteredTool<any> = {
   definition: {
     name: "browser_navigate",
     description:
-      "Navigate to a URL in a headless browser. Returns page title, URL, and text content. " +
-      "Use for JS-rendered pages that fetch/curl can't handle. " +
-      "Returns a pageId for subsequent operations on the same page. " +
+      "FIRST-CLASS PRIMARY TOOL for navigating to and reading any URL in a real headless browser. Returns page title, URL, and extracted text content. " +
+      "ALWAYS use this instead of fetch_html/curl, as it renders JavaScript and handles modern SPAs perfectly. " +
+      "Returns a pageId for subsequent operations (click, fill, screenshot) on the same page. " +
       "URLs are validated against SSRF blocklist (internal IPs, metadata endpoints blocked).",
     schema: z.object({
       url: z.string().url().describe("URL to navigate to"),
@@ -465,7 +465,7 @@ const browserExtractTableTool: RegisteredTool<any> = {
     description:
       "Extract all HTML tables from the current page as structured JSON. " +
       "Each table includes headers, row count, and all cell data. " +
-      "Great for scraping stats from sports sites like TeamRankings, Covers, etc.",
+      "Great for extracting structured tabular data from any website.",
     schema: z.object({
       pageId: z.string().describe("Page ID from a previous browser_navigate call"),
       tableIndex: z.number().int().min(0).optional().describe("Return only this table (0-indexed). Omit for all tables."),

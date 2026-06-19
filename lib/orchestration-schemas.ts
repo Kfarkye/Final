@@ -53,7 +53,8 @@ export type SchemaName =
   | 'AuditVerdictV1'
   | 'MarketPressureV1'
   | 'FactCheckV1'
-  | 'FinalResponseAuditV1';
+  | 'FinalResponseAuditV1'
+  | 'DripLiveGameV1';
 
 export interface Delegation {
   task_id: string;
@@ -206,6 +207,45 @@ export interface FactCheck {
   overall_accuracy: 'high' | 'medium' | 'low';
 }
 
+
+/** DripLiveGameV1 — Payload for The Drip live in-game UI */
+export interface DripLiveGame {
+  markets: {
+    total: DripMarket;
+    moneyline: DripMarket;
+    runline: DripMarket;
+  };
+  plays: DripPlay[];
+  booth: DripBoothParagraph[];
+}
+
+export interface DripMarket {
+  name: string;
+  cells: DripMarketCell[];
+  read: string;
+  movement: number;
+  openLine: number | null;
+  liveLine: number | null;
+}
+
+export interface DripMarketCell {
+  num: string;
+  cap: string;
+  arrow?: 'up' | 'down';
+}
+
+export interface DripPlay {
+  inning: string;
+  desc: string;
+  scoreAfter: string | null;
+  isScoring: boolean | null;
+}
+
+export interface DripBoothParagraph {
+  text: string;
+  type: 'lead' | 'normal' | 'aside';
+}
+
 // ═══════════════════════════════════════════════════════════════
 // SSE Activity Events — emitted by backend, not model
 // ═══════════════════════════════════════════════════════════════
@@ -222,6 +262,7 @@ export interface AgentTaskEvent {
   sources_verified?: number;
   audit_passed?: boolean;
   fallback_note?: string; // "pressure test reassigned" or "pressure test skipped"
+  drip_live_game?: DripLiveGame; // Extracted live game UI payload
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -234,6 +275,7 @@ const SCHEMA_REQUIRED_FIELDS: Record<SchemaName, string[]> = {
   MarketPressureV1: ['contrarian_view', 'market_context', 'risk_factors', 'confidence_adjustment'],
   FactCheckV1: ['claims_checked', 'overall_accuracy'],
   FinalResponseAuditV1: ['verdict', 'blocking_issues', 'unapproved_claims', 'approved_for_render'],
+  DripLiveGameV1: ['markets', 'plays', 'booth'],
 };
 
 /** Structural validation — checks required fields exist */
@@ -386,7 +428,7 @@ export const DELEGATE_TASK_TOOL = {
       },
       required_output_schema: {
         type: 'string' as const,
-        enum: ['ResearchEvidenceV1', 'AuditVerdictV1', 'MarketPressureV1', 'FactCheckV1', 'FinalResponseAuditV1'],
+        enum: ['ResearchEvidenceV1', 'AuditVerdictV1', 'MarketPressureV1', 'FactCheckV1', 'FinalResponseAuditV1', 'DripLiveGameV1'],
         description: 'Expected output schema. Backend validates the response against this.',
       },
       inputs: {

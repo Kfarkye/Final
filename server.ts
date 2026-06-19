@@ -19,6 +19,7 @@ import stripeMcpRoutes from "./src/routes/stripeMcpRoutes";
 import linearMcpRoutes from "./src/routes/linearMcpRoutes";
 import notebookMcpRoutes from "./src/routes/notebookMcpRoutes";
 import spannerMcpRoutes from "./src/routes/spannerMcpRoutes";
+import browserMcpRoutes from "./src/routes/browserMcpRoutes";
 import modelRegistryRoutes from "./src/routes/modelRegistryRoutes";
 import modelRegistryMcpRoutes from "./src/routes/modelRegistryMcpRoutes";
 
@@ -32,6 +33,7 @@ import sportsRoutes from "./src/routes/sports.routes";
 import auditRoutes from "./src/routes/audit.routes";
 import pmRoutes from "./src/routes/pm.routes";
 import dripRoutes from "./src/routes/drip.routes";
+import dripApiRoutes from "./src/routes/drip-api.routes";
 
 const app = express();
 const PORT = env.PORT;
@@ -45,16 +47,19 @@ app.use(systemRoutes); // DevOps probes, system status, artifacts, human approva
 app.use("/api/edge", edgeRoutes);
 app.use("/api/news", newsRoutes);
 app.use("/api/truth", chatRoutes);
+app.use("/api", chatRoutes); // To fix 404 for /api/chat
 app.use("/api/git", gitRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/pm", pmRoutes);
 app.use("/api", sportsRoutes); // MLB slate and worker controls
+app.use(dripApiRoutes);
 
 // --- Multi-Service MCP Routes ---
 app.use("/api/mcp/stripe", stripeMcpRoutes);
 app.use("/api/mcp/linear", linearMcpRoutes);
 app.use("/api/mcp/notebook", notebookMcpRoutes);
 app.use("/api/mcp/spanner", spannerMcpRoutes);
+app.use("/api/mcp/browser", browserMcpRoutes);
 
 // --- Model Registry API + MCP ---
 app.use("/api/models", modelRegistryRoutes);
@@ -65,7 +70,7 @@ async function startServer() {
   app.use("/api", notFoundHandler);
 
   // ── The Drip — static sports site (served before SPA catch-all) ──
-  app.use(dripRoutes);
+  // app.use(dripRoutes);
 
   if (env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");

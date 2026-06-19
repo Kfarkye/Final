@@ -97,6 +97,7 @@ contracts:
   # ═══════════════════════════════════════════════════════════════════════
   - id: devbrowser
     name: Headless Browser Automation
+    always: true
     keywords:
       - puppeteer
       - devbrowser

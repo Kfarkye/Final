@@ -1,0 +1,206 @@
+{
+  "$schema": "drip-live-v1",
+  "version": "1.0.0",
+  "template": "live-in-game",
+
+  "themes": {
+    "dark": {
+      "bg": "#0C0C0E", "surface": "#16161A", "surface-alt": "#1C1C21", "surface-raised": "#222228",
+      "text-1": "#EDEDEC", "text-2": "#A0A09A", "text-3": "#6B6B65", "text-4": "#3E3E3A",
+      "rule": "#2A2A2E", "rule-dim": "#1F1F23", "rule-hair": "rgba(255,255,255,.04)",
+      "hover": "rgba(255,255,255,.02)", "best-bg": "rgba(255,255,255,.04)",
+      "backdrop": "rgba(12,12,14,.85)",
+      "diamond-on": "#EDEDEC", "diamond-off": "#2A2A2E"
+    },
+    "light": {
+      "bg": "#F5F4F1", "surface": "#FFFFFF", "surface-alt": "#FAF9F7", "surface-raised": "#F0EFEC",
+      "text-1": "#18181B", "text-2": "#52524E", "text-3": "#8C8C84", "text-4": "#BBBBB3",
+      "rule": "#E6E5E1", "rule-dim": "#EDECE9", "rule-hair": "rgba(0,0,0,.035)",
+      "hover": "rgba(0,0,0,.015)", "best-bg": "rgba(0,0,0,.035)",
+      "backdrop": "rgba(245,244,241,.82)",
+      "diamond-on": "#18181B", "diamond-off": "#E6E5E1"
+    }
+  },
+
+  "layout": {
+    "max-width": "960px",
+    "side-padding": "28px",
+    "grid": {
+      "desktop": "1fr 280px",
+      "tablet": "1fr",
+      "gap": { "desktop": "24px", "tablet": "16px" }
+    },
+    "no-footer": true
+  },
+
+  "components": {
+
+    "scoreboard": {
+      "container": { "bg": "surface", "border": "rule", "radius": "8px" },
+      "grid": "1fr auto 1fr",
+      "padding": "20px 24px",
+      "phone-padding": "16px 18px",
+      "team": {
+        "logo": {
+          "size": "44px", "phone-size": "36px", "radius": "10px",
+          "team-bar": { "height": "2px", "inset": "10px" }
+        },
+        "name": { "font": "display", "size": "1rem", "phone-size": "0.875rem", "weight": 800, "tracking": "-0.04em" },
+        "record": { "font": "mono", "size": "0.5rem", "color": "text-4" },
+        "score": {
+          "size": "2.5rem", "phone-size": "2rem", "weight": 800, "tracking": "-0.06em",
+          "leading": "text-1", "trailing": "text-4"
+        }
+      },
+      "center": {
+        "inning": { "font": "mono", "size": "0.5625rem", "color": "text-2" },
+        "diamond": {
+          "size": "48px", "phone-size": "40px",
+          "base-size": "12px", "phone-base-size": "10px",
+          "on": "diamond-on", "off": "diamond-off",
+          "radius": "2px", "rotation": "45deg"
+        },
+        "outs": {
+          "dot-size": "6px",
+          "on": "text-1", "off-border": "text-4"
+        },
+        "count": { "font": "mono", "size": "1.125rem", "phone-size": "1rem", "weight": 500, "color": "text-1" },
+        "count-label": { "font": "mono", "size": "0.375rem", "color": "text-4", "uppercase": true }
+      }
+    },
+
+    "play-feed": {
+      "max-height": "420px",
+      "scrollable": true,
+      "play": {
+        "grid": "38px 1fr",
+        "inning": { "font": "mono", "size": "0.5rem", "color": "text-4", "align": "right" },
+        "result": { "font": "body", "size": "0.75rem", "color": "text-2", "leading": 1.4 },
+        "result-strong": { "color": "text-1", "weight": 600 },
+        "score-change": { "font": "mono", "size": "0.5rem", "color": "text-3" }
+      },
+      "scoring-play": { "result-color": "text-1" },
+      "padding": "7px 0"
+    },
+
+    "current-pitcher": {
+      "photo": { "size": "28px", "radius": "50%" },
+      "name": { "font": "body", "size": "0.75rem", "weight": 600 },
+      "detail": { "font": "mono", "size": "0.5rem", "color": "text-3" },
+      "pitch-count": { "font": "mono", "size": "1rem", "weight": 500, "color": "text-1" },
+      "today-line": { "font": "mono", "size": "0.5625rem", "color": "text-2" }
+    },
+
+    "live-odds": {
+      "grid": "1fr 60px 60px",
+      "phone-grid": "1fr 52px 52px",
+      "book-name": { "font": "body", "size": "0.6875rem", "weight": 600, "color": "text-2" },
+      "price": { "font": "mono", "size": "0.75rem", "weight": 500, "color": "text-1" },
+      "best-price": { "bg": "best-bg", "radius": "3px" },
+      "header": { "font": "mono", "size": "0.375rem", "color": "text-4" }
+    },
+
+    "game-state": {
+      "fields": ["At bat", "On deck", "Due up"],
+      "active": "text-1",
+      "pending": "text-3"
+    },
+
+    "line-movement": {
+      "fields": ["Open ML", "Current ML", "Open total", "Live total"],
+      "arrow": { "size": "0.5rem", "color": "text-3" }
+    },
+
+    "bullpen": {
+      "arm": {
+        "name": { "font": "body", "size": "0.6875rem", "weight": 600, "color": "text-2" },
+        "era": { "font": "mono", "size": "0.5625rem", "color": "text-3" },
+        "status": {
+          "warming": { "color": "text-1", "uppercase": true },
+          "available": { "color": "text-4", "uppercase": true },
+          "used": { "color": "text-4", "dim": true }
+        }
+      }
+    }
+  },
+
+  "data-binding": {
+    "game": {
+      "gameId": "string",
+      "status": "live",
+      "inning": { "number": "number", "half": "top | bottom" },
+      "away": {
+        "abbr": "string", "name": "string", "record": "string",
+        "score": "number", "logoUrl": "string", "primaryColor": "string"
+      },
+      "home": {
+        "abbr": "string", "name": "string", "record": "string",
+        "score": "number", "logoUrl": "string", "primaryColor": "string"
+      },
+      "situation": {
+        "bases": { "first": "boolean", "second": "boolean", "third": "boolean" },
+        "outs": "number",
+        "count": { "balls": "number", "strikes": "number" },
+        "atBat": "string",
+        "onDeck": "string",
+        "dueUp": "string"
+      },
+      "currentPitcher": {
+        "name": "string", "hand": "string", "team": "string",
+        "seasonEra": "string", "photoUrl": "string",
+        "today": { "ip": "string", "h": "number", "er": "number", "k": "number", "bb": "number", "pitches": "number", "strikes": "number" }
+      },
+      "plays": [
+        {
+          "inning": "string",
+          "description": "string",
+          "playerName": "string",
+          "isScoring": "boolean",
+          "scoreAfter": "string | null"
+        }
+      ],
+      "liveOdds": {
+        "[bookId]": { "away": "number", "home": "number" }
+      },
+      "bestOdds": { "away": "string", "home": "string" },
+      "lineMovement": {
+        "openMl": { "away": "number", "home": "number" },
+        "openTotal": "number",
+        "liveTotal": "number"
+      },
+      "bullpen": {
+        "[teamAbbr]": [
+          {
+            "name": "string",
+            "era": "string",
+            "status": "warming | available | used",
+            "recentUsage": "string | null"
+          }
+        ]
+      }
+    }
+  },
+
+  "update-rhythms": {
+    "_comment": "Different data refreshes at different rates",
+    "score-and-situation": "every pitch (real-time via websocket or 5s poll)",
+    "play-feed": "on each play completion",
+    "current-pitcher": "on pitcher change or every half-inning",
+    "live-odds": "every 30 seconds",
+    "bullpen-status": "every half-inning or on warmup activity",
+    "game-state": "every at-bat change"
+  },
+
+  "design-passes": {
+    "1-audit": "Live pages overload or underload. Fix: diamond state is the hero — score, bases, outs, count. Everything else supports at different update rhythms.",
+    "2-anti-patterns": "No flashing numbers. No live badges on every element. One live dot in header. Currency of data IS the signal.",
+    "3-references": "MLB Gameday diamond. Bloomberg real-time feed. ESPN scoreboard compact.",
+    "4-typography": "Score at 2.5rem is hero. Count at 1.125rem is second — the immediate situation. Pitch count at 1rem. Play descriptions at .75rem body text.",
+    "5-spacing": "Scoreboard: generous (20px padding). Play feed: tight (7px rows) with scroll. Sidebar: compressed. Three density levels serving different attention modes.",
+    "6-color": "Bases: diamond-on/diamond-off (text-1/rule in dark). No green/red for movement — arrows in text-3. Team colors only on logo bars. Scoring plays get text-1 presence.",
+    "7-mobile": "Scoreboard stays full-width hero. Diamond shrinks proportionally. Play feed is primary. Odds compress to 2-column prices. Bullpen moves to expandable.",
+    "8-footer": "No footer on live pages. Every pixel is content.",
+    "9-squint": "Score (2.5rem) and inning label visible. Diamond shape visible. Play feed visible as a text block. Nothing else registers.",
+    "10-removal": "No win probability graph. No spray chart. No pitch velocity tracker. No advanced metrics. Score, situation, plays, odds, pitcher status, bullpen. That's the live page."
+  }
+}

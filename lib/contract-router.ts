@@ -170,6 +170,7 @@ export function resolveContracts(
     'google-logging-mcp': 'gcp-infra',
     'google-workspace-mcp': 'google-workspace',
     'fetch-script-mcp': 'web-research',
+    'headless-browser-mcp': 'devbrowser',
   };
 
   const forcedContractIds = new Set<string>();

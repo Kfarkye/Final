@@ -103,9 +103,6 @@ class EnterpriseGovernanceService:
             resource_identifier = action_context.get("resource_identifier", {})
             self.authorize_operational_action(principal_context, action_context.get("action_requested"), resource_identifier)
         
-        # Step 3: Additional enterprise compliance checks (e.g., immutable artifact verification,
-        # retention policy checks, regulatory tagging) would be integrated here.
-
         self._record_audit_event("all_enterprise_governance_policies_applied", {"payload_id": governed_payload.get("id", "N/A"), "status": "SUCCESS"})
         return governed_payload
 

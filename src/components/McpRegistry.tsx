@@ -644,6 +644,51 @@ export const PRELOADED_SERVERS: McpServer[] = [
     ],
     lastChecked: 'Just verified',
     latency: 13
+  },
+  {
+    id: 'headless-browser-mcp',
+    name: 'Headless Browser Automation',
+    publisher: 'Reverie Engine',
+    description: 'Provides a secure, sandboxed headless Chromium browser. Navigates, takes screenshots, clicks, fills forms, and bypasses anti-bot systems.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'SSE',
+    commandOrUrl: '/api/mcp/browser',
+    tools: [
+      {
+        name: 'browser_navigate',
+        description: 'Navigate to a URL in a headless browser. Returns page title, URL, and text content.',
+        parameters: '{ url: string, pageId?: string, waitForSelector?: string }',
+        sampleInput: '{"url": "https://example.com"}'
+      },
+      {
+        name: 'browser_screenshot',
+        description: 'Take a screenshot of the current page. Returns base64-encoded PNG.',
+        parameters: '{ pageId: string, fullPage?: boolean }',
+        sampleInput: '{"pageId": "page-1", "fullPage": true}'
+      },
+      {
+        name: 'browser_extract_table',
+        description: 'Extract all HTML tables from the current page as structured JSON.',
+        parameters: '{ pageId: string, tableIndex?: number }',
+        sampleInput: '{"pageId": "page-1"}'
+      },
+      {
+        name: 'browser_click',
+        description: 'Click an element on the page by CSS selector.',
+        parameters: '{ pageId: string, selector: string }',
+        sampleInput: '{"pageId": "page-1", "selector": "#submit-btn"}'
+      },
+      {
+        name: 'browser_fill',
+        description: 'Fill a form field by CSS selector.',
+        parameters: '{ pageId: string, selector: string, value: string, submit?: boolean }',
+        sampleInput: '{"pageId": "page-1", "selector": "#search", "value": "test"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 22
   }
 ];
 

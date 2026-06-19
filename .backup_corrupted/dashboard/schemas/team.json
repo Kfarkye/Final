@@ -1,0 +1,104 @@
+{
+  "type": "Box",
+  "props": {
+    "className": "team-page",
+    "theme": "dark"
+  },
+  "children": [
+    {
+      "type": "TeamHero",
+      "props": {
+        "teamId": "$data.team.teamId",
+        "abbr": "$data.team.abbr",
+        "name": "$data.team.name",
+        "fullName": "$data.team.fullName",
+        "logoUrl": "$data.team.logoUrl",
+        "primaryColor": "$data.team.primaryColor",
+        "league": "$data.team.league",
+        "division": "$data.team.division",
+        "divisionRank": "$data.team.divisionRank",
+        "venue": "$data.team.venue",
+        "record": "$data.team.record"
+      }
+    },
+    {
+      "type": "Tabs",
+      "props": {
+        "items": ["Schedule", "Roster", "Trends"]
+      },
+      "children": [
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Schedule"
+          },
+          "children": [
+            {
+              "type": "Flex",
+              "props": { "direction": "row", "gap": "24px" },
+              "children": [
+                {
+                  "type": "Box",
+                  "props": { "className": "schedule-main", "style": { "flex": "1" } },
+                  "children": [
+                    { "type": "ResultsStrip", "props": { "data": "$data.team.recentGames" } },
+                    { "type": "ScheduleCard", "props": { "data": "$data.team.upcomingGames" } }
+                  ]
+                },
+                {
+                  "type": "Box",
+                  "props": { "className": "schedule-sidebar", "style": { "width": "280px" } },
+                  "children": [
+                    { "type": "SidebarSection", "props": { "title": "Division", "data": "$data.team.division.teams" } },
+                    { "type": "SidebarSection", "props": { "title": "Next Series", "data": "$data.team.nextSeries" } },
+                    { "type": "SidebarSection", "props": { "title": "Splits", "data": "$data.team.splits" } }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Roster"
+          },
+          "children": [
+            {
+              "type": "Flex",
+              "props": { "direction": "row", "gap": "14px" },
+              "children": [
+                {
+                  "type": "GroupCard",
+                  "props": { "title": "Position Players", "data": "$data.team.roster.positionPlayers", "style": { "flex": "1" } }
+                },
+                {
+                  "type": "GroupCard",
+                  "props": { "title": "Pitchers", "data": "$data.team.roster.pitchers", "style": { "flex": "1" } }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Trends"
+          },
+          "children": [
+            {
+              "type": "Flex",
+              "props": { "direction": "row", "gap": "14px", "wrap": "wrap" },
+              "children": [
+                { "type": "TrendCard", "props": { "title": "Moneyline Record", "data": "$data.team.trends.moneyline" } },
+                { "type": "TrendCard", "props": { "title": "Over/Under", "data": "$data.team.trends.overUnder" } },
+                { "type": "TrendCard", "props": { "title": "Run Line (-1.5)", "data": "$data.team.trends.runLine" } },
+                { "type": "TrendCard", "props": { "title": "Situational", "data": "$data.team.trends.situational" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

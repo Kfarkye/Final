@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRUTH // Sports Intelligence Platform</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        .odds-flash-green {
+            animation: flashGreen 1s ease-out;
+        }
+        .odds-flash-red {
+            animation: flashRed 1s ease-out;
+        }
+        @keyframes flashGreen {
+            0% { background-color: rgba(34, 197, 94, 0.3); }
+            100% { background-color: transparent; }
+        }
+        @keyframes flashRed {
+            0% { background-color: rgba(239, 68, 68, 0.3); }
+            100% { background-color: transparent; }
+        }
+    </style>
+</head>
+<body class="bg-[#0b0f19] text-slate-100 min-h-screen flex flex-col antialiased selection:bg-teal-500 selection:text-slate-900">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-slate-800 bg-[#0f1424] sticky top-0 z-30 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="h-9 w-9 bg-gradient-to-tr from-teal-500 to-emerald-400 rounded-lg flex items-center justify-center font-bold text-slate-950 text-xl tracking-tight">T</div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight uppercase flex items-center gap-2">
+                        Truth <span class="text-xs font-mono px-2 py-0.5 bg-teal-500/10 text-teal-400 border border-teal-500/20 rounded">PRO MLB</span>
+                    </h1>
+                    <p class="text-[10px] text-slate-400 font-mono tracking-wider">REAL-TIME ODDS & PROJECTION INTELLIGENCE</p>
+                </div>
+            </div>
+            
+            <!-- Global Stats Bar -->
+            <div class="flex items-center gap-6 text-xs text-slate-400 font-mono">
+                <div>Prediction Markets Weight: <span class="text-teal-400 font-bold">75.0%</span></div>
+                <div class="hidden sm:block">Status: <span class="text-emerald-400 font-bold flex items-center gap-1 inline-flex"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE FEEDS</span></div>
+                <div class="bg-slate-800 h-4 w-px hidden sm:block"></div>
+                <button onclick="toggleSimulator()" id="simBtn" class="px-3 py-1 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded transition">
+                    Stop Live Updates
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Sub-Navbar Control Grid -->
+    <nav class="border-b border-slate-800 bg-[#0d111f]/90 backdrop-blur px-6 py-3 sticky top-[73px] z-20">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <!-- Market Tabs -->
+            <div class="flex p-0.5 bg-slate-900 rounded-lg border border-slate-800">
+                <button onclick="changeMarket('ml')" id="btn-ml" class="px-4 py-1.5 text-xs font-bold rounded-md transition-all bg-teal-500 text-slate-950">Moneyline</button>
+                <button onclick="changeMarket('spread')" id="btn-spread" class="px-4 py-1.5 text-xs font-bold text-slate-400 hover:text-slate-200 rounded-md transition-all">Run Line</button>
+                <button onclick="changeMarket('total')" id="btn-total" class="px-4 py-1.5 text-xs font-bold text-slate-400 hover:text-slate-200 rounded-md transition-all">Totals</button>
+            </div>
+
+            <!-- Date Selector -->
+            <div class="flex items-center gap-2 text-xs font-mono">
+                <button class="p-1 bg-slate-800 hover:bg-slate-700 rounded transition">&larr;</button>
+                <span class="px-4 py-1 bg-slate-900 border border-slate-800 rounded font-bold text-slate-200">TODAY, JUNE 18</span>
+                <button class="p-1 bg-slate-800 hover:bg-slate-700 rounded transition">&rarr;</button>
+            </div>
+
+            <!-- Quick Stats Summary -->
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+                <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-indigo-500"></span> Polymarket Premium</span>
+                <span class="flex items-center gap-1 ml-3"><span class="h-2 w-2 rounded-full bg-emerald-500"></span> +EV Edge Highlight</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Workspace Layout -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left 2 Columns: Odds Board Grid -->
+        <section class="lg:col-span-2 flex flex-col gap-4">
+            
+            <div class="bg-[#0f1424] border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+                <!-- Table Header Grid -->
+                <div class="grid grid-cols-12 bg-slate-900/50 border-b border-slate-800 px-4 py-3 text-xs font-bold tracking-wider text-slate-400 font-mono">
+                    <div class="col-span-4">MATCHUP / STATUS</div>
+                    <div class="col-span-2 text-center text-indigo-400 flex items-center justify-center gap-1">POLYMARKET <span class="text-[9px] bg-indigo-500/20 text-indigo-300 px-1 rounded">PRED</span></div>
+                    <div class="col-span-2 text-center text-slate-300">DRAFTKINGS</div>
+                    <div class="col-span-2 text-center text-slate-300">FANDUEL</div>
+                    <div class="col-span-2 text-center text-slate-300">BETMGM</div>
+                </div>
+
+                <!-- Table Rows Body Container -->
+                <div id="oddsTableBody" class="divide-y divide-slate-800/60">
+                    <!-- Dynamic rendering happens here -->
+                </div>
+            </div>
+
+            <!-- Dashboard Notes -->
+            <div class="p-4 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-start gap-3">
+                <span class="text-teal-400 text-lg">💡</span>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    <strong>TRUTH PLATFORM ADVANTAGE:</strong> We weigh prediction markets (Polymarket and Kalshi contract volumes) at 75% to generate our baseline true mathematical probability. Green borders represent +EV situations where bookmaker odds underestimate the prediction market momentum. Click on any row to open the schema analyzer, umpire stats, and dynamic calculations.
+                </p>
+            </div>
+        </section>
+
+        <!-- Right 1 Column: Interactive Inspector / Sidebar Drawer -->
+        <section id="sidebarPanel" class="bg-[#0f1424] border border-slate-800 rounded-xl overflow-hidden shadow-2xl sticky top-[150px] h-fit flex flex-col">
+            <div class="bg-slate-900/70 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold tracking-tight text-slate-200">GAME DETAIL INSPECTOR</h3>
+                    <p class="text-[10px] text-slate-400 font-mono uppercase tracking-wider">Dynamic Schema & Umpire Analysis</p>
+                </div>
+                <span class="text-xs font-mono bg-teal-500/10 text-teal-400 px-2.5 py-1 border border-teal-500/20 rounded-full font-bold">STRICT_JSON</span>
+            </div>
+
+            <div id="sidebarPlaceholder" class="p-10 text-center flex flex-col items-center justify-center gap-3 text-slate-500">
+                <svg class="w-12 h-12 text-slate-600 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                </svg>
+                <p class="text-xs font-semibold">Select an active game row from the odds board to view data feeds, starting lineup/pitcher values, and raw API schemas.</p>
+            </div>
+
+            <div id="sidebarContent" class="hidden p-5 flex flex-col gap-5 overflow-y-auto max-h-[70vh]">
+                <!-- Selected Game Team Headers -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span id="sideAwayAbbr" class="text-lg font-bold px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-200">NYM</span>
+                        <span class="text-xs text-slate-500 font-bold">AT</span>
+                        <span id="sideHomeAbbr" class="text-lg font-bold px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-200">PHI</span>
+                    </div>
+                    <span id="sideStatus" class="text-xs font-mono px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-400 rounded-full font-bold">BOT 9TH</span>
+                </div>
+
+                <!-- Live Game Box State Visualization -->
+                <div class="bg-slate-900 border border-slate-800 p-4 rounded-lg flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] text-slate-500 font-mono font-bold tracking-wider">LIVE REE/OUTS/COUNT</div>
+                        <div class="text-sm font-semibold flex items-center gap-2 mt-1">
+                            <span id="sideOuts" class="text-slate-300">0 Outs</span>
+                            <span class="text-slate-600">•</span>
+                            <span id="sideCount" class="font-mono text-slate-400">0-0 Count</span>
+                        </div>
+                    </div>
+                    <!-- Live Diamond graphic -->
+                    <div class="relative w-12 h-12 flex items-center justify-center rotate-45 border border-dashed border-slate-800 rounded">
+                        <div id="base-2" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-slate-800 border border-slate-700 transition"></div>
+                        <div id="base-1" class="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-slate-800 border border-slate-700 transition"></div>
+                        <div id="base-3" class="absolute -top-1 -left-1 w-2.5 h-2.5 bg-slate-800 border border-slate-700 transition"></div>
+                    </div>
+                </div>
+
+                <!-- Matchup Pitcher splits & Environment -->
+                <div>
+                    <h4 class="text-xs font-mono font-bold text-slate-400 mb-2 uppercase tracking-wide">STADIUM ENVIRONMENT</h4>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="p-3 bg-slate-900 border border-slate-800 rounded">
+                            <div class="text-[10px] text-slate-500">STARTING PITCHERS</div>
+                            <div id="sidePitchers" class="mt-1 font-semibold text-slate-300">Mets: Severino<br>Phillies: Nola</div>
+                        </div>
+                        <div class="p-3 bg-slate-900 border border-slate-800 rounded">
+                            <div class="text-[10px] text-slate-500">WEATHER / WIND BOOST</div>
+                            <div class="mt-1 font-semibold text-emerald-400">Wind OUT 11mph<br>(+14% HR boost)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Plate Umpire Analysis -->
+                <div class="p-4 bg-slate-900/60 border border-slate-800 rounded-lg">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-bold text-slate-300 uppercase">PLATE UMPIRE CARD</span>
+                        <span id="sideUmpBias" class="text-[10px] font-mono px-2 py-0.5 bg-indigo-500/15 text-indigo-300 border border-indigo-500/20 rounded font-bold">Pitcher Friendly</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div>
+                            <div class="text-[10px] text-slate-500 font-mono">NAME</div>
+                            <div id="sideUmpName" class="font-bold mt-1 text-slate-200">B. Miller</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-500 font-mono">ACCURACY</div>
+                            <div id="sideUmpAcc" class="font-bold mt-1 text-emerald-400 font-mono">94.8%</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-500 font-mono">RUN BOOST</div>
+                            <div id="sideUmpBoost" class="font-bold mt-1 text-red-400 font-mono">-0.4 Runs</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Schema Inspector Tabs -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-1">
+                        <span class="text-xs font-mono font-bold text-slate-400 uppercase tracking-wide">REAL-TIME UNIFIED SCHEMA</span>
+                        <button onclick="copySchema()" class="text-[10px] text-teal-400 hover:text-teal-300 font-mono font-bold underline cursor-pointer">COPY JSON</button>
+                    </div>
+                    <pre id="schemaView" class="mono text-[10px] bg-slate-950 p-4 border border-slate-800 rounded-lg overflow-x-auto text-teal-400/90 leading-tight max-h-[300px]">Select game...</pre>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 bg-[#070b13] py-6 px-6 mt-12 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 font-mono">
+            <p>&copy; 2026 TRUTH SPORTS INTEL. REPLICATED & ENHANCED FROM ACTION NETWORK ODDS PAGE DESIGN PATTERNS.</p>
+            <p>DESIGN INTEGRATION FOR PREDICTION MARKETS & LIVE UMPIRE RECORDS</p>
+        </div>
+    </footer>
+
+    <!-- Logic Engine & Data Fetching -->
+    <script>
+        // Global variables for active markets and simulator
+        let activeMarket = 'moneyline'; // moneyline, spread, total
+        let selectedGameId = null;
+        let isSimulating = true;
+        let simInterval = null;
+        let dashboardData = null;
+
+        // Fetch Data from JSON Contract API
+        async function fetchDashboard() {
+            try {
+                // Hardcoding mlb_2026_01 for demo/testing. In production this could come from URL params or a list API.
+                const res = await fetch('/api/truth/live-game-dashboard/mlb_2026_01');
+                const json = await res.json();
+                if (json.status === 'ok') {
+                    dashboardData = json.data;
+                    renderOddsTable();
+                    if (selectedGameId === dashboardData.game.gameId) {
+                        // Refresh sidebar silently if already selected
+                        document.getElementById('schemaView').textContent = JSON.stringify(dashboardData, null, 2);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch dashboard data", err);
+            }
+        }
+
+        // Format Odds format back to display strings
+        function formatOddsVal(val) {
+            if (typeof val === 'string') return val;
+            if (val > 0) return `+${val}`;
+            return `${val}`;
+        }
+
+        // Change Active Market
+        window.changeMarket = function(market) {
+            activeMarket = market === 'ml' ? 'moneyline' : market;
+            ['btn-ml', 'btn-spread', 'btn-total'].forEach(id => {
+                const el = document.getElementById(id);
+                if(el) el.className = 'px-4 py-1.5 text-xs font-bold text-slate-400 hover:text-slate-200 rounded-md transition-all';
+            });
+            const btnId = market === 'ml' ? 'btn-ml' : `btn-${market}`;
+            const activeBtn = document.getElementById(btnId);
+            if(activeBtn) activeBtn.className = 'px-4 py-1.5 text-xs font-bold rounded-md transition-all bg-teal-500 text-slate-950';
+            renderOddsTable();
+        };
+
+        // Core Render Engine
+        window.renderOddsTable = function() {
+            const container = document.getElementById('oddsTableBody');
+            
+            if (!dashboardData) {
+                container.innerHTML = '<div class="p-4 text-center text-slate-500 text-xs">Loading live feeds...</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            
+            const gameData = dashboardData;
+            const g = gameData.game;
+
+            // Extract probability
+            let awayPredProb = parseFloat(gameData.truthIntelligence.modelProjections.awayWinProb) || 50;
+            let homePredProb = parseFloat(gameData.truthIntelligence.modelProjections.homeWinProb) || 50;
+
+            let statusHtml = '';
+            if (g.status.toLowerCase() === 'live') {
+                statusHtml = `
+                    <div class="text-[11px] font-bold text-red-500 font-mono flex items-center gap-1">
+                        <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+                        ${g.inning}
+                    </div>
+                    <div class="text-[10px] text-slate-400 font-mono mt-0.5">
+                        ${g.outs} Outs | ${g.count.balls}-${g.count.strikes}
+                    </div>
+                `;
+            } else if (g.status.toLowerCase() === 'pregame' || g.status.toLowerCase() === 'scheduled') {
+                statusHtml = `
+                    <div class="text-[11px] font-bold text-teal-400 font-mono uppercase">
+                        PREGAME
+                    </div>
+                    <div class="text-[9px] text-slate-400 font-mono mt-0.5">
+                        Upcoming
+                    </div>
+                `;
+            } else {
+                statusHtml = `
+                    <div class="text-[11px] font-bold text-slate-500 font-mono uppercase">
+                        ${g.status.toUpperCase()}
+                    </div>
+                `;
+            }
+
+            const isSelected = selectedGameId === g.gameId;
+            const activeBorder = isSelected ? 'border-l-4 border-l-teal-400 bg-slate-900/40' : 'hover:bg-slate-900/20 border-l-4 border-l-transparent';
+
+            let gameRow = `
+                <div onclick="selectGame('${g.gameId}')" class="grid grid-cols-12 items-stretch cursor-pointer transition ${activeBorder}">
+                    <!-- Col 1: Team & Status block -->
+                    <div class="col-span-4 flex flex-col justify-center px-4 py-3">
+                        <div class="flex items-center justify-between pr-4">
+                            <div class="flex flex-col gap-1.5">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-slate-200 text-sm tracking-tight">${g.awayTeam.name}</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-slate-200 text-sm tracking-tight">${g.homeTeam.name}</span>
+                                </div>
+                            </div>
+                            <!-- Scores -->
+                            <div class="flex flex-col text-right font-mono text-sm font-bold text-slate-200 gap-1.5">
+                                <div>${g.awayTeam.score}</div>
+                                <div>${g.homeTeam.score}</div>
+                            </div>
+                        </div>
+                        <div class="mt-2 border-t border-slate-800/40 pt-2 flex items-center justify-between pr-4">
+                            ${statusHtml}
+                            <div class="text-[10px] text-slate-500 font-mono">Ump: <span class="text-slate-300">${gameData.umpire.name}</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Col 2: Prediction Market Column -->
+                    <div class="col-span-2 border-l border-slate-800/60 flex flex-col justify-center bg-indigo-500/5">
+                        <div class="flex-1 flex flex-col items-center justify-center py-1">
+                            <span class="font-mono text-sm font-bold text-indigo-400">${gameData.truthIntelligence.modelProjections.awayWinProb}</span>
+                        </div>
+                        <div class="h-px bg-slate-800/30 w-full mx-auto"></div>
+                        <div class="flex-1 flex flex-col items-center justify-center py-1">
+                            <span class="font-mono text-sm font-bold text-indigo-400">${gameData.truthIntelligence.modelProjections.homeWinProb}</span>
+                        </div>
+                    </div>
+            `;
+
+            // Books: DraftKings, FanDuel, BetMGM
+            const targetBooks = ["DraftKings", "FanDuel", "BetMGM"];
+            const marketData = gameData.odds.markets[activeMarket];
+            
+            targetBooks.forEach(bookName => {
+                let awayBookData, homeBookData, awayVal, homeVal;
+
+                if (activeMarket === 'moneyline') {
+                    awayBookData = marketData.away.books.find(b => b.name === bookName);
+                    homeBookData = marketData.home.books.find(b => b.name === bookName);
+                    awayVal = awayBookData ? formatOddsVal(awayBookData.odds) : '-';
+                    homeVal = homeBookData ? formatOddsVal(homeBookData.odds) : '-';
+                } else if (activeMarket === 'spread') {
+                    awayBookData = marketData.away.books.find(b => b.name === bookName);
+                    homeBookData = marketData.home.books.find(b => b.name === bookName);
+                    awayVal = awayBookData ? `${marketData.away.line} <span class="text-[10px] text-slate-500">${formatOddsVal(awayBookData.odds)}</span>` : '-';
+                    homeVal = homeBookData ? `${marketData.home.line} <span class="text-[10px] text-slate-500">${formatOddsVal(homeBookData.odds)}</span>` : '-';
+                } else if (activeMarket === 'total') {
+                    awayBookData = marketData.over.books.find(b => b.name === bookName);
+                    homeBookData = marketData.under.books.find(b => b.name === bookName);
+                    awayVal = awayBookData ? `O ${marketData.total.line} <span class="text-[10px] text-slate-500">${formatOddsVal(awayBookData.odds)}</span>` : '-';
+                    homeVal = homeBookData ? `U ${marketData.total.line} <span class="text-[10px] text-slate-500">${formatOddsVal(homeBookData.odds)}</span>` : '-';
+                }
+
+                // Simplified highlight logic for best odds if provided by the API
+                const awayClass = (awayBookData && awayBookData.isBest) ? 'text-teal-400 font-bold bg-slate-800/50 rounded border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'text-slate-300';
+                const homeClass = (homeBookData && homeBookData.isBest) ? 'text-teal-400 font-bold bg-slate-800/50 rounded border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'text-slate-300';
+
+                gameRow += `
+                    <div class="col-span-2 border-l border-slate-800/60 flex flex-col text-sm font-mono transition-colors">
+                        <div class="flex-1 flex items-center justify-center p-1.5 ${awayClass}">${awayVal}</div>
+                        <div class="h-px bg-slate-800/30 w-full mx-auto"></div>
+                        <div class="flex-1 flex items-center justify-center p-1.5 ${homeClass}">${homeVal}</div>
+                    </div>
+                `;
+            });
+
+            gameRow += `</div>`;
+            container.innerHTML += gameRow;
+        };
+
+        // Select Game to update the Sidebar Panel
+        window.selectGame = function(gameId) {
+            selectedGameId = gameId;
+            if (!dashboardData || dashboardData.game.gameId !== gameId) return;
+            const gameData = dashboardData;
+            const g = gameData.game;
+
+            document.getElementById('sidebarPlaceholder').classList.add('hidden');
+            document.getElementById('sidebarContent').classList.remove('hidden');
+
+            document.getElementById('sideAwayAbbr').textContent = g.awayTeam.abbr;
+            document.getElementById('sideHomeAbbr').textContent = g.homeTeam.abbr;
+            
+            document.getElementById('sidePitchers').innerHTML = `${g.awayTeam.abbr}: ${gameData.pitching.currentPitcher.name}<br>${g.homeTeam.abbr}: TBD`;
+            
+            document.getElementById('sideUmpName').textContent = gameData.umpire.name;
+            document.getElementById('sideUmpAcc').textContent = gameData.umpire.accuracy;
+            document.getElementById('sideUmpBoost').textContent = gameData.umpire.runsExpected;
+            document.getElementById('sideUmpBias').textContent = gameData.umpire.consistency;
+
+            // Status updates
+            const statusEl = document.getElementById('sideStatus');
+            if (g.status.toLowerCase() === 'live') {
+                statusEl.className = "text-xs font-mono px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-400 rounded-full font-bold";
+                statusEl.textContent = g.inning;
+                document.getElementById('sideOuts').textContent = `${g.outs} Outs`;
+                document.getElementById('sideCount').textContent = `${g.count.balls}-${g.count.strikes} Count`;
+                
+                // Bases
+                document.getElementById('base-1').className = `absolute -bottom-1 -right-1 w-2.5 h-2.5 border transition ${g.bases.first ? 'bg-teal-400 border-teal-500' : 'bg-slate-800 border-slate-700'}`;
+                document.getElementById('base-2').className = `absolute -top-1 -right-1 w-2.5 h-2.5 border transition ${g.bases.second ? 'bg-teal-400 border-teal-500' : 'bg-slate-800 border-slate-700'}`;
+                document.getElementById('base-3').className = `absolute -top-1 -left-1 w-2.5 h-2.5 border transition ${g.bases.third ? 'bg-teal-400 border-teal-500' : 'bg-slate-800 border-slate-700'}`;
+            } else {
+                statusEl.className = "text-xs font-mono px-3 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded-full font-bold";
+                statusEl.textContent = g.status.toUpperCase();
+                document.getElementById('sideOuts').textContent = "0 Outs";
+                document.getElementById('sideCount').textContent = "0-0 Count";
+                ['base-1', 'base-2', 'base-3'].forEach(b => {
+                    document.getElementById(b).className = `absolute ${b === 'base-1' ? '-bottom-1 -right-1' : (b === 'base-2' ? '-top-1 -right-1' : '-top-1 -left-1')} w-2.5 h-2.5 bg-slate-800 border border-slate-700 transition`;
+                });
+            }
+
+            document.getElementById('schemaView').textContent = JSON.stringify(gameData, null, 2);
+            renderOddsTable(); // Re-render to update selection border
+        };
+
+        window.copySchema = function() {
+            const schemaText = document.getElementById('schemaView').textContent;
+            navigator.clipboard.writeText(schemaText);
+            alert("Raw JSON schema copied to clipboard!");
+        };
+
+        // Live API Polling Loop
+        function startSimulator() {
+            simInterval = setInterval(() => {
+                fetchDashboard();
+            }, 5000);
+        }
+
+        window.toggleSimulator = function() {
+            const btn = document.getElementById('simBtn');
+            if (isSimulating) {
+                clearInterval(simInterval);
+                btn.textContent = 'Start Live Updates';
+                btn.className = 'px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold rounded transition';
+            } else {
+                startSimulator();
+                btn.textContent = 'Stop Live Updates';
+                btn.className = 'px-3 py-1 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded transition';
+            }
+            isSimulating = !isSimulating;
+        };
+
+        // Initialize App
+        fetchDashboard();
+        startSimulator();
+    </script>
+</body>
+</html>

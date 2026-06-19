@@ -5,6 +5,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { SecureIframe } from './SecureIframe';
 import { TruthArtifactPreview } from './TruthArtifactPreview';
+import { MlbOddsDashboard } from './MlbOddsDashboard';
 
 interface MimeRendererProps {
   content: string;
@@ -156,6 +157,10 @@ const MimeRendererComponent = memo(function MimeRenderer({
 
             if (lang === 'html' || lang === 'iframe') {
               return <TruthArtifactPreview html={codeContent} />;
+            }
+
+            if (lang === 'mlb-odds-dashboard') {
+              return <MlbOddsDashboard />;
             }
 
             return (

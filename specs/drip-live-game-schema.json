@@ -1,0 +1,206 @@
+{
+  "_meta": {
+    "name": "drip-live-game",
+    "version": "1.0.0",
+    "purpose": "Gemini responseSchema contract for The Drip live in-game page. The HTML page is the renderer; this schema is the payload it reads. Schema dialect is Gemini's OpenAPI-3.0 subset (TYPE in caps, propertyOrdering, nullable, maxLength/minimum/maximum honored).",
+    "provenance_rules": {
+      "FEED": "Field MUST come from the live data layer (Kalshi / books / scoreboard). Gemini must NOT author these — they are facts. Pass them into the prompt as grounding; the model echoes, never invents.",
+      "MODEL": "Field is authored by Gemini from grounded context. Safe to generate.",
+      "DERIVED": "Computed in JS from FEED fields after the response lands (e.g. score dimming, market selection). NOT in the model's output at all — listed here so the contract is complete."
+    },
+    "hard_invariants": [
+      "The market SELECTOR stays in JS (pickMarket). Gemini fills all three markets' data; JS decides which one surfaces. Never let the model choose the surfaced market.",
+      "All line/odds numbers are FEED. Schema guarantees shape, never truth — a schema-valid 7.5 can still be a hallucinated 7.5. Ground every number.",
+      "The two prose fields (market.read, booth paragraphs) are the only free text. Both are maxLength-capped here and instruction-bounded in system_instruction. State movement; never predict; never pick."
+    ]
+  },
+
+  "system_instruction": "You are populating a structured payload for a live baseball betting page. Rules, absolute: (1) Output ONLY fields marked MODEL; FEED numbers are passed to you as grounding — echo them exactly, never alter or invent a price, line, or score. (2) The 'read' line for each market states what the number DID — the movement and the current situation — in one or two plain sentences a person would say out loud at a bar. No prediction of the outcome. No betting recommendation. No 'edge', 'value', 'lock', 'should'. No 'feels like'. (3) Booth paragraphs may reference ONLY events present in the plays array you are given. Name the count and the line. End on tension, never on a forecast. No 'the crowd is electric' filler — be specific or be silent. (4) If you lack grounding for a field, return null rather than guessing. Banned vocabulary anywhere: maximize, optimize, leverage, unlock, elevate, game-changing, seamless.",
+
+  "responseSchema": {
+    "type": "OBJECT",
+    "description": "Complete data payload for one live game render.",
+    "propertyOrdering": ["gameState", "teams", "situation", "atBat", "pitcher", "markets", "plays", "booth"],
+    "required": ["gameState", "teams", "situation", "atBat", "pitcher", "markets", "plays"],
+    "properties": {
+
+      "gameState": {
+        "type": "OBJECT",
+        "description": "FEED. Drives JS market selection and score dimming.",
+        "propertyOrdering": ["inning", "inningHalf", "leader", "margin", "runsScored"],
+        "required": ["inning", "inningHalf", "margin", "runsScored"],
+        "properties": {
+          "inning": { "type": "INTEGER", "minimum": 1, "maximum": 30, "description": "FEED. Current inning number." },
+          "inningHalf": { "type": "STRING", "enum": ["top", "bottom", "middle", "end"], "description": "FEED." },
+          "leader": { "type": "STRING", "nullable": true, "description": "FEED. Abbr of leading team, or null if tied." },
+          "margin": { "type": "INTEGER", "minimum": 0, "description": "FEED. Absolute run differential." },
+          "runsScored": { "type": "INTEGER", "minimum": 0, "description": "FEED. Total runs across both teams." }
+        }
+      },
+
+      "teams": {
+        "type": "OBJECT",
+        "description": "FEED. Identity + score. Score dimming is DERIVED in JS from these scores.",
+        "propertyOrdering": ["away", "home"],
+        "required": ["away", "home"],
+        "properties": {
+          "away": { "$ref": "#/$defs/team" },
+          "home": { "$ref": "#/$defs/team" }
+        }
+      },
+
+      "situation": {
+        "type": "OBJECT",
+        "description": "FEED. The diamond + count + outs. All facts from the scoreboard.",
+        "propertyOrdering": ["bases", "outs", "balls", "strikes", "line", "sub"],
+        "required": ["bases", "outs", "balls", "strikes"],
+        "properties": {
+          "bases": {
+            "type": "OBJECT",
+            "description": "FEED. Base occupancy. Drives diamond .on classes.",
+            "propertyOrdering": ["first", "second", "third"],
+            "required": ["first", "second", "third"],
+            "properties": {
+              "first": { "type": "BOOLEAN" },
+              "second": { "type": "BOOLEAN" },
+              "third": { "type": "BOOLEAN" }
+            }
+          },
+          "outs": { "type": "INTEGER", "minimum": 0, "maximum": 3, "description": "FEED." },
+          "balls": { "type": "INTEGER", "minimum": 0, "maximum": 4, "description": "FEED." },
+          "strikes": { "type": "INTEGER", "minimum": 0, "maximum": 3, "description": "FEED." },
+          "line": { "type": "STRING", "maxLength": 40, "nullable": true, "description": "MODEL. e.g. 'Top 5th · Two Outs'. Plain restatement of inning+outs. Optional — JS can compose from FEED instead." },
+          "sub": { "type": "STRING", "maxLength": 60, "nullable": true, "description": "MODEL. e.g. 'Yankees batting · 2–1 on Judge'. Plain. No commentary." }
+        }
+      },
+
+      "atBat": {
+        "type": "OBJECT",
+        "description": "Current batter. Name/stat FEED; photo id FEED.",
+        "propertyOrdering": ["name", "playerId", "monogram", "statLine", "count", "onDeck", "dueUp"],
+        "required": ["name", "statLine", "count", "onDeck", "dueUp"],
+        "properties": {
+          "name": { "type": "STRING", "maxLength": 40, "description": "FEED. Batter full name." },
+          "playerId": { "type": "STRING", "nullable": true, "description": "FEED. MLBAM id for headshot CDN. Null -> monogram fallback." },
+          "monogram": { "type": "STRING", "maxLength": 3, "description": "DERIVED/FEED. Initials for fallback, e.g. 'AJ'." },
+          "statLine": { "type": "STRING", "maxLength": 50, "description": "FEED. e.g. '2–2, RBI single in 3rd'. Factual line only." },
+          "count": { "type": "STRING", "maxLength": 8, "description": "FEED. e.g. '2–1'. Mirrors balls–strikes." },
+          "onDeck": { "type": "STRING", "maxLength": 40, "description": "FEED." },
+          "dueUp": { "type": "STRING", "maxLength": 40, "description": "FEED." }
+        }
+      },
+
+      "pitcher": {
+        "type": "OBJECT",
+        "description": "Current pitcher. All FEED.",
+        "propertyOrdering": ["name", "playerId", "monogram", "teamAbbr", "teamId", "statLine"],
+        "required": ["name", "teamAbbr", "statLine"],
+        "properties": {
+          "name": { "type": "STRING", "maxLength": 40, "description": "FEED." },
+          "playerId": { "type": "STRING", "nullable": true, "description": "FEED. MLBAM id. Null -> monogram." },
+          "monogram": { "type": "STRING", "maxLength": 3, "description": "DERIVED/FEED." },
+          "teamAbbr": { "type": "STRING", "maxLength": 4, "description": "FEED. e.g. 'BOS'." },
+          "teamId": { "type": "STRING", "nullable": true, "description": "FEED. MLB team id for logo CDN. Null -> text abbr." },
+          "statLine": { "type": "STRING", "maxLength": 60, "description": "FEED. e.g. '4.1 IP · 5 H · 3 ER · 78 P · 3.47 ERA'." }
+        }
+      },
+
+      "markets": {
+        "type": "OBJECT",
+        "description": "All three markets, always populated. JS selector picks which surfaces — model does NOT choose. Numbers FEED, read MODEL.",
+        "propertyOrdering": ["total", "moneyline", "runline"],
+        "required": ["total", "moneyline", "runline"],
+        "properties": {
+          "total": { "$ref": "#/$defs/market" },
+          "moneyline": { "$ref": "#/$defs/market" },
+          "runline": { "$ref": "#/$defs/market" }
+        }
+      },
+
+      "plays": {
+        "type": "ARRAY",
+        "description": "FEED. Reverse-chronological play feed. Booth paragraphs may reference ONLY these.",
+        "minItems": 1,
+        "maxItems": 40,
+        "items": { "$ref": "#/$defs/play" }
+      },
+
+      "booth": {
+        "type": "OBJECT",
+        "description": "MODEL. Optional long-form color commentary, rendered below the data. Highest-risk field — fully instruction-bounded. Omit entirely (null) if not generating commentary this render.",
+        "nullable": true,
+        "propertyOrdering": ["lead", "paragraphs"],
+        "properties": {
+          "lead": { "type": "STRING", "maxLength": 140, "description": "MODEL. One-sentence opening, present tense, the situation now." },
+          "paragraphs": {
+            "type": "ARRAY",
+            "description": "MODEL. 2–4 short paragraphs. Reference only events in plays[]. Name count and line. End on tension, never a forecast.",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": { "type": "STRING", "maxLength": 420 }
+          }
+        }
+      }
+
+    }
+  },
+
+  "$defs": {
+    "team": {
+      "type": "OBJECT",
+      "description": "FEED.",
+      "propertyOrdering": ["abbr", "name", "record", "score", "teamId"],
+      "required": ["abbr", "name", "score"],
+      "properties": {
+        "abbr": { "type": "STRING", "maxLength": 4 },
+        "name": { "type": "STRING", "maxLength": 30 },
+        "record": { "type": "STRING", "maxLength": 8, "nullable": true, "description": "e.g. '50–22'." },
+        "score": { "type": "INTEGER", "minimum": 0 },
+        "teamId": { "type": "STRING", "nullable": true, "description": "MLB team id for logo CDN." }
+      }
+    },
+
+    "market": {
+      "type": "OBJECT",
+      "description": "One betting market. cells = 3 anchor numbers (FEED). read = plain-English movement (MODEL). movement/openLine/liveLine feed the JS selector.",
+      "propertyOrdering": ["name", "cells", "read", "movement", "openLine", "liveLine"],
+      "required": ["name", "cells", "read", "movement"],
+      "properties": {
+        "name": { "type": "STRING", "enum": ["Total", "Moneyline", "Run Line"], "description": "Display name + market kind." },
+        "cells": {
+          "type": "ARRAY",
+          "description": "FEED. Exactly 3 anchor cells: typically open / live / context.",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "OBJECT",
+            "propertyOrdering": ["num", "cap", "arrow"],
+            "required": ["num", "cap"],
+            "properties": {
+              "num": { "type": "STRING", "maxLength": 8, "description": "FEED. The number, e.g. '8.5', '−180', '+150'." },
+              "cap": { "type": "STRING", "maxLength": 14, "description": "FEED. Label under it, e.g. 'Open', 'NYY Live'." },
+              "arrow": { "type": "STRING", "enum": ["up", "down"], "nullable": true, "description": "DERIVED. Direction vs open. JS can set from openLine/liveLine instead." }
+            }
+          }
+        },
+        "read": { "type": "STRING", "maxLength": 160, "description": "MODEL. One–two sentences: what the number did, plain. No prediction, no pick, no 'edge'." },
+        "movement": { "type": "NUMBER", "minimum": 0, "description": "FEED/DERIVED. Normalized line travel off open. Feeds selector weight." },
+        "openLine": { "type": "NUMBER", "nullable": true, "description": "FEED. Raw open, for arrow + selector." },
+        "liveLine": { "type": "NUMBER", "nullable": true, "description": "FEED. Raw live." }
+      }
+    },
+
+    "play": {
+      "type": "OBJECT",
+      "description": "FEED. One play-feed row.",
+      "propertyOrdering": ["inning", "desc", "scoreAfter", "isScoring"],
+      "required": ["inning", "desc"],
+      "properties": {
+        "inning": { "type": "STRING", "maxLength": 6, "description": "e.g. 'T5', 'B4'." },
+        "desc": { "type": "STRING", "maxLength": 200, "description": "Play description. May use <strong> on player names." },
+        "scoreAfter": { "type": "STRING", "maxLength": 24, "nullable": true, "description": "e.g. 'NYY 3 · BOS 1'. Present on scoring plays." },
+        "isScoring": { "type": "BOOLEAN", "nullable": true, "description": "Drives .scoring text-1 presence." }
+      }
+    }
+  }
+}

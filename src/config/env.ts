@@ -11,10 +11,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   
   // Database Configuration
-  SQL_HOST: z.string().min(1, "SQL_HOST is required."),
-  SQL_USER: z.string().min(1, "SQL_USER is required."),
-  SQL_PASSWORD: z.string().min(1, "SQL_PASSWORD is required."),
-  SQL_DB_NAME: z.string().min(1, "SQL_DB_NAME is required."),
+  SQL_HOST: z.string().optional(),
+  SQL_USER: z.string().optional(),
+  SQL_PASSWORD: z.string().optional(),
+  SQL_DB_NAME: z.string().optional(),
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid connection string").optional(),
 
   // Cloud & Vertex AI Requirements

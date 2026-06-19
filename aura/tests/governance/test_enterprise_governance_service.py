@@ -48,7 +48,7 @@ def test_governance_service_applies_all_policies_successfully(enterprise_governa
     compliant_payload = {
         "id": "operational-payload-001",
         "description": "Enterprise artifact with PII and sensitive token.",
-        "personal_email": "<jane.doe@enterprise.com>",
+        "personal_email": "jane.doe@enterprise.com",
         "authentication_token": "highly_sensitive_auth_string_123",
         "status": "approved_for_production"
     }

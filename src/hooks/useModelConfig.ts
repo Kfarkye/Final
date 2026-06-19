@@ -38,6 +38,7 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     accent: '#4285F4',
     versions: [
       { id: 'gemini-3.5-flash', label: '3.5 Flash', hint: 'fast' },
+      { id: 'gemini-3.5-flash-puppeteer', label: '3.5 Flash (Puppeteer)', hint: 'fast' },
       { id: 'gemini-3.1-pro-preview', label: '3.1 Pro', hint: 'balanced' },
       { id: 'gemini-3.1-pre-preview', label: 'Deep Think', hint: 'reasoning' },
       { id: 'gemini-3.1-pro-preview-next', label: 'Deep Think Next', hint: 'reasoning' },

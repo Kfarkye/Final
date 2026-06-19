@@ -28,6 +28,10 @@ interface Responses {
   claude: string | null;
   grok: string | null;
   deepseek: string | null;
+  planner?: string | null;
+  ui_engineer?: string | null;
+  data_analyst?: string | null;
+  [key: string]: string | null | undefined;
 }
 
 interface Turn {
@@ -75,7 +79,7 @@ export default function ChatClient() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [inputVal, setInputVal] = useState('');
   const [config, setConfig] = useState<{ baseModel: string } | null>(null);
-  const [mode, setMode] = useState<'compare' | 'shared' | 'solo'>('compare');
+  const [mode, setMode] = useState<'compare' | 'shared' | 'team' | 'solo'>('compare');
   const [sharedModel, setSharedModel] = useState<string>('gemini');
   const [topic, setTopic] = useState('Normal');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -224,8 +228,8 @@ export default function ChatClient() {
     const conv = conversations.find(c => c.id === convId);
     if (conv) {
       setTopic(conv.topic || 'Normal');
-      if (['compare', 'shared', 'solo'].includes(conv.mode)) {
-        setMode(conv.mode as 'compare' | 'shared' | 'solo');
+      if (['compare', 'shared', 'team', 'solo'].includes(conv.mode)) {
+        setMode(conv.mode as 'compare' | 'shared' | 'team' | 'solo');
       }
     }
 
@@ -288,8 +292,8 @@ export default function ChatClient() {
 
     const currentTarget = replyTargetModel
       ? [replyTargetModel]
-      : mode === 'solo'
-        ? [config.baseModel]
+      : mode === 'team'
+        ? ['planner', 'ui_engineer', 'data_analyst']
         : mode === 'shared'
           ? [sharedModel]
           : selectedProviders;
@@ -332,7 +336,7 @@ export default function ChatClient() {
     }
 
     try {
-      const activeModel = replyTargetModel || (mode === 'solo' ? config.baseModel : mode === 'shared' ? sharedModel : null);
+      const activeModel = replyTargetModel || (mode === 'shared' ? sharedModel : null);
       const history = activeModel ? turns.map(t => {
         return [
           { role: 'user', content: t.prompt },
@@ -603,6 +607,7 @@ export default function ChatClient() {
     const version = modelConfigs[id as keyof ModelConfigs] || '';
     if (id === 'gemini') {
       if (version === 'gemini-3.5-flash') return 'Gemini 3.5 Flash';
+      if (version === 'gemini-3.5-flash-puppeteer') return 'Gemini 3.5 Flash (Puppeteer)';
       if (version === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro';
       if (version === 'gemini-3.1-pro-preview-next') return 'Gemini 3.1 Pro Preview Next (Deep Think)';
       if (version === 'gemini-3.1-pre-preview') return 'Gemini 3.1 Pre-Preview (Deep Think)';
@@ -636,6 +641,9 @@ export default function ChatClient() {
       if (version === 'deepseek-ocr-maas') return 'DeepSeek OCR';
       return `DeepSeek (${version})`;
     }
+    if (id === 'planner') return 'Planner';
+    if (id === 'ui_engineer') return 'UI Engineer';
+    if (id === 'data_analyst') return 'Data Analyst';
     return id;
   };
 
@@ -647,11 +655,11 @@ export default function ChatClient() {
     const displayName = getModelDisplayName(id);
 
     return (
-      <div className={`bg-white/[0.03] backdrop-blur-xl border text-left rounded-2xl p-6 flex flex-col h-full transition-all duration-300 ${isBase && mode !== 'solo' ? 'border-white/20 ring-1 ring-white/10 shadow-[0_0_20px_rgba(255,255,255,0.04)]' : 'border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.05]'}`}>
+      <div className={`bg-white/[0.03] backdrop-blur-xl border text-left rounded-2xl p-6 flex flex-col h-full transition-all duration-300 ${isBase && mode !== 'team' ? 'border-white/20 ring-1 ring-white/10 shadow-[0_0_20px_rgba(255,255,255,0.04)]' : 'border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.05]'}`}>
         <div className="font-serif font-medium text-white mb-4 border-b border-white/10 pb-3 flex items-center justify-between">
           <span className="flex items-center space-x-3">
             <span>{displayName}</span>
-            {isBase && mode !== 'solo' && <span className="text-[10px] bg-white text-black px-2 py-0.5 rounded-full uppercase tracking-[0.2em] font-sans font-bold shadow-[0_0_10px_rgba(255,255,255,0.2)]">Base</span>}
+            {isBase && mode !== 'team' && <span className="text-[10px] bg-white text-black px-2 py-0.5 rounded-full uppercase tracking-[0.2em] font-sans font-bold shadow-[0_0_10px_rgba(255,255,255,0.2)]">Base</span>}
           </span>
           {content && !isErrorOrMissing && showReplySolo && (
             <button
@@ -723,10 +731,10 @@ export default function ChatClient() {
             Shared Context
           </button>
           <button
-            onClick={() => setMode('solo')}
-            className={`px-5 py-1.5 rounded-full transition-all duration-300 ${mode === 'solo' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'}`}
+            onClick={() => setMode('team')}
+            className={`px-5 py-1.5 rounded-full transition-all duration-300 ${mode === 'team' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'}`}
           >
-            Solo
+            Team
           </button>
         </div>
 

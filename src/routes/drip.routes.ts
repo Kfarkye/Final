@@ -15,18 +15,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "../utils/logger";
+import { edgeDb } from "../db/spanner";
 
 const router = Router();
 
-const getDirname = () => {
-  try {
-    return __dirname;
-  } catch {
-    return path.dirname(fileURLToPath(import.meta.url));
-  }
-};
-
-const DRIP_DIR = path.join(getDirname(), "..", "..", "thedrip");
+const DRIP_DIR = path.join(process.cwd(), "thedrip");
 
 /**
  * Serve a Drip page by file name.
@@ -129,5 +122,104 @@ router.get("/odds/", serveDripPage("odds-dashboard.html"));
 
 // MLB Section
 router.get("/mlb/", serveDripPage("mlb.html"));
+
+// ── JSON API Routes for Schema Hydration ──
+
+router.get("/api/drip/player/:id", async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id, 10);
+    if (isNaN(playerId)) {
+      res.status(400).json({ error: "Invalid player ID" });
+      return;
+    }
+
+    // 1. Fetch player from Spanner
+    const [rows] = await edgeDb.run({
+      sql: `SELECT * FROM MlbPlayerProfile WHERE PlayerId = @playerId`,
+      params: { playerId }
+    });
+
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ error: "Player not found" });
+      return;
+    }
+
+    const playerRow = rows[0].toJSON();
+    const playerData = {
+      id: playerRow.PlayerId,
+      fullName: playerRow.FullName,
+      teamCode: playerRow.TeamCode,
+      position: playerRow.Position,
+      bats: playerRow.Bats,
+      throws: playerRow.Throws,
+      height: playerRow.Height,
+      weight: playerRow.Weight,
+      age: playerRow.Age,
+      seasonStats: playerRow.SeasonStatsJson ? JSON.parse(playerRow.SeasonStatsJson) : null
+    };
+
+    // 2. Load schema
+    const schemaPath = path.join(DRIP_DIR, "player-page-schema.json");
+    const schema = JSON.parse(fs.readFileSync(schemaPath, "utf-8"));
+
+    // 3. Return both so client Renderer can hydrate
+    res.json({
+      schema,
+      data: {
+        player: playerData,
+        date: new Date().toISOString()
+      }
+    });
+
+  } catch (err: any) {
+    logger.error({ msg: "Failed to fetch player API", err: err.message });
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/api/drip/team/:code", async (req: Request, res: Response) => {
+  try {
+    const teamCode = req.params.code.toUpperCase();
+
+    // 1. Fetch team from Spanner
+    const [rows] = await edgeDb.run({
+      sql: `SELECT * FROM MlbTeamProfile WHERE TeamCode = @teamCode`,
+      params: { teamCode }
+    });
+
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ error: "Team not found" });
+      return;
+    }
+
+    const teamRow = rows[0].toJSON();
+    const teamData = {
+      id: teamRow.TeamId,
+      code: teamRow.TeamCode,
+      name: teamRow.FullName,
+      shortName: teamRow.ShortName,
+      location: teamRow.LocationName,
+      venue: teamRow.VenueName,
+      divisionId: teamRow.DivisionId
+    };
+
+    // 2. Load schema
+    const schemaPath = path.join(DRIP_DIR, "team-page-schema.json");
+    const schema = JSON.parse(fs.readFileSync(schemaPath, "utf-8"));
+
+    // 3. Return both
+    res.json({
+      schema,
+      data: {
+        team: teamData,
+        date: new Date().toISOString()
+      }
+    });
+
+  } catch (err: any) {
+    logger.error({ msg: "Failed to fetch team API", err: err.message });
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aaron Judge — Yankees | The Drip</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root,html[data-theme="dark"]{
+  --bg:#0C0C0E;--surface:#16161A;--surface-alt:#1C1C21;--surface-raised:#222228;
+  --text-1:#EDEDEC;--text-2:#A0A09A;--text-3:#6B6B65;--text-4:#3E3E3A;
+  --rule:#2A2A2E;--rule-dim:#1F1F23;--rule-hair:rgba(255,255,255,.04);
+  --hover:rgba(255,255,255,.02);--best-bg:rgba(255,255,255,.04);
+  --backdrop:rgba(12,12,14,.85);--team-fallback:#4A4A45;--bar:#3E3E3A;--bar-fill:#A0A09A;
+}
+html[data-theme="light"]{
+  --bg:#F5F4F1;--surface:#FFFFFF;--surface-alt:#FAF9F7;--surface-raised:#F0EFEC;
+  --text-1:#18181B;--text-2:#52524E;--text-3:#8C8C84;--text-4:#BBBBB3;
+  --rule:#E6E5E1;--rule-dim:#EDECE9;--rule-hair:rgba(0,0,0,.035);
+  --hover:rgba(0,0,0,.015);--best-bg:rgba(0,0,0,.035);
+  --backdrop:rgba(245,244,241,.82);--team-fallback:#B8B8B2;--bar:#E6E5E1;--bar-fill:#52524E;
+}
+html{font-size:16px;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text-1);font-family:'DM Sans',system-ui,sans-serif;line-height:1.55;font-weight:400;transition:background .2s,color .2s}
+*{font-variant-numeric:tabular-nums}
+
+header{position:sticky;top:0;z-index:90;background:var(--backdrop);backdrop-filter:blur(24px) saturate(1.3);border-bottom:1px solid var(--rule-dim)}
+.bar{max-width:1060px;margin:0 auto;padding:10px 28px;display:flex;justify-content:space-between;align-items:center}
+.wm{font-family:'Inter',system-ui,sans-serif;font-weight:800;font-size:.9375rem;color:var(--text-1);letter-spacing:-.05em;text-transform:lowercase}
+.nav-r{display:flex;align-items:center;gap:10px}
+.sw{display:flex;gap:2px}
+.sw span{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.5625rem;font-weight:500;padding:0 12px;min-height:36px;display:flex;align-items:center;border-radius:4px;cursor:pointer;color:var(--text-4)}
+.sw span.on{color:var(--text-1);font-weight:600}
+.theme-btn{width:32px;height:32px;border-radius:6px;border:1px solid var(--rule);background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-3)}
+.crumbs{max-width:1060px;margin:0 auto;padding:8px 28px 0;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.5625rem;font-weight:400;color:var(--text-4)}
+.crumbs a{color:var(--text-3);text-decoration:none}
+
+/* ═══ PLAYER HERO ═══ */
+.player-hero{max-width:1060px;margin:0 auto;padding:24px 28px 16px;display:flex;align-items:flex-start;gap:20px}
+.ph-photo{width:96px;height:96px;border-radius:16px;overflow:hidden;flex-shrink:0;border:1px solid var(--rule);position:relative;background:var(--surface-alt)}
+.ph-photo img{width:100%;height:100%;object-fit:cover;object-position:top center}
+.ph-photo::after{content:'';position:absolute;left:18px;right:18px;bottom:0;height:3px;border-radius:1.5px 1.5px 0 0;background:var(--team-color,var(--team-fallback))}
+.ph-info{flex:1;padding-top:2px}
+.ph-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ph-name{font-family:'Inter',system-ui,sans-serif;font-size:1.875rem;font-weight:800;letter-spacing:-.05em;line-height:1}
+.ph-team{display:flex;align-items:center;gap:6px;margin-top:6px}
+.ph-team-logo{width:16px;height:16px;border-radius:3px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--surface-alt);border:1px solid var(--rule-hair)}
+.ph-team-logo img{width:13px;height:13px;object-fit:contain}
+.ph-team-name{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.5625rem;color:var(--text-3)}
+.ph-num{font-family:'Inter',system-ui,sans-serif;font-size:1.125rem;font-weight:800;color:var(--text-4);letter-spacing:-.04em}
+
+/* Season stat bar */
+.ph-stats{display:grid;grid-template-columns:repeat(7,1fr);gap:0;margin-top:16px;background:var(--surface);border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.ph-stat{padding:11px 0;text-align:center;border-right:1px solid var(--rule-hair)}
+.ph-stat:last-child{border-right:none}
+.ph-stat-v{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:1.0625rem;font-weight:500;line-height:1}
+.ph-stat-l{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.375rem;color:var(--text-4);text-transform:uppercase;letter-spacing:.06em;margin-top:5px}
+.ph-stat-rank{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.375rem;color:var(--text-3);margin-top:2px}
+
+/* ═══ TABS ═══ */
+.player-tabs{max-width:1060px;margin:0 auto;padding:0 28px;display:flex;gap:0;border-bottom:1px solid var(--rule-dim);position:sticky;top:47px;z-index:80;background:var(--backdrop);backdrop-filter:blur(24px) saturate(1.3)}
+.ptab{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.5625rem;font-weight:500;color:var(--text-4);padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s}
+.ptab:hover{color:var(--text-2)}
+.ptab.on{color:var(--text-1);border-bottom-color:var(--text-1)}
+
+.tcontent{max-width:1060px;margin:0 auto;padding:14px 28px 0;display:none}
+.tcontent.visible{display:block}
+
+/* ── Overview tab ── */
+.ov-layout{display:grid;grid-template-columns:1fr 300px;gap:24px}
+.ov-main{}
+
+/* Trend chart card */
+.chart-card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.cc-hd{padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:baseline}
+.cc-title{font-family:'Inter',system-ui,sans-serif;font-size:.8125rem;font-weight:800;letter-spacing:-.04em}
+.cc-note{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.4375rem;color:var(--text-4)}
+.cc-body{padding:8px 16px 16px}
+.spark{display:flex;align-items:flex-end;gap:3px;height:80px}
+.spark-bar{flex:1;background:var(--bar);border-radius:2px 2px 0 0;position:relative;min-height:3px;transition:background .12s}
+.spark-bar:hover{background:var(--bar-fill)}
+.spark-bar.hot{background:var(--text-2)}
+.spark-labels{display:flex;gap:3px;margin-top:6px}
+.spark-label{flex:1;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.375rem;color:var(--text-4)}
+
+/* Recent form summary */
+.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;background:var(--surface);border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.form-cell{padding:14px 12px;text-align:center;border-right:1px solid var(--rule-hair)}
+.form-cell:last-child{border-right:none}
+.form-period{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.4375rem;color:var(--text-4);text-transform:uppercase;letter-spacing:.06em}
+.form-avg{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:1.25rem;font-weight:500;margin-top:6px;line-height:1}
+.form-detail{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.5rem;color:var(--text-3);margin-top:4px}
+
+/* Sidebar */
+.side-section{padding:0 0 11px}
+.side-section+.side-section{padding-top:13px;border-top:1px solid var(--rule-hair)}
+.side-label{font-family:'Inter',system-ui,sans-serif;font-size:.6875rem;font-weight:600;letter-spacing:-.02em;color:var(--text-2);padding:0 0 7px}
+.side-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;gap:12px}
+.side-row:not(:last-child){border-bottom:1px solid var(--rule-hair)}
+.side-k{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.4375rem;color:var(--text-4);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.side-v{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.8125rem;font-weight:500;text-align:right;color:var(--text-1)}
+.side-v.dim{color:var(--text-3)}
+
+/* Next matchup */
+.nm-opp{display:flex;align-items:center;gap:8px;padding:6px 0 8px}
+.nm-logo{width:22px;height:22px;border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--surface-alt);border:1px solid var(--rule-hair)}
+.nm-logo img{width:17px;height:17px;object-fit:contain}
+.nm-name{font-family:'DM Sans',system-ui,sans-serif;font-size:.8125rem;font-weight:600}
+.nm-time{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.5rem;color:var(--text-3)}
+
+/* Props */
+.prop-line{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+.prop-line:not(:last-child){border-bottom:1px solid var(--rule-hair)}
+.prop-type{font-family:'DM Sans',system-ui,sans-serif;font-size:.6875rem;font-weight:600;color:var(--text-2)}
+.prop-val{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.75rem;font-weight:500;color:var(--text-1)}
+
+/* ── Splits / Game Log / Matchups tables ── */
+.table-card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.tc-hd{padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:baseline}
+.tc-title{font-family:'Inter',system-ui,sans-serif;font-size:.8125rem;font-weight:800;letter-spacing:-.04em}
+.tc-note{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.4375rem;color:var(--text-4)}
+.tc-body{overflow-x:auto}
+.dtable{width:100%;border-collapse:collapse;min-width:480px}
+.dtable thead th{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.375rem;font-weight:400;color:var(--text-4);text-transform:uppercase;letter-spacing:.06em;padding:6px 8px 4px;text-align:center;border-bottom:1px solid var(--rule-hair)}
+.dtable thead th:first-child{text-align:left;padding-left:16px}
+.dtable thead th:nth-child(2){text-align:left}
+.dtable tbody td{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.6875rem;font-weight:500;padding:7px 8px;text-align:center;color:var(--text-1);border-bottom:1px solid var(--rule-hair)}
+.dtable tbody td:first-child{text-align:left;padding-left:16px;font-family:'DM Sans',system-ui,sans-serif;font-weight:600;font-size:.6875rem;color:var(--text-2)}
+.dtable tbody tr:last-child td{border-bottom:none}
+.dtable tbody tr:hover{background:var(--hover)}
+.dtable .hot{color:var(--text-1);font-weight:500}
+.dtable .cold{color:var(--text-4)}
+.dtable .cat-break td{border-bottom:1px solid var(--rule-dim)}
+/* Game log specific */
+.gl-opp{text-align:left;font-family:'DM Sans',system-ui,sans-serif;font-weight:600;color:var(--text-1)}
+.gl-date{color:var(--text-3);font-size:.5625rem}
+.dtable tbody tr.big td{color:var(--text-1)}
+.dtable tbody tr.quiet td{color:var(--text-4)}
+/* BvP photo */
+.bvp-name{display:flex;align-items:center;gap:6px}
+.bvp-photo{width:18px;height:18px;border-radius:50%;overflow:hidden;flex-shrink:0;border:1px solid var(--rule-hair)}
+.bvp-photo img{width:100%;height:100%;object-fit:cover;object-position:top}
+
+/* ═══ FOOTER ═══ */
+.ft{max-width:1060px;margin:80px auto 0;padding:16px 28px 36px;border-top:1px solid var(--rule-dim)}
+.ft p{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.4375rem;color:var(--text-4);line-height:1.8}
+
+@media(max-width:840px){
+  .ov-layout{grid-template-columns:1fr}
+  .ov-sidebar{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+  .ov-sidebar .side-section{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:12px 16px}
+}
+@media(max-width:600px){
+  .bar,.player-hero,.player-tabs,.tcontent,.ft{padding-left:20px;padding-right:20px}
+  .ph-name{font-size:1.375rem}
+  .ph-photo{width:72px;height:72px;border-radius:12px}
+  .player-hero{gap:14px}
+  .ph-stats{grid-template-columns:repeat(4,1fr)}
+  .ph-stat:nth-child(n+5){border-top:1px solid var(--rule-hair)}
+  .ph-stat-v{font-size:.9375rem}
+  .ov-sidebar{grid-template-columns:1fr}
+  .form-avg{font-size:1rem}
+  .ft{margin-top:48px}
+}
+</style>
+</head>
+<body>
+
+<div class="game" style="--team-color:#003087">
+
+<header>
+  <div class="bar">
+    <span class="wm">the drip</span>
+    <div class="nav-r">
+      <div class="sw"><span>World Cup</span><span class="on">MLB</span></div>
+      <button class="theme-btn" onclick="toggleTheme()" aria-label="Toggle theme">◐</button>
+    </div>
+  </div>
+</header>
+
+<div class="crumbs"><a href="/mlb/">mlb</a> <span style="color:var(--text-4)">/</span> <a href="/mlb/teams/nyy/">yankees</a> <span style="color:var(--text-4)">/</span> judge</div>
+
+<div class="player-hero">
+  <div class="ph-photo"><img src="https://a.espncdn.com/i/headshots/mlb/players/full/33912.png" alt="Aaron Judge"></div>
+  <div class="ph-info">
+    <div class="ph-top">
+      <div>
+        <div class="ph-name">Aaron Judge</div>
+        <div class="ph-team">
+          <div class="ph-team-logo"><img src="https://a.espncdn.com/i/teamlogos/mlb/500/nyy.png"></div>
+          <span class="ph-team-name">CF · New York Yankees · R/R · Age 33</span>
+        </div>
+      </div>
+      <span class="ph-num">99</span>
+    </div>
+    <div class="ph-stats">
+      <div class="ph-stat"><div class="ph-stat-v">.328</div><div class="ph-stat-l">AVG</div><div class="ph-stat-rank">2nd AL</div></div>
+      <div class="ph-stat"><div class="ph-stat-v">29</div><div class="ph-stat-l">HR</div><div class="ph-stat-rank">1st MLB</div></div>
+      <div class="ph-stat"><div class="ph-stat-v">68</div><div class="ph-stat-l">RBI</div><div class="ph-stat-rank">1st MLB</div></div>
+      <div class="ph-stat"><div class="ph-stat-v">.448</div><div class="ph-stat-l">OBP</div><div class="ph-stat-rank">1st MLB</div></div>
+      <div class="ph-stat"><div class="ph-stat-v">.701</div><div class="ph-stat-l">SLG</div><div class="ph-stat-rank">1st MLB</div></div>
+      <div class="ph-stat"><div class="ph-stat-v">1.149</div><div class="ph-stat-l">OPS</div><div class="ph-stat-rank">1st MLB</div></div>
+      <div class="ph-stat"><div class="ph-stat-v">5.8</div><div class="ph-stat-l">WAR</div><div class="ph-stat-rank">1st MLB</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="player-tabs">
+  <span class="ptab on" onclick="showPlayerTab('overview')">Overview</span>
+  <span class="ptab" onclick="showPlayerTab('splits')">Splits</span>
+  <span class="ptab" onclick="showPlayerTab('gamelog')">Game Log</span>
+  <span class="ptab" onclick="showPlayerTab('matchups')">Matchups</span>
+</div>
+
+<!-- ═══ OVERVIEW TAB ═══ -->
+<div class="tcontent visible" id="ptab-overview">
+  <div class="ov-layout">
+    <div class="ov-main">
+
+      <!-- Last 15 games OPS chart -->
+      <div class="chart-card">
+        <div class="cc-hd"><span class="cc-title">Last 15 Games</span><span class="cc-note">total bases per game</span></div>
+        <div class="cc-body">
+          <div class="spark">
+            <div class="spark-bar" style="height:40%"></div>
+            <div class="spark-bar hot" style="height:85%"></div>
+            <div class="spark-bar" style="height:25%"></div>
+            <div class="spark-bar hot" style="height:100%"></div>
+            <div class="spark-bar" style="height:25%"></div>
+            <div class="spark-bar" style="height:50%"></div>
+            <div class="spark-bar hot" style="height:75%"></div>
+            <div class="spark-bar" style="height:25%"></div>
+            <div class="spark-bar hot" style="height:90%"></div>
+            <div class="spark-bar" style="height:40%"></div>
+            <div class="spark-bar" style="height:50%"></div>
+            <div class="spark-bar hot" style="height:100%"></div>
+            <div class="spark-bar" style="height:25%"></div>
+            <div class="spark-bar hot" style="height:75%"></div>
+            <div class="spark-bar hot" style="height:90%"></div>
+          </div>
+          <div class="spark-labels">
+            <span class="spark-label">6/3</span><span class="spark-label"></span><span class="spark-label"></span><span class="spark-label">6/6</span><span class="spark-label"></span><span class="spark-label"></span><span class="spark-label">6/9</span><span class="spark-label"></span><span class="spark-label"></span><span class="spark-label">6/12</span><span class="spark-label"></span><span class="spark-label"></span><span class="spark-label">6/15</span><span class="spark-label"></span><span class="spark-label">6/17</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent form -->
+      <div class="form-grid">
+        <div class="form-cell"><div class="form-period">Last 7</div><div class="form-avg">.393</div><div class="form-detail">3 HR · 9 RBI · 1.287 OPS</div></div>
+        <div class="form-cell"><div class="form-period">Last 14</div><div class="form-avg">.345</div><div class="form-detail">5 HR · 15 RBI · 1.142 OPS</div></div>
+        <div class="form-cell"><div class="form-period">Last 30</div><div class="form-avg">.321</div><div class="form-detail">9 HR · 24 RBI · 1.089 OPS</div></div>
+      </div>
+
+    </div>
+
+    <!-- Sidebar -->
+    <div class="ov-sidebar">
+      <div class="side-section">
+        <div class="side-label">Next Matchup</div>
+        <div class="nm-opp">
+          <div class="nm-logo"><img src="https://a.espncdn.com/i/teamlogos/mlb/500/chw.png"></div>
+          <div style="flex:1"><div class="nm-name">vs White Sox</div><div class="nm-time">Jun 18 · 7:06 pm</div></div>
+        </div>
+        <div class="side-row"><span class="side-k">Probable SP</span><span class="side-v">Sean Burke · RHP</span></div>
+        <div class="side-row"><span class="side-k">vs Burke</span><span class="side-v dim">no history</span></div>
+        <div class="side-row"><span class="side-k">vs RHP</span><span class="side-v">.333 / .712 SLG</span></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Tonight's Props</div>
+        <div class="prop-line"><span class="prop-type">Hits</span><span class="prop-val">O/U 1.5</span></div>
+        <div class="prop-line"><span class="prop-type">Total bases</span><span class="prop-val">O/U 2.5</span></div>
+        <div class="prop-line"><span class="prop-type">HR</span><span class="prop-val">O/U 0.5 (+310)</span></div>
+        <div class="prop-line"><span class="prop-type">RBI</span><span class="prop-val">O/U 0.5</span></div>
+        <div class="prop-line"><span class="prop-type">Runs</span><span class="prop-val">O/U 0.5</span></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Statcast</div>
+        <div class="side-row"><span class="side-k">Avg exit velo</span><span class="side-v">96.2 mph</span></div>
+        <div class="side-row"><span class="side-k">Barrel %</span><span class="side-v">24.8%</span></div>
+        <div class="side-row"><span class="side-k">Hard hit %</span><span class="side-v">58.1%</span></div>
+        <div class="side-row"><span class="side-k">xwOBA</span><span class="side-v">.461</span></div>
+        <div class="side-row"><span class="side-k">Max EV</span><span class="side-v dim">119.8 mph</span></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Bio</div>
+        <div class="side-row"><span class="side-k">Bats/Throws</span><span class="side-v">R / R</span></div>
+        <div class="side-row"><span class="side-k">Height</span><span class="side-v dim">6'7"</span></div>
+        <div class="side-row"><span class="side-k">Weight</span><span class="side-v dim">282 lbs</span></div>
+        <div class="side-row"><span class="side-k">Drafted</span><span class="side-v dim">2013 · Rd 1 · #32</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SPLITS TAB ═══ -->
+<div class="tcontent" id="ptab-splits">
+  <div class="table-card">
+    <div class="tc-hd"><span class="tc-title">Situational Splits</span><span class="tc-note">2026 season</span></div>
+    <div class="tc-body">
+      <table class="dtable">
+        <thead><tr><th>Split</th><th>PA</th><th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th><th>HR</th><th>K%</th><th>BB%</th></tr></thead>
+        <tbody>
+          <tr><td>vs RHP</td><td>198</td><td class="hot">.333</td><td class="hot">.451</td><td class="hot">.712</td><td class="hot">1.163</td><td>20</td><td>24.7</td><td>16.2</td></tr>
+          <tr class="cat-break"><td>vs LHP</td><td>92</td><td>.318</td><td>.440</td><td>.679</td><td>1.119</td><td>9</td><td>22.8</td><td>17.4</td></tr>
+          <tr><td>Home</td><td>148</td><td class="hot">.345</td><td class="hot">.466</td><td class="hot">.738</td><td class="hot">1.204</td><td>16</td><td>23.6</td><td>17.6</td></tr>
+          <tr class="cat-break"><td>Away</td><td>142</td><td>.311</td><td>.430</td><td>.663</td><td>1.093</td><td>13</td><td>24.6</td><td>15.5</td></tr>
+          <tr><td>Last 7</td><td>32</td><td class="hot">.393</td><td class="hot">.500</td><td class="hot">.893</td><td class="hot">1.393</td><td>3</td><td>18.8</td><td>15.6</td></tr>
+          <tr><td>Last 14</td><td>61</td><td class="hot">.345</td><td>.459</td><td class="hot">.782</td><td class="hot">1.241</td><td>5</td><td>21.3</td><td>16.4</td></tr>
+          <tr class="cat-break"><td>Last 30</td><td>128</td><td>.321</td><td>.445</td><td>.694</td><td>1.139</td><td>9</td><td>23.4</td><td>16.4</td></tr>
+          <tr><td>RISP</td><td>78</td><td class="hot">.359</td><td class="hot">.487</td><td class="hot">.744</td><td class="hot">1.231</td><td>6</td><td>20.5</td><td>19.2</td></tr>
+          <tr><td>Bases empty</td><td>164</td><td>.305</td><td>.421</td><td>.671</td><td>1.092</td><td>14</td><td>25.6</td><td>15.2</td></tr>
+          <tr class="cat-break"><td>2 outs</td><td>96</td><td>.310</td><td>.448</td><td>.690</td><td>1.138</td><td>8</td><td>24.0</td><td>18.8</td></tr>
+          <tr><td>Day</td><td>84</td><td class="hot">.351</td><td class="hot">.464</td><td class="hot">.757</td><td class="hot">1.221</td><td>9</td><td>22.6</td><td>16.7</td></tr>
+          <tr><td>Night</td><td>206</td><td>.318</td><td>.441</td><td>.679</td><td>1.120</td><td>20</td><td>24.3</td><td>16.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ GAME LOG TAB ═══ -->
+<div class="tcontent" id="ptab-gamelog">
+  <div class="table-card">
+    <div class="tc-hd"><span class="tc-title">Game Log</span><span class="tc-note">last 15</span></div>
+    <div class="tc-body">
+      <table class="dtable">
+        <thead><tr><th>Date</th><th>Opp</th><th>AB</th><th>R</th><th>H</th><th>HR</th><th>RBI</th><th>BB</th><th>K</th><th>AVG</th></tr></thead>
+        <tbody>
+          <tr class="big"><td class="gl-date">Jun 17</td><td class="gl-opp">vs CWS</td><td>4</td><td>2</td><td>3</td><td>1</td><td>3</td><td>1</td><td>0</td><td>.328</td></tr>
+          <tr class="big"><td class="gl-date">Jun 16</td><td class="gl-opp">vs TB</td><td>4</td><td>1</td><td>2</td><td>1</td><td>2</td><td>0</td><td>1</td><td>.326</td></tr>
+          <tr class="quiet"><td class="gl-date">Jun 15</td><td class="gl-opp">vs TB</td><td>4</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td>2</td><td>.323</td></tr>
+          <tr><td class="gl-date">Jun 14</td><td class="gl-opp">vs TB</td><td>3</td><td>1</td><td>1</td><td>0</td><td>1</td><td>1</td><td>0</td><td>.326</td></tr>
+          <tr class="big"><td class="gl-date">Jun 13</td><td class="gl-opp">@ CLE</td><td>4</td><td>2</td><td>2</td><td>1</td><td>3</td><td>0</td><td>1</td><td>.325</td></tr>
+          <tr><td class="gl-date">Jun 12</td><td class="gl-opp">@ CLE</td><td>4</td><td>1</td><td>1</td><td>0</td><td>0</td><td>1</td><td>1</td><td>.323</td></tr>
+          <tr class="quiet"><td class="gl-date">Jun 11</td><td class="gl-opp">@ CLE</td><td>3</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td>2</td><td>.324</td></tr>
+          <tr><td class="gl-date">Jun 10</td><td class="gl-opp">vs MIN</td><td>4</td><td>1</td><td>2</td><td>0</td><td>1</td><td>0</td><td>1</td><td>.327</td></tr>
+          <tr class="big"><td class="gl-date">Jun 9</td><td class="gl-opp">vs MIN</td><td>4</td><td>2</td><td>3</td><td>2</td><td>4</td><td>0</td><td>0</td><td>.326</td></tr>
+          <tr><td class="gl-date">Jun 8</td><td class="gl-opp">vs MIN</td><td>3</td><td>1</td><td>1</td><td>0</td><td>0</td><td>2</td><td>0</td><td>.319</td></tr>
+          <tr class="quiet"><td class="gl-date">Jun 7</td><td class="gl-opp">@ BAL</td><td>4</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>3</td><td>.318</td></tr>
+          <tr class="big"><td class="gl-date">Jun 6</td><td class="gl-opp">@ BAL</td><td>5</td><td>2</td><td>3</td><td>1</td><td>2</td><td>0</td><td>1</td><td>.323</td></tr>
+          <tr><td class="gl-date">Jun 5</td><td class="gl-opp">@ BAL</td><td>4</td><td>1</td><td>1</td><td>0</td><td>1</td><td>1</td><td>1</td><td>.318</td></tr>
+          <tr class="big"><td class="gl-date">Jun 4</td><td class="gl-opp">vs SF</td><td>4</td><td>2</td><td>2</td><td>1</td><td>2</td><td>1</td><td>0</td><td>.319</td></tr>
+          <tr><td class="gl-date">Jun 3</td><td class="gl-opp">vs SF</td><td>4</td><td>0</td><td>1</td><td>0</td><td>0</td><td>1</td><td>1</td><td>.315</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MATCHUPS TAB ═══ -->
+<div class="tcontent" id="ptab-matchups">
+  <div class="table-card">
+    <div class="tc-hd"><span class="tc-title">vs Probable Pitchers</span><span class="tc-note">next 7 days · career</span></div>
+    <div class="tc-body">
+      <table class="dtable">
+        <thead><tr><th>Pitcher</th><th>Team</th><th>AB</th><th>H</th><th>HR</th><th>AVG</th><th>OPS</th><th>K</th></tr></thead>
+        <tbody>
+          <tr><td><div class="bvp-name"><span class="bvp-photo"><img src="https://a.espncdn.com/i/headshots/mlb/players/full/4917837.png"></span>Sean Burke</div></td><td>CWS</td><td>0</td><td class="cold">—</td><td>—</td><td class="cold">—</td><td>—</td><td>—</td></tr>
+          <tr><td><div class="bvp-name">Garrett Crochet</div></td><td>CWS</td><td>9</td><td class="hot">4</td><td class="hot">2</td><td class="hot">.444</td><td class="hot">1.556</td><td>3</td></tr>
+          <tr><td><div class="bvp-name">Grayson Rodriguez</div></td><td>BAL</td><td>12</td><td>3</td><td>1</td><td>.250</td><td>.833</td><td>5</td></tr>
+          <tr><td><div class="bvp-name">Corbin Burnes</div></td><td>BAL</td><td>18</td><td class="cold">3</td><td>1</td><td class="cold">.167</td><td class="cold">.611</td><td class="cold">8</td></tr>
+          <tr><td><div class="bvp-name">Zach Eflin</div></td><td>BAL</td><td>14</td><td class="hot">5</td><td>1</td><td class="hot">.357</td><td class="hot">1.024</td><td>2</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="tc-hd"><span class="tc-title">vs Pitch Types</span><span class="tc-note">2026 · per 100 pitches</span></div>
+    <div class="tc-body">
+      <table class="dtable">
+        <thead><tr><th>Pitch</th><th>Seen</th><th>AVG</th><th>SLG</th><th>Whiff%</th><th>Hard%</th><th>HR</th></tr></thead>
+        <tbody>
+          <tr><td>4-Seam FB</td><td>684</td><td class="hot">.351</td><td class="hot">.782</td><td>18.2</td><td class="hot">62.4</td><td>14</td></tr>
+          <tr><td>Slider</td><td>412</td><td class="cold">.244</td><td>.512</td><td class="cold">34.6</td><td>48.1</td><td>5</td></tr>
+          <tr><td>Sinker</td><td>298</td><td class="hot">.368</td><td class="hot">.711</td><td>12.4</td><td class="hot">64.8</td><td>4</td></tr>
+          <tr><td>Curveball</td><td>186</td><td>.289</td><td>.556</td><td>28.3</td><td>51.2</td><td>3</td></tr>
+          <tr><td>Changeup</td><td>142</td><td class="cold">.231</td><td class="cold">.423</td><td class="cold">31.8</td><td>44.6</td><td>2</td></tr>
+          <tr><td>Cutter</td><td>98</td><td>.310</td><td>.621</td><td>22.1</td><td>55.3</td><td>1</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<footer class="ft">
+  <p>aaron judge · #99 · nyy · .328 / 29 hr / 68 rbi / 1.149 ops / 5.8 war · splits, game log, bvp from 2026 season · statcast metrics · espn cdn · sports-mlb-db</p>
+</footer>
+
+<script>
+function showPlayerTab(id){
+  document.querySelectorAll('.tcontent').forEach(function(t){t.classList.remove('visible')});
+  document.querySelectorAll('.ptab').forEach(function(t){t.classList.remove('on')});
+  document.getElementById('ptab-'+id).classList.add('visible');
+  event.target.classList.add('on');
+}
+function toggleTheme(){
+  var h=document.documentElement;
+  h.setAttribute('data-theme',h.getAttribute('data-theme')==='dark'?'light':'dark');
+}
+</script>
+</body>
+</html>

@@ -157,8 +157,8 @@ function useAutoScroll() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
-  const scrollTimer = useRef<ReturnType<typeof setTimeout>>();
-  const rafId = useRef<number>();
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rafId = useRef<number | undefined>(undefined);
 
   const scrollToEnd = useCallback(() => {
     if (rafId.current) cancelAnimationFrame(rafId.current);
@@ -228,7 +228,7 @@ function useChat(config: ChatConfig = {}) {
   const abortRef = useRef<AbortController | null>(null);
   const streamBufferRef = useRef('');
   const activeIdRef = useRef<string | null>(null);
-  const flushRafRef = useRef<number>();
+  const flushRafRef = useRef<number | undefined>(undefined);
   const toolCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // ── Flush buffer → state (rAF-throttled) ──
@@ -527,7 +527,7 @@ function useChat(config: ChatConfig = {}) {
 
 const ToolPill = memo(function ToolPill({ run, index }: { run: ToolRun; index: number }) {
   const [elapsed, setElapsed] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
     if (intervalRef.current) {
@@ -625,7 +625,7 @@ const StreamingCursor = memo(function StreamingCursor() {
     <motion.span
       className="inline-block w-[2px] h-[1em] bg-white/50 rounded-full ml-0.5 align-text-bottom"
       animate={{ opacity: [1, 0] }}
-      transition={{ duration: 0.8, repeat: Infinity, ease: 'steps(2)' }}
+      transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
       aria-hidden
     />
   );
@@ -641,7 +641,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
   const isUser = msg.role === 'user';
   const isEmpty = !msg.content && msg.streaming;
   const [copied, setCopied] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 

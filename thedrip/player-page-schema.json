@@ -1,0 +1,245 @@
+{
+  "$schema": "drip-player-app-v1",
+  "version": "2.0.0",
+  "template": "player-page-app",
+
+  "themes": {
+    "dark": {
+      "bg": "#0C0C0E", "surface": "#16161A", "surface-alt": "#1C1C21", "surface-raised": "#222228",
+      "text-1": "#EDEDEC", "text-2": "#A0A09A", "text-3": "#6B6B65", "text-4": "#3E3E3A",
+      "rule": "#2A2A2E", "rule-dim": "#1F1F23", "rule-hair": "rgba(255,255,255,.04)",
+      "hover": "rgba(255,255,255,.02)", "best-bg": "rgba(255,255,255,.04)",
+      "backdrop": "rgba(12,12,14,.85)", "bar": "#3E3E3A", "bar-fill": "#A0A09A"
+    },
+    "light": {
+      "bg": "#F5F4F1", "surface": "#FFFFFF", "surface-alt": "#FAF9F7", "surface-raised": "#F0EFEC",
+      "text-1": "#18181B", "text-2": "#52524E", "text-3": "#8C8C84", "text-4": "#BBBBB3",
+      "rule": "#E6E5E1", "rule-dim": "#EDECE9", "rule-hair": "rgba(0,0,0,.035)",
+      "hover": "rgba(0,0,0,.015)", "best-bg": "rgba(0,0,0,.035)",
+      "backdrop": "rgba(245,244,241,.82)", "bar": "#E6E5E1", "bar-fill": "#52524E"
+    }
+  },
+
+  "layout": {
+    "max-width": "1060px",
+    "side-padding": "28px",
+    "mobile-padding": "20px"
+  },
+
+  "components": {
+
+    "player-hero": {
+      "padding": "24px 28px 16px",
+      "gap": "20px",
+      "photo": {
+        "size": "96px",
+        "phone-size": "72px",
+        "radius": "16px",
+        "team-bar": { "position": "bottom-center", "height": "3px", "inset": "18px", "color": "--team-color" }
+      },
+      "name": { "font": "display", "size": "1.875rem", "phone-size": "1.375rem", "weight": 800, "tracking": "-0.05em" },
+      "team-line": {
+        "logo": { "size": "16px", "radius": "3px" },
+        "text": { "font": "mono", "size": "0.5625rem", "color": "text-3", "format": "position · team · bats/throws · age" }
+      },
+      "number": { "font": "display", "size": "1.125rem", "weight": 800, "color": "text-4" },
+      "stat-bar": {
+        "container": { "bg": "surface", "border": "rule", "radius": "8px", "columns": 7 },
+        "stat": {
+          "value": { "font": "mono", "size": "1.0625rem", "phone-size": "0.9375rem", "weight": 500 },
+          "label": { "font": "mono", "size": "0.375rem", "color": "text-4", "uppercase": true },
+          "rank": { "font": "mono", "size": "0.375rem", "color": "text-3" }
+        },
+        "batter-stats": ["AVG", "HR", "RBI", "OBP", "SLG", "OPS", "WAR"],
+        "pitcher-stats": ["ERA", "W-L", "IP", "K", "WHIP", "FIP", "WAR"],
+        "phone-wrap": "4 columns, 2 rows"
+      }
+    },
+
+    "tabs": {
+      "items": ["Overview", "Splits", "Game Log", "Matchups"],
+      "sticky": true,
+      "sticky-offset": "47px",
+      "active": { "color": "text-1", "border-bottom": "2px solid text-1" },
+      "inactive": { "color": "text-4" }
+    },
+
+    "overview-tab": {
+      "layout": { "desktop": "1fr 300px", "tablet": "1fr", "gap": "24px" },
+      "trend-chart": {
+        "type": "sparkline-bars",
+        "height": "80px",
+        "bar": { "default": "bar token", "hot": "text-2", "radius": "2px 2px 0 0", "min-height": "3px" },
+        "hot-criteria": "above player's season average",
+        "default-metric": "total bases per game",
+        "games-shown": 15
+      },
+      "form-grid": {
+        "columns": 3,
+        "periods": ["Last 7", "Last 14", "Last 30"],
+        "avg": { "font": "mono", "size": "1.25rem", "weight": 500 },
+        "detail": { "font": "mono", "size": "0.5rem", "color": "text-3", "format": "X HR · X RBI · X.XXX OPS" }
+      },
+      "sidebar": {
+        "sections": [
+          {
+            "id": "next-matchup",
+            "label": "Next Matchup",
+            "fields": ["opponent", "Probable SP", "vs that pitcher", "vs handedness"]
+          },
+          {
+            "id": "props",
+            "label": "Tonight's Props",
+            "rows": ["Hits", "Total bases", "HR", "RBI", "Runs"]
+          },
+          {
+            "id": "statcast",
+            "label": "Statcast",
+            "fields": ["Avg exit velo", "Barrel %", "Hard hit %", "xwOBA", "Max EV"]
+          },
+          {
+            "id": "bio",
+            "label": "Bio",
+            "fields": ["Bats/Throws", "Height", "Weight", "Drafted"]
+          }
+        ]
+      }
+    },
+
+    "splits-tab": {
+      "table": {
+        "scrollable": true,
+        "min-width": "480px",
+        "batter-columns": ["Split", "PA", "AVG", "OBP", "SLG", "OPS", "HR", "K%", "BB%"],
+        "pitcher-columns": ["Split", "IP", "ERA", "WHIP", "K/9", "BB/9", "HR/9", "BABIP"],
+        "hot-stat": "text-1 (notably above average)",
+        "cold-stat": "text-4 (notably below)",
+        "category-break": "rule-dim border",
+        "categories": ["handedness", "venue", "recent-form", "situation", "time-of-day"]
+      }
+    },
+
+    "gamelog-tab": {
+      "table": {
+        "scrollable": true,
+        "min-width": "480px",
+        "default-range": 15,
+        "batter-columns": ["Date", "Opp", "AB", "R", "H", "HR", "RBI", "BB", "K", "AVG"],
+        "pitcher-columns": ["Date", "Opp", "IP", "H", "ER", "BB", "K", "HR", "ERA"],
+        "row-tiers": {
+          "big": { "color": "text-1", "criteria": "3+ hits, HR, or 3+ RBI" },
+          "normal": { "color": "text-2" },
+          "quiet": { "color": "text-4", "criteria": "0 hits" }
+        },
+        "date": { "color": "text-3", "size": "0.5625rem" },
+        "opponent": { "color": "text-1", "weight": 600 }
+      }
+    },
+
+    "matchups-tab": {
+      "vs-pitchers": {
+        "title": "vs Probable Pitchers",
+        "note": "next 7 days · career",
+        "columns": ["Pitcher", "Team", "AB", "H", "HR", "AVG", "OPS", "K"],
+        "photo-on": "key matchups (high AB count)",
+        "strong": "text-1 (favorable history)",
+        "weak": "text-4 (unfavorable)",
+        "no-history": "— in text-4"
+      },
+      "vs-pitch-types": {
+        "title": "vs Pitch Types",
+        "note": "2026 · per 100 pitches",
+        "columns": ["Pitch", "Seen", "AVG", "SLG", "Whiff%", "Hard%", "HR"],
+        "pitch-types": ["4-Seam FB", "Slider", "Sinker", "Curveball", "Changeup", "Cutter"],
+        "strong": "text-1",
+        "weak": "text-4"
+      }
+    }
+  },
+
+  "data-binding": {
+    "player": {
+      "playerId": "string",
+      "name": "string",
+      "photoUrl": "string",
+      "number": "number",
+      "position": "string",
+      "playerType": "batter | pitcher",
+      "bats": "R | L | S",
+      "throws": "R | L",
+      "age": "number",
+      "height": "string",
+      "weight": "string",
+      "drafted": "string",
+      "team": { "abbr": "string", "name": "string", "logoUrl": "string", "primaryColor": "string" },
+      "seasonStats": {
+        "values": { "avg": "string", "hr": "number", "rbi": "number", "obp": "string", "slg": "string", "ops": "string", "war": "string" },
+        "ranks": { "avg": "string", "hr": "string", "...": "league/mlb rank per stat" }
+      },
+      "trendChart": {
+        "metric": "string",
+        "games": [{ "date": "string", "value": "number", "isHot": "boolean" }],
+        "seasonAvg": "number"
+      },
+      "recentForm": {
+        "last7": { "avg": "string", "detail": "string" },
+        "last14": { "avg": "string", "detail": "string" },
+        "last30": { "avg": "string", "detail": "string" }
+      },
+      "nextMatchup": {
+        "opponent": { "abbr": "string", "name": "string", "logoUrl": "string" },
+        "date": "string", "time": "string",
+        "probablePitcher": { "name": "string", "hand": "string" },
+        "vsPitcher": "string",
+        "vsHandedness": "string"
+      },
+      "props": [{ "type": "string", "line": "string" }],
+      "statcast": {
+        "avgExitVelo": "string", "barrelPct": "string", "hardHitPct": "string",
+        "xwoba": "string", "maxEv": "string"
+      },
+      "splits": [
+        {
+          "category": "string", "name": "string",
+          "stats": { "pa": "number", "avg": "string", "obp": "string", "slg": "string", "ops": "string", "hr": "number", "kPct": "string", "bbPct": "string" },
+          "hotStats": ["string"],
+          "coldStats": ["string"]
+        }
+      ],
+      "gameLog": [
+        {
+          "date": "string", "opponent": "string",
+          "stats": { "ab": "number", "r": "number", "h": "number", "hr": "number", "rbi": "number", "bb": "number", "k": "number", "avg": "string" },
+          "tier": "big | normal | quiet"
+        }
+      ],
+      "vsPitchers": [
+        {
+          "pitcher": "string", "team": "string", "photoUrl": "string | null",
+          "stats": { "ab": "number", "h": "number", "hr": "number", "avg": "string", "ops": "string", "k": "number" },
+          "rating": "strong | neutral | weak | none"
+        }
+      ],
+      "vsPitchTypes": [
+        {
+          "pitch": "string",
+          "stats": { "seen": "number", "avg": "string", "slg": "string", "whiffPct": "string", "hardPct": "string", "hr": "number" },
+          "rating": "strong | neutral | weak"
+        }
+      ]
+    }
+  },
+
+  "design-passes": {
+    "1-audit": "Player page must be a destination, not a card. Four tabs make it an app. Stat bar hero stays the anchor. Each tab answers a different question.",
+    "2-anti-patterns": "No overview paragraph. No star rating. No fantasy projection badge. Stat bar + ranks tell the story.",
+    "3-references": "Baseball Savant Statcast density. Baseball Reference splits. The Athletic profile polish. ESPN player app tab structure.",
+    "4-typography": "Name at 1.875rem hero. Stat bar at 1.0625rem with rank context. Tables at 0.6875rem dense reference. Form averages at 1.25rem.",
+    "5-spacing": "Hero: 24px editorial. Stat bar: 11px cells. Tables: 7px rows. Sparkline: 80px breathing. Different rhythms per content density.",
+    "6-color": "Team color on photo bar only. Hot splits/games text-1, cold text-4. Sparkline hot bars text-2. No semantic green/red anywhere.",
+    "7-mobile": "Photo shrinks to 72px. Stat bar wraps to 4-col x 2-row. Overview sidebar becomes 2-col cards. Tables scroll horizontal.",
+    "8-footer": "One line mono middots with full player identity.",
+    "9-squint": "Player name (1.875rem), photo, and 7-stat bar visible as the anchor block. Tab content reads as structured tables.",
+    "10-removal": "No career timeline. No similar players. No awards. No social. Overview/Splits/Game Log/Matchups. The four questions a bettor or fan actually asks: how is he doing now, how do the splits break down, what's the recent game-by-game, and how does he do against what's coming."
+  }
+}

@@ -24,6 +24,11 @@ import { engineeringTools } from './engineering.tools';
 import { browserTools } from './browser.tools';
 import { intelligenceTools } from './intelligence.tools';
 import { soccerTools } from './soccer.tools';
+import { profileTools } from './profile.tools';
+import { gameStateTools } from './game_state.tools';
+import { deepthinkTools } from './deepthink.tools';
+import { dripTools } from './drip.tools';
+
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -52,6 +57,10 @@ toolRegistry.registerMany([
   ...browserTools,
   ...intelligenceTools,
   ...soccerTools,
+  ...profileTools,
+  ...gameStateTools,
+  ...deepthinkTools,
+  ...dripTools,
 ]);
 
 export { toolRegistry };

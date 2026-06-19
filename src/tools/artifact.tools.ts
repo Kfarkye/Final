@@ -55,7 +55,12 @@ const TEMPLATE_REGISTRY: TemplateEntry[] = [
   {
     id: "docs",
     keywords: ["documentation", "reference", "guide", "spec", "api docs", "manual", "handbook", "wiki"],
-    description: "Documentation page with sidebar navigation, endpoint reference, and tool catalog"
+    description: "Documentation page for API reference and guides"
+  },
+  {
+    id: "odds",
+    keywords: ["odds", "sports", "betting", "action network", "scores", "live score", "matchup", "mlb odds"],
+    description: "Action Network style high-density sports betting odds and live scores dashboard"
   }
 ];
 
@@ -242,6 +247,7 @@ AVAILABLE TEMPLATES (use "intent" param to auto-select):
 - landing: hero + features + stats bar
 - api-explorer: split-pane tool tester
 - docs: sidebar navigation + endpoint reference
+- odds: Action Network style high-density sports betting odds dashboard
 
 If intent is provided, the matching template is loaded and included in the response as "baseTemplate". Use it as your starting point and customize the <!-- CUSTOMIZE --> sections.`;
 

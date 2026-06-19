@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Request, Response } from 'express';
 import { sseManager } from './sse/sse-manager';
 import { EnterpriseGovernanceService } from './governance/enterprise-governance';
@@ -19,8 +21,10 @@ import {
   isRenderReady,
   type OrchestrationState,
   type DelegationRole,
+  type OrchestrationEvent,
   type SchemaName,
 } from './orchestration-schemas.js';
+import { GEMINI_SCHEMAS } from './gemini-schemas.js';
 
 function lowercaseSchemaTypes(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
@@ -54,19 +58,19 @@ function isAbortLikeError(err: any): boolean {
 function withDeadline<T>(p: Promise<T>, ms: number, signal: AbortSignal, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Tool ${label} timed out after ${ms}ms`)), ms);
-    
+
     const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException('Aborted', 'AbortError'));
     };
-    
+
     if (signal.aborted) {
       onAbort();
       return;
     }
-    
+
     signal.addEventListener('abort', onAbort, { once: true });
-    
+
     p.then(
       (v) => {
         clearTimeout(timer);
@@ -183,7 +187,8 @@ const TOOL_TIMEOUTS: Record<string, number> = {
 };
 
 function getToolTimeoutMs(toolName: string): number {
-  return TOOL_TIMEOUTS[toolName] ?? 30_000;
+  if (toolName.startsWith('browser_')) return 120_000;
+  return TOOL_TIMEOUTS[toolName] ?? 60_000;
 }
 
 // Tools whose raw results should be forwarded to the frontend in the
@@ -347,7 +352,7 @@ async function executeToolForModel({
       });
       throw err;
     }
-    
+
     ChatLogger.error(`${model}_tool_exec_error_${toolName}`, err);
 
     sendSse('tool_error', {
@@ -651,13 +656,20 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     // Build specialist caller — uses the deps SDKs for non-streaming calls
     const specialistCaller: SpecialistCaller = {
-      async call(model: string, systemPrompt: string, userPrompt: string, sig?: AbortSignal): Promise<string> {
+      async call(model: string, systemPrompt: string, userPrompt: string, sig?: AbortSignal, schema?: SchemaName): Promise<string> {
         // Route to the appropriate SDK for a single non-streaming completion
         if ((model === 'gemini') && deps.ai) {
+          const geminiModelId = modelConfigs.gemini || 'gemini-3.5-flash';
+          const actualModel = geminiModelId === 'gemini-3.5-flash-puppeteer' ? 'gemini-3.5-flash' : geminiModelId;
+          const config: any = { systemInstruction: systemPrompt, temperature: 0.2 };
+          if (schema && GEMINI_SCHEMAS[schema]) {
+            config.responseMimeType = "application/json";
+            config.responseSchema = GEMINI_SCHEMAS[schema];
+          }
           const result = await deps.ai.models.generateContent({
-            model: modelConfigs.gemini || 'gemini-3.5-flash',
+            model: actualModel,
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            config: { systemInstruction: systemPrompt, temperature: 0.2 },
+            config,
           });
           return result.text || '';
         }
@@ -753,7 +765,21 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
-    const baseSystemPrompt = `You are Truth. An objective, lightning-fast sports intelligence platform.
+
+    const getBaseSystemPrompt = (modelName: string, actualModelId: string = ''): string => {
+      const id = actualModelId.toLowerCase();
+      let toolPriority = '';
+
+      // Gemini / Claude Opus -> Web search fetch tools puppeteer first
+      if (modelName === 'gemini' || id.includes('opus')) {
+        toolPriority = '\n9. CRITICAL TOOL PRIORITY: You MUST prioritize using web search and headless browser tools (Puppeteer) FIRST to find the most accurate live data, live odds, and schedules before falling back to database or other methods. Use the odds tool (get_mlb_odds) specifically for odds.';
+      }
+      // Chat gpt / Sonnet -> Database first
+      else if (modelName === 'chatgpt' || id.includes('sonnet')) {
+        toolPriority = '\n9. CRITICAL TOOL PRIORITY: You MUST prioritize using the Database FIRST to find data, schedules, and odds before falling back to web search or other methods.';
+      }
+
+      return `You are Truth. An objective, lightning-fast sports intelligence platform.
 Your voice is concise, data-driven, and strictly professional.
 Act normal. Answer the actual question the user asked. If they say hello, say hello back. If they ask about sports, give them sports. Don't force data into every response.
 NEVER use disclaimers about financial advice. NEVER roleplay or use financial metaphors.
@@ -769,7 +795,8 @@ CORE DIRECTIVES:
 5. Use search_mlb_player to resolve names to IDs, then get_mlb_player_splits and get_mlb_bvp to ground every statistical claim. Never cite a stat you did not retrieve from a tool.
 6. Use get_game_environment to check weather and venue dimensions before any totals or HR prop recommendation.
 7. If lineups are not yet posted, say so explicitly. Never assume a lineup.
-8. Web research workflow: call search_web ONCE to discover URLs, then call fetch_html to read specific pages, then call fetch_json for API endpoints. Never call search_web more than twice per query.`;
+8. Web research workflow: call search_web ONCE to discover URLs, then call fetch_html to read specific pages, then call fetch_json for API endpoints. Never call search_web more than twice per query.${toolPriority}`;
+    };
 
     // ── HTML Artifact Output Contract ──
     // Ensures all models render artifacts inline (triggers SecureIframe + Deploy button)
@@ -778,12 +805,13 @@ CORE DIRECTIVES:
 <artifact_rendering_contract>
 CRITICAL OUTPUT RULE — HTML ARTIFACTS:
 When you create, generate, or produce any HTML content (dashboards, pages, tools, visualizations, artifacts, UIs, etc.):
-1. ALWAYS output the complete HTML inside a fenced code block with the "html" language tag: \`\`\`html
+1. ALWAYS output the complete HTML inside a fenced code block with the "html" language tag: \\\`\\\`\\\`html
 2. NEVER just describe the artifact or say "here's what I would create" — actually produce the full HTML.
 3. The HTML will be rendered as a live interactive preview in the chat with a Deploy button the user can click.
 4. Include <!DOCTYPE html> and complete <html><head><body> structure.
 5. Use the Truth Design System CSS classes when available (.t-card, .t-grid, .t-badge, etc.).
 6. Fetch live data from same-origin APIs (GET /api/system/status, GET /api/debug/tools, GET /healthz) instead of hardcoding mock data.
+7. If the user explicitly asks for the MLB Odds Dashboard, output an empty fenced code block with the "mlb-odds-dashboard" language tag to render the native high-fidelity React component (e.g. \`\`\`mlb-odds-dashboard\n\`\`\`).
 This is non-negotiable. Every HTML artifact MUST be rendered inline as a code block so the user can preview and deploy it.
 </artifact_rendering_contract>`;
 
@@ -1012,8 +1040,8 @@ CONSTRAINTS:
 - Synthesis is YOUR job — never delegate it
 </collaboration_mode>` : '';
 
-    const systemPrompt = [
-      baseSystemPrompt,
+    const getSystemPrompt = (modelName: string, actualModelId: string = '') => [
+      getBaseSystemPrompt(modelName, actualModelId),
       agentOperatingContract,
       collaborationPrompt,
       knowledgeBlock,
@@ -1022,6 +1050,64 @@ CONSTRAINTS:
       toolUseInstruction,
       toolCatalog ? `\n\n${toolCatalog}` : '',
     ].join('');
+
+    const filterToolsForModel = (modelName: string, actualModelId: string, tools: any[]) => {
+      const id = actualModelId.toLowerCase();
+      const isWebsiteModel = modelName === 'gemini' || id.includes('opus');
+      const isDatabaseModel = modelName === 'chatgpt' || id.includes('sonnet');
+      const isReasoningModel = modelName === 'grok' || id.includes('deepseek') || id.includes('deepthink') || id.includes('thinking');
+
+      const websiteToolNames = new Set([
+        'search_web', 'fetch_html', 'fetch_json', 'fetch_text', 'fetch_headers',
+        'fetch_rss', 'fetch_sitemap', 'fetch_robots', 'fetch_url_batch', 'fetch_xml',
+        'fetch_markdown', 'fetch_readable', 'extract_page', 'http_request',
+        'research_sources', 'research_report'
+      ]);
+
+      const dbToolNames = new Set([
+        'execute_sql', 'get_database_ddl', 'list_instances', 'list_databases',
+        'execute_sql_readonly', 'describe_spanner_table', 'query_truth_ledger',
+        'get_mlb_scores', 'get_mlb_player_splits', 'get_game_environment',
+        'get_mlb_live_games', 'get_mlb_schedule', 'get_mlb_slate_overview',
+        'get_espn_game', 'get_espn_live_games', 'get_espn_scoreboard',
+        'get_espn_final_scores', 'find_espn_game', 'get_fangraphs_projections',
+        'get_fangraphs_player'
+      ]);
+
+      return tools.filter(t => {
+        const name = t.name || t.function?.name;
+        if (!name) return true;
+
+        if (name === 'delegate_task' || name === 'get_current_date' || name === 'get_current_time' || name === 'create_html_artifact') {
+          if (name === 'create_html_artifact' && actualModelId.includes('gemini')) {
+            return false;
+          }
+          return true;
+        }
+
+        if (isReasoningModel) {
+          return false;
+        }
+
+        if (isWebsiteModel) {
+          if (name.includes('odds')) return true;
+          if (name.startsWith('browser_')) return true;
+          if (websiteToolNames.has(name)) return true;
+          if (dbToolNames.has(name)) return false;
+          return true;
+        }
+
+        if (isDatabaseModel) {
+          if (dbToolNames.has(name)) return true;
+          if (name.includes('odds')) return true;
+          if (name.startsWith('browser_')) return false;
+          if (websiteToolNames.has(name)) return false;
+          return true;
+        }
+
+        return true;
+      });
+    };
 
     // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
@@ -1040,17 +1126,17 @@ CONSTRAINTS:
     const promises: Promise<void>[] = [];
 
     // ═══════════════════════════════════════════════════════════════════
-    // Gemini Streaming
+    // Gemini Streaming Logic
     // ═══════════════════════════════════════════════════════════════════
-    if (targetModels.includes('gemini') && deps.ai) {
-      promises.push(streamModel('gemini', (async () => {
+    const startGeminiStream = (targetId: string, selectedGeminiModel: string, systemInstruction: string | undefined) => {
+      promises.push(streamModel(targetId, (async () => {
         const contents: any[] = [];
         if (mode === 'shared' && history) {
           for (const h of history) {
             contents.push({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content }] });
           }
         }
-        contents.push({ role: 'user', parts: buildUserContent('gemini', modelConfigs.gemini || 'gemini-3.5-flash', governedPrompt) });
+        contents.push({ role: 'user', parts: buildUserContent('gemini', selectedGeminiModel, governedPrompt) });
 
         const mergedDecls = [...deps.workspaceDecls];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
@@ -1072,14 +1158,17 @@ CONSTRAINTS:
           });
         }
 
-        const selectedGeminiModel = modelConfigs.gemini || "gemini-3.5-flash";
-
         let geminiConfig: any = undefined;
-        if (systemPrompt) geminiConfig = { systemInstruction: systemPrompt };
+        if (systemInstruction) {
+          geminiConfig = { systemInstruction };
+        }
+
         if (mergedDecls.length > 0) {
           geminiConfig = geminiConfig || {};
-          geminiConfig.tools = [{ functionDeclarations: mergedDecls }];
+          geminiConfig.tools = [{ functionDeclarations: filterToolsForModel('gemini', selectedGeminiModel, mergedDecls) }];
         }
+        geminiConfig = geminiConfig || {};
+        geminiConfig.maxOutputTokens = 65536;
 
         if (selectedGeminiModel === "gemini-3.1-pro-preview-next") {
           geminiConfig = geminiConfig || {};
@@ -1095,8 +1184,6 @@ CONSTRAINTS:
             thinkingLevel: 'MAX',
             includeThoughts: true
           };
-          // Inject self-audit directive: the model must review its own reasoning
-          // and verify correctness before presenting any output to the user.
           const auditDirective = [
             "DEEP THINK PROTOCOL — MANDATORY SELF-AUDIT",
             "Before presenting ANY output to the user, you MUST:",
@@ -1115,11 +1202,10 @@ CONSTRAINTS:
             : auditDirective;
         }
 
-        // Map internal model identifiers to real Google API model IDs.
-        // Deep Think modes use the real gemini-3.1-pro-preview with different thinking levels.
         const MODEL_ID_MAP: Record<string, string> = {
-          'gemini-3.1-pro-preview-next': 'gemini-3.1-pro-preview',  // Deep Think Next (HIGH)
-          'gemini-3.1-pre-preview': 'gemini-3.1-pro-preview',       // Deep Think (MAX + self-audit)
+          'gemini-3.5-flash-puppeteer': 'gemini-3.5-flash',
+          'gemini-3.1-pro-preview-next': 'gemini-3.1-pro-preview',
+          'gemini-3.1-pre-preview': 'gemini-3.1-pro-preview',
         };
         const actualModelId = MODEL_ID_MAP[selectedGeminiModel] || selectedGeminiModel;
 
@@ -1133,7 +1219,7 @@ CONSTRAINTS:
             model: actualModelId,
             contents: contents,
             config: geminiConfig
-          }, { signal });
+          }, { signal, timeout: 1200_000 });
 
           let functionCalls: any[] = [];
           let candidateContent: any = { role: 'model', parts: [] };
@@ -1142,13 +1228,17 @@ CONSTRAINTS:
             if (signal.aborted) break;
             const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
             if (hasText && chunk.text) {
-              sendSse('message', { model: 'gemini', chunk: chunk.text });
+              sendSse('message', { model: targetId, chunk: chunk.text });
             }
             if (chunk.functionCalls && chunk.functionCalls.length > 0) {
               functionCalls.push(...chunk.functionCalls);
             }
             if (chunk.candidates?.[0]?.content?.parts) {
-              candidateContent.parts.push(...chunk.candidates[0].content.parts);
+              const validParts = chunk.candidates[0].content.parts.filter((p: any) => {
+                if (p.text !== undefined && p.text === "") return false;
+                return true;
+              });
+              candidateContent.parts.push(...validParts);
             }
           }
 
@@ -1160,7 +1250,6 @@ CONSTRAINTS:
             const responseParts = await Promise.all(functionCalls.map(async (call) => {
               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-              // Block tools that already failed twice
               const priorFailures = failedToolCalls.get(call.name) || 0;
               if (priorFailures >= 2) {
                 return {
@@ -1173,7 +1262,7 @@ CONSTRAINTS:
               }
 
               const toolResult = await executeToolForModel({
-                model: 'gemini',
+                model: targetId,
                 toolName: call.name,
                 args: call.args,
                 googleAccessToken,
@@ -1183,7 +1272,6 @@ CONSTRAINTS:
                 deps
               });
 
-              // Track failures
               if (toolResult && typeof toolResult === 'object' && 'error' in toolResult) {
                 failedToolCalls.set(call.name, priorFailures + 1);
               }
@@ -1204,12 +1292,55 @@ CONSTRAINTS:
           }
 
           if (runCount >= 30 && continueLoop && !signal.aborted) {
-            sendSse('message', { model: 'gemini', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+            sendSse('message', { model: targetId, chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
           }
         }
       })()));
+    };
+
+    if (targetModels.includes('gemini') && deps.ai) {
+      const selectedGeminiModel = modelConfigs.gemini || "gemini-3.5-flash";
+      let modelSystemPrompt = getSystemPrompt('gemini', selectedGeminiModel);
+
+      if (selectedGeminiModel === "gemini-3.5-flash-puppeteer") {
+        modelSystemPrompt = `You are an expert with the JS puppeteer tool. When told a task, you must study the site and dom and then recreate it with un hallucinated data.
+CRITICAL CONSTRAINTS:
+1. Data can NEVER be missing if it is replicating the page.
+2. It must look exactly alike.
+3. You must get every single detail. Exhaustive Replication is required.
+4. <PLAN> block: You must go through the planning steps first before generating the final output. Document your analysis of the DOM structure in the <PLAN> block.`;
+      } else if (selectedGeminiModel.includes("gemini")) {
+        modelSystemPrompt = modelSystemPrompt.replace(artifactContract, "");
+        modelSystemPrompt += "\n\nCRITICAL RULE: DO NOT GENERATE HTML. You MUST strictly use the native JSON contracts (Layers 1-6) and return only JSON output.";
+      }
+
+      startGeminiStream('gemini', selectedGeminiModel, modelSystemPrompt);
     } else if (targetModels.includes('gemini')) {
       sendSse('message', { model: 'gemini', chunk: '[Gemini Not Configured]' });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Team Mode / Role Specialists
+    // ═══════════════════════════════════════════════════════════════════
+    if (mode === 'team') {
+      let roleConfig: any = { roles: [] };
+      try {
+        roleConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib', 'role-config.json'), 'utf8'));
+      } catch (e) {
+        ChatLogger.warn('Failed to load role-config.json for team mode', { error: (e as Error).message });
+      }
+
+      const teamRoles = targetModels
+        .map((tm: string) => roleConfig.roles.find((r: any) => r.id === tm))
+        .filter(Boolean);
+
+      for (const role of teamRoles) {
+        if (role.model.includes('gemini') && deps.ai) {
+          startGeminiStream(role.id, role.model, role.systemPrompt);
+        } else {
+          sendSse('message', { model: role.id, chunk: `[Model provider for ${role.model} not implemented in Team Mode]` });
+        }
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1218,7 +1349,8 @@ CONSTRAINTS:
     if (targetModels.includes('chatgpt') && deps.openai) {
       promises.push(streamModel('chatgpt', (async () => {
         const msgs: any[] = [];
-        if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
+        const chatGptSystemPrompt = getSystemPrompt('chatgpt', modelConfigs.chatgpt || 'gpt-5.5');
+        if (chatGptSystemPrompt) msgs.push({ role: "system", content: chatGptSystemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: buildUserContent('chatgpt', modelConfigs.chatgpt || 'gpt-5.5', governedPrompt) });
 
@@ -1268,9 +1400,10 @@ CONSTRAINTS:
           const stream = await deps.openai.chat.completions.create({
             model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
             messages: currentMessages,
-            tools: openaiTools.length > 0 ? openaiTools : undefined,
+            max_completion_tokens: 128000,
+            tools: openaiTools.length > 0 ? filterToolsForModel('chatgpt', modelConfigs.chatgpt || "gpt-5.5-2026-04-23", openaiTools) : undefined,
             stream: true
-          }, { signal });
+          }, { signal, timeout: 2400_000 });
 
           let toolCalls: any = {};
 
@@ -1393,17 +1526,18 @@ CONSTRAINTS:
           const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
 
           // Opus 4 supports up to 128k output tokens.
-          // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
-          // Sonnet uses 16384 (cheaper, faster), Opus gets 65536 for deep work.
-          const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 65536 : 16384;
+          const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 128000 : 128000;
+
+          let claudeSystemPrompt = getSystemPrompt('claude', selectedClaudeModel);
+          claudeSystemPrompt += "\n\nCRITICAL RULE: You are HIGHLY ENCOURAGED to generate HTML artifacts for any data presentation, visualization, dashboard, or complex output. Always use the HTML artifact rendering contract (```html) to present your findings visually to the user.";
 
           const stream = deps.anthropic.messages.stream({
             model: selectedClaudeModel,
             max_tokens: claudeMaxTokens,
-            system: systemPrompt,
+            system: claudeSystemPrompt,
             messages: currentMessages,
-            tools: claudeTools.length > 0 ? claudeTools : undefined
-          }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
+            tools: claudeTools.length > 0 ? filterToolsForModel('claude', selectedClaudeModel, claudeTools) : undefined
+          }, { signal, timeout: 1200_000 }); // 20 min SDK timeout for agentic loops
 
           let currentToolUse: any = null;
           let assistantContentBlocks: any[] = [];
@@ -1469,7 +1603,7 @@ CONSTRAINTS:
           const toolResultBlocks = await Promise.all(assistantContentBlocks.map(async (block) => {
             if (block.type !== 'tool_use') return null;
             if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            
+
             const toolResult = await executeToolForModel({
               model: 'claude',
               toolName: block.name,
@@ -1516,129 +1650,131 @@ CONSTRAINTS:
       if (!grokClient) {
         sendSse('message', { model: 'grok', chunk: '[Grok Not Configured — set XAI_API_KEY or enable Vertex AI MaaS]' });
       } else {
-      promises.push(streamModel('grok', (async () => {
-        const msgs: any[] = [];
-        if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
-        if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', governedPrompt) });
+        promises.push(streamModel('grok', (async () => {
+          const msgs: any[] = [];
+          const grokSystemPrompt = getSystemPrompt('grok', modelConfigs.grok || "grok-4.3");
+          if (grokSystemPrompt) msgs.push({ role: "system", content: grokSystemPrompt });
+          if (mode === 'shared' && history) msgs.push(...history);
+          msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', governedPrompt) });
 
-        const grokTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
-          grokTools.push({
-            type: "function",
-            function: {
-              name: canonical.name,
-              description: canonical.description,
-              parameters: lowercaseSchemaTypes(canonical.parameters)
-            }
-          });
-        }
+          const grokTools: any[] = [];
+          for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
+            grokTools.push({
+              type: "function",
+              function: {
+                name: canonical.name,
+                description: canonical.description,
+                parameters: lowercaseSchemaTypes(canonical.parameters)
+              }
+            });
+          }
 
-        if (deps.workspaceDecls) {
-          deps.workspaceDecls.forEach((d: any) => {
-            if (!grokTools.some((t: any) => t.function.name === d.name)) {
-              grokTools.push({
-                type: "function",
-                function: {
-                  name: d.name,
-                  description: d.description,
-                  parameters: lowercaseSchemaTypes(d.parameters)
-                }
-              });
-            }
-          });
-        }
+          if (deps.workspaceDecls) {
+            deps.workspaceDecls.forEach((d: any) => {
+              if (!grokTools.some((t: any) => t.function.name === d.name)) {
+                grokTools.push({
+                  type: "function",
+                  function: {
+                    name: d.name,
+                    description: d.description,
+                    parameters: lowercaseSchemaTypes(d.parameters)
+                  }
+                });
+              }
+            });
+          }
 
-        // ── Register delegate_task in collaboration mode ──
-        if (isCollaboration && !grokTools.some((t: any) => t.function?.name === 'delegate_task')) {
-          grokTools.push({
-            type: "function",
-            function: {
-              name: DELEGATE_TASK_TOOL.name,
-              description: DELEGATE_TASK_TOOL.description,
-              parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
-            }
-          });
-        }
+          // ── Register delegate_task in collaboration mode ──
+          if (isCollaboration && !grokTools.some((t: any) => t.function?.name === 'delegate_task')) {
+            grokTools.push({
+              type: "function",
+              function: {
+                name: DELEGATE_TASK_TOOL.name,
+                description: DELEGATE_TASK_TOOL.description,
+                parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
+              }
+            });
+          }
 
-        let currentMessages = [...msgs];
-        let runCount = 0;
+          let currentMessages = [...msgs];
+          let runCount = 0;
 
-        while (runCount < 30 && !signal.aborted) {
-          const stream = await grokClient.chat.completions.create({
-            model: modelConfigs.grok || "grok-4.3",
-            messages: currentMessages,
-            tools: grokTools.length > 0 ? grokTools : undefined,
-            stream: true
-          }, { signal });
+          while (runCount < 30 && !signal.aborted) {
+            const stream = await grokClient.chat.completions.create({
+              model: modelConfigs.grok || "grok-4.3",
+              messages: currentMessages,
+              max_tokens: 65536,
+              tools: grokTools.length > 0 ? filterToolsForModel('grok', modelConfigs.grok || "grok-3-latest", grokTools) : undefined,
+              stream: true
+            }, { signal });
 
-          let toolCalls: any = {};
+            let toolCalls: any = {};
 
-          for await (const chunk of stream) {
-            if (signal.aborted) break;
-            const delta = chunk.choices?.[0]?.delta;
-            if (!delta) continue;
+            for await (const chunk of stream) {
+              if (signal.aborted) break;
+              const delta = chunk.choices?.[0]?.delta;
+              if (!delta) continue;
 
-            if (delta.content) {
-              sendSse('message', { model: 'grok', chunk: delta.content });
-            }
+              if (delta.content) {
+                sendSse('message', { model: 'grok', chunk: delta.content });
+              }
 
-            if (delta.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (!toolCalls[tc.index]) {
-                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
-                }
-                if (tc.function?.arguments) {
-                  toolCalls[tc.index].function.arguments += tc.function.arguments;
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (!toolCalls[tc.index]) {
+                    toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                  }
+                  if (tc.function?.arguments) {
+                    toolCalls[tc.index].function.arguments += tc.function.arguments;
+                  }
                 }
               }
             }
+
+            if (signal.aborted) break;
+
+            const tcKeys = Object.keys(toolCalls);
+            if (tcKeys.length === 0) {
+              break;
+            }
+
+            const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
+            currentMessages.push(messageToAppend);
+
+            const toolResults = await Promise.all(tcKeys.map(async (key) => {
+              if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+              const call = toolCalls[key];
+              let args;
+              try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
+              const toolResult = await executeToolForModel({
+                model: 'grok',
+                toolName: call.function.name,
+                args,
+                googleAccessToken,
+                connectionId,
+                signal,
+                sendSse,
+                deps
+              });
+
+              return {
+                role: "tool",
+                tool_call_id: call.id,
+                name: call.function.name,
+                content: JSON.stringify(toolResult)
+              };
+            }));
+
+            if (signal.aborted) break;
+            currentMessages.push(...toolResults);
+            runCount++;
+
+            if (runCount >= 30 && !signal.aborted) {
+              sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+            }
           }
-
-          if (signal.aborted) break;
-
-          const tcKeys = Object.keys(toolCalls);
-          if (tcKeys.length === 0) {
-            break;
-          }
-
-          const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
-          currentMessages.push(messageToAppend);
-
-          const toolResults = await Promise.all(tcKeys.map(async (key) => {
-            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            const call = toolCalls[key];
-            let args;
-            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
-
-            const toolResult = await executeToolForModel({
-              model: 'grok',
-              toolName: call.function.name,
-              args,
-              googleAccessToken,
-              connectionId,
-              signal,
-              sendSse,
-              deps
-            });
-
-            return {
-              role: "tool",
-              tool_call_id: call.id,
-              name: call.function.name,
-              content: JSON.stringify(toolResult)
-            };
-          }));
-
-          if (signal.aborted) break;
-          currentMessages.push(...toolResults);
-          runCount++;
-
-          if (runCount >= 30 && !signal.aborted) {
-            sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
-          }
-        }
-      })()));
+        })()));
       } // end else (grokClient available)
     }
 
@@ -1659,165 +1795,167 @@ CONSTRAINTS:
       if (!deepseekClient) {
         sendSse('message', { model: 'deepseek', chunk: '[DeepSeek Not Configured — set DEEPSEEK_API_KEY or enable Vertex AI MaaS]' });
       } else {
-      promises.push(streamModel('deepseek', (async () => {
-        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
-        
-        // Add deepseek-ai/ prefix if using Vertex AI MaaS (which is when DEEPSEEK_API_KEY is not configured)
-        const isMaaS = !process.env.DEEPSEEK_API_KEY;
-        const actualDeepseekModel = isMaaS && selectedDeepseekModel.startsWith('deepseek-') && !selectedDeepseekModel.includes('/')
-          ? `deepseek-ai/${selectedDeepseekModel}`
-          : selectedDeepseekModel;
+        promises.push(streamModel('deepseek', (async () => {
+          const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
 
-        // All supported models support thinking (MaaS and direct)
-        const isThinkingModel = actualDeepseekModel.includes('v3') || actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('v4');
+          // Add deepseek-ai/ prefix if using Vertex AI MaaS (which is when DEEPSEEK_API_KEY is not configured)
+          const isMaaS = !process.env.DEEPSEEK_API_KEY;
+          const actualDeepseekModel = isMaaS && selectedDeepseekModel.startsWith('deepseek-') && !selectedDeepseekModel.includes('/')
+            ? `deepseek-ai/${selectedDeepseekModel}`
+            : selectedDeepseekModel;
 
-        const msgs: any[] = [];
-        // V4 supports system messages in both thinking and non-thinking mode
-        if (systemPrompt) {
-          msgs.push({ role: "system", content: systemPrompt });
-        }
-        if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', governedPrompt) });
+          // All supported models support thinking (MaaS and direct)
+          const isThinkingModel = actualDeepseekModel.includes('v3') || actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('v4');
 
-        // Build tool declarations — V4 supports tools with thinking enabled
-        const deepseekTools: any[] = [];
-        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
-          deepseekTools.push({
-            type: "function",
-            function: {
-              name: canonical.name,
-              description: canonical.description,
-              parameters: lowercaseSchemaTypes(canonical.parameters)
-            }
-          });
-        }
-
-        // Register workspace tools
-        if (deps.workspaceDecls) {
-          deps.workspaceDecls.forEach((d: any) => {
-            if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
-              deepseekTools.push({
-                type: "function",
-                function: {
-                  name: d.name,
-                  description: d.description,
-                  parameters: lowercaseSchemaTypes(d.parameters)
-                }
-              });
-            }
-          });
-        }
-
-        let currentMessages = [...msgs];
-        let runCount = 0;
-
-        while (runCount < 30 && !signal.aborted) {
-          // Per official docs: thinking and reasoning_effort are top-level params
-          // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
-           const createParams: any = {
-            model: actualDeepseekModel,
-            messages: currentMessages,
-            tools: deepseekTools.length > 0 ? deepseekTools : undefined,
-            stream: true,
-          };
-
-          // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
-          if (isThinkingModel) {
-            // reasoning_effort: "high" (default) or "max" (for complex agentic tasks)
-            createParams.reasoning_effort = "high";
-            // thinking toggle — must be in extra_body for OpenAI SDK
-            // But the OpenAI Node SDK passes unknown top-level keys through,
-            // so we set it directly per DeepSeek's docs
-            createParams.thinking = { type: "enabled" };
+          const msgs: any[] = [];
+          // V4 supports system messages in both thinking and non-thinking mode
+          const deepseekSystemPrompt = getSystemPrompt('deepseek', actualDeepseekModel);
+          if (deepseekSystemPrompt) {
+            msgs.push({ role: "system", content: deepseekSystemPrompt });
           }
+          if (mode === 'shared' && history) msgs.push(...history);
+          msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', governedPrompt) });
 
-          const stream = await deepseekClient.chat.completions.create(createParams, { signal });
-
-          let toolCalls: any = {};
-          let hasContent = false;
-          let reasoningBuffer = '';
-
-          for await (const chunk of stream) {
-            if (signal.aborted) break;
-            const delta = chunk.choices?.[0]?.delta;
-            if (!delta) continue;
-
-            // DeepSeek streams chain-of-thought in reasoning_content
-            // Per docs: "the chain-of-thought content is returned via the reasoning_content parameter"
-            if ((delta as any).reasoning_content) {
-              const reasoning = (delta as any).reasoning_content;
-              reasoningBuffer += reasoning;
-              sendSse('message', { model: 'deepseek', chunk: reasoning });
-            }
-
-            // Standard content (final answer after reasoning, or full response if thinking disabled)
-            if (delta.content) {
-              // If we were streaming reasoning, insert a separator before the final answer
-              if (reasoningBuffer && !hasContent) {
-                sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
-                reasoningBuffer = '';
+          // Build tool declarations — V4 supports tools with thinking enabled
+          const deepseekTools: any[] = [];
+          for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
+            deepseekTools.push({
+              type: "function",
+              function: {
+                name: canonical.name,
+                description: canonical.description,
+                parameters: lowercaseSchemaTypes(canonical.parameters)
               }
-              hasContent = true;
-              sendSse('message', { model: 'deepseek', chunk: delta.content });
-            }
-
-            // Tool calls — V4 supports these even with thinking enabled
-            if (delta.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (!toolCalls[tc.index]) {
-                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
-                }
-                if (tc.function?.arguments) {
-                  toolCalls[tc.index].function.arguments += tc.function.arguments;
-                }
-              }
-            }
-          }
-
-          if (signal.aborted) break;
-
-          const tcKeys = Object.keys(toolCalls);
-          if (tcKeys.length === 0) {
-            break;
-          }
-
-          const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
-          currentMessages.push(messageToAppend);
-
-          const toolResults = await Promise.all(tcKeys.map(async (key) => {
-            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            const call = toolCalls[key];
-            let args;
-            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
-
-            const toolResult = await executeToolForModel({
-              model: 'deepseek',
-              toolName: call.function.name,
-              args,
-              googleAccessToken,
-              connectionId,
-              signal,
-              sendSse,
-              deps
             });
-
-            return {
-              role: "tool",
-              tool_call_id: call.id,
-              name: call.function.name,
-              content: JSON.stringify(toolResult)
-            };
-          }));
-
-          if (signal.aborted) break;
-          currentMessages.push(...toolResults);
-          runCount++;
-
-          if (runCount >= 30 && !signal.aborted) {
-            sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
           }
-        }
-      })()));
+
+          // Register workspace tools
+          if (deps.workspaceDecls) {
+            deps.workspaceDecls.forEach((d: any) => {
+              if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
+                deepseekTools.push({
+                  type: "function",
+                  function: {
+                    name: d.name,
+                    description: d.description,
+                    parameters: lowercaseSchemaTypes(d.parameters)
+                  }
+                });
+              }
+            });
+          }
+
+          let currentMessages = [...msgs];
+          let runCount = 0;
+
+          while (runCount < 30 && !signal.aborted) {
+            // Per official docs: thinking and reasoning_effort are top-level params
+            // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
+            const createParams: any = {
+              model: actualDeepseekModel,
+              messages: currentMessages,
+              max_tokens: 65536,
+              tools: deepseekTools.length > 0 ? filterToolsForModel('deepseek', modelConfigs.deepseek || "deepseek-reasoner", deepseekTools) : undefined,
+              stream: true,
+            };
+
+            // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
+            if (isThinkingModel) {
+              // reasoning_effort: "high" (default) or "max" (for complex agentic tasks)
+              createParams.reasoning_effort = "high";
+              // thinking toggle — must be in extra_body for OpenAI SDK
+              // But the OpenAI Node SDK passes unknown top-level keys through,
+              // so we set it directly per DeepSeek's docs
+              createParams.thinking = { type: "enabled" };
+            }
+
+            const stream = await deepseekClient.chat.completions.create(createParams, { signal });
+
+            let toolCalls: any = {};
+            let hasContent = false;
+            let reasoningBuffer = '';
+
+            for await (const chunk of stream) {
+              if (signal.aborted) break;
+              const delta = chunk.choices?.[0]?.delta;
+              if (!delta) continue;
+
+              // DeepSeek streams chain-of-thought in reasoning_content
+              // Per docs: "the chain-of-thought content is returned via the reasoning_content parameter"
+              if ((delta as any).reasoning_content) {
+                const reasoning = (delta as any).reasoning_content;
+                reasoningBuffer += reasoning;
+                sendSse('message', { model: 'deepseek', chunk: reasoning });
+              }
+
+              // Standard content (final answer after reasoning, or full response if thinking disabled)
+              if (delta.content) {
+                // If we were streaming reasoning, insert a separator before the final answer
+                if (reasoningBuffer && !hasContent) {
+                  sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
+                  reasoningBuffer = '';
+                }
+                hasContent = true;
+                sendSse('message', { model: 'deepseek', chunk: delta.content });
+              }
+
+              // Tool calls — V4 supports these even with thinking enabled
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (!toolCalls[tc.index]) {
+                    toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                  }
+                  if (tc.function?.arguments) {
+                    toolCalls[tc.index].function.arguments += tc.function.arguments;
+                  }
+                }
+              }
+            }
+
+            if (signal.aborted) break;
+
+            const tcKeys = Object.keys(toolCalls);
+            if (tcKeys.length === 0) {
+              break;
+            }
+
+            const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
+            currentMessages.push(messageToAppend);
+
+            const toolResults = await Promise.all(tcKeys.map(async (key) => {
+              if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+              const call = toolCalls[key];
+              let args;
+              try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
+              const toolResult = await executeToolForModel({
+                model: 'deepseek',
+                toolName: call.function.name,
+                args,
+                googleAccessToken,
+                connectionId,
+                signal,
+                sendSse,
+                deps
+              });
+
+              return {
+                role: "tool",
+                tool_call_id: call.id,
+                name: call.function.name,
+                content: JSON.stringify(toolResult)
+              };
+            }));
+
+            if (signal.aborted) break;
+            currentMessages.push(...toolResults);
+            runCount++;
+
+            if (runCount >= 30 && !signal.aborted) {
+              sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+            }
+          }
+        })()));
       } // end else (deepseekClient available)
     } // end if (targetModels.includes('deepseek'))
     // Wait for all streams to finish

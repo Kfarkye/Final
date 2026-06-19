@@ -1,0 +1,131 @@
+{
+  "$schema": "truth-odds-v1",
+  "version": "1.0.0",
+  "template": "truth-odds-dashboard",
+
+  "themes": {
+    "dark": {
+      "bg": "#0b0f19", "surface": "#111827", "surface-alt": "#1f2937",
+      "text-1": "#f3f4f6", "text-2": "#9ca3af", "text-3": "#6b7280", "text-4": "#4b5563",
+      "rule": "#374151", "rule-dim": "#1f2937", "rule-hair": "rgba(255,255,255,.05)",
+      "best-bg": "rgba(59,130,246,.15)", "best-border": "#3b82f6",
+      "accent-green": "#10b981", "accent-red": "#ef4444"
+    }
+  },
+
+  "data-binding": {
+    "game": {
+      "gameId": "string",
+      "status": "string (e.g. 'Live', 'Pregame', 'Final')",
+      "inning": "string (e.g. 'TOP 5TH')",
+      "outs": "number",
+      "count": {
+        "balls": "number",
+        "strikes": "number"
+      },
+      "bases": {
+        "first": "boolean",
+        "second": "boolean",
+        "third": "boolean"
+      },
+      "awayTeam": {
+        "abbr": "string",
+        "name": "string",
+        "score": "number",
+        "record": "string"
+      },
+      "homeTeam": {
+        "abbr": "string",
+        "name": "string",
+        "score": "number",
+        "record": "string"
+      }
+    },
+
+    "pitching": {
+      "currentPitcher": {
+        "name": "string",
+        "throws": "string (LHP/RHP)",
+        "teamAbbr": "string",
+        "era": "number",
+        "ip": "number",
+        "h": "number",
+        "er": "number",
+        "k": "number",
+        "bb": "number",
+        "pitchCount": "number"
+      }
+    },
+
+    "matchup": {
+      "atBat": "string",
+      "onDeck": "string",
+      "dueUp": "string"
+    },
+
+    "odds": {
+      "sportsbooks": [
+        "DraftKings",
+        "FanDuel",
+        "BetMGM",
+        "Caesars",
+        "BetRivers"
+      ],
+      "markets": {
+        "moneyline": {
+          "away": { "books": [{ "name": "string", "odds": "string", "isBest": "boolean" }] },
+          "home": { "books": [{ "name": "string", "odds": "string", "isBest": "boolean" }] }
+        },
+        "spread": {
+          "away": { "line": "string", "books": [{ "name": "string", "odds": "string", "isBest": "boolean" }] },
+          "home": { "line": "string", "books": [{ "name": "string", "odds": "string", "isBest": "boolean" }] }
+        },
+        "total": {
+          "line": "string",
+          "over": { "books": [{ "name": "string", "odds": "string", "isBest": "boolean" }] },
+          "under": { "books": [{ "name": "string", "odds": "string", "isBest": "boolean" }] }
+        }
+      }
+    },
+
+    "truthIntelligence": {
+      "modelProjections": {
+        "awayWinProb": "string",
+        "homeWinProb": "string",
+        "projectedTotal": "string",
+        "projectedAwayScore": "string",
+        "projectedHomeScore": "string"
+      },
+      "marketEdge": {
+        "topEdgeMarket": "string",
+        "edgePercentage": "string",
+        "valueRating": "number (1-5)"
+      }
+    },
+
+    "umpire": {
+      "name": "string",
+      "accuracy": "string",
+      "consistency": "string",
+      "runsExpected": "string"
+    },
+
+    "bullpen": {
+      "home": [
+        { "name": "string", "era": "string", "status": "string (WARMING/AVAILABLE/USED)" }
+      ],
+      "away": [
+        { "name": "string", "era": "string", "status": "string (WARMING/AVAILABLE/USED)" }
+      ]
+    },
+
+    "playFeed": [
+      {
+        "inning": "string",
+        "description": "string",
+        "isScoringPlay": "boolean",
+        "scoreString": "string (optional)"
+      }
+    ]
+  }
+}

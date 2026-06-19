@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Type } from '@google/genai';
 import { RegisteredTool, ToolContext } from './types';
 import { safeFetchText, validatePublicHttpUrl, extractPageText, fetchReadable, streamPageText } from '../utils/fetcher';
 import { toolRegistry } from './registry';
@@ -104,33 +105,36 @@ Requirements:
 2. Structure the report as ${reportFormatInstruction}.
 3. Cite sources inline using numbers matching the source IDs, for example: [1], [1, 2], or "According to source [3]...".
 4. Do not include information that is not directly supported by the sources above.
-5. Provide a short bulleted list of 3-5 "Key Findings" at the start.
-
-Return a JSON document with the following structure:
-{
-  "summary": "Brief 1-2 sentence high-level summary.",
-  "keyFindings": ["Finding 1", "Finding 2", "Finding 3"],
-  "report": "The detailed cited report in markdown format."
-}`;
+5. Provide a short bulleted list of 3-5 "Key Findings" at the start.`;
 
     const response = await context.ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: {
+              type: Type.STRING,
+              description: "Brief 1-2 sentence high-level summary."
+            },
+            keyFindings: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Short bulleted list of 3-5 key findings."
+            },
+            report: {
+              type: Type.STRING,
+              description: "The detailed cited report in markdown format."
+            }
+          },
+          required: ["summary", "keyFindings", "report"]
+        }
       }
     });
 
-    let data;
-    try {
-      data = JSON.parse(response.text);
-    } catch {
-      data = {
-        summary: `Cited report on: ${query}`,
-        keyFindings: ["See report below for cited findings."],
-        report: response.text
-      };
-    }
+    const data = JSON.parse(response.text);
 
     return {
       query,
@@ -150,7 +154,7 @@ export const scraperTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "search_web",
-      description: "Performs a web search to DISCOVER information and URLs. Returns a summary with source URLs. Use this FIRST to find relevant pages, then use fetch_html or fetch_json to read specific URLs you discover. Do NOT call search_web repeatedly — call it once, then fetch the URLs it returns.",
+      description: "Performs a web search to DISCOVER information and URLs. Returns a summary with source URLs. Use this FIRST to find relevant pages, then use browser_navigate (the primary headless browser tool) or fetch_json to read specific URLs you discover. Do NOT call search_web repeatedly — call it once, then fetch the URLs it returns.",
       schema: z.object({
         query: z.string().min(1, "Query is required"),
         domain: z.string().optional()
@@ -196,7 +200,7 @@ export const scraperTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "fetch_html",
-      description: "Fetches and returns the HTML content of a specific URL you already know. Use this AFTER search_web to inspect a page's structure, find API endpoints, scrape data tables, or read documentation. Takes a URL as input — do NOT pass search queries.",
+      description: "Legacy text-only fetcher. STRONGLY PREFER using browser_navigate for any web page interaction, as it runs a real browser and can evaluate JS. Use this ONLY as a fallback if browser_navigate fails.",
       schema: z.object({
         url: z.string().url("Must be a valid HTTP/HTTPS URL")
       })

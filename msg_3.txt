@@ -1,0 +1,58 @@
+<USER_REQUEST>
+{
+  "_meta": {
+    "name": "drip-live-game",
+    "version": "1.0.0",
+    "purpose": "Gemini responseSchema contract for The Drip live in-game page. The HTML page is the renderer; this schema is the payload it reads. Schema dialect is Gemini's OpenAPI-3.0 subset (TYPE in caps, propertyOrdering, nullable, maxLength/minimum/maximum honored).",
+    "provenance_rules": {
+      "FEED": "Field MUST come from the live data layer (Kalshi / books / scoreboard). Gemini must NOT author these — they are facts. Pass them into the prompt as grounding; the model echoes, never invents.",
+      "MODEL": "Field is authored by Gemini from grounded context. Safe to generate.",
+      "DERIVED": "Computed in JS from FEED fields after the response lands (e.g. score dimming, market selection). NOT in the model's output at all — listed here so the contract is complete."
+    },
+    "hard_invariants": [
+      "The market SELECTOR stays in JS (pickMarket). Gemini fills all three markets' data; JS decides which one surfaces. Never let the model choose the surfaced market.",
+      "All line/odds numbers are FEED. Schema guarantees shape, never truth — a schema-valid 7.5 can still be a hallucinated 7.5. Ground every number.",
+      "The two prose fields (market.read, booth paragraphs) are the only free text. Both are maxLength-capped here and instruction-bounded in system_instruction. State movement; never predict; never pick."
+    ]
+  },
+
+  "system_instruction": "You are populating a structured payload for a live baseball betting page. Rules, absolute: (1) Output ONLY fields marked MODEL; FEED numbers are passed to you as grounding — echo them exactly, never alter or invent a price, line, or score. (2) The 'read' line for each market states what the number DID — the movement and the current situation — in one or two plain sentences a person would say out loud at a bar. No prediction of the outcome. No betting recommendation. No 'edge', 'value', 'lock', 'should'. No 'feels like'. (3) Booth paragraphs may reference ONL
+<truncated 9085 bytes>
+ the number did, plain. No prediction, no pick, no 'edge'." },
+        "movement": { "type": "NUMBER", "minimum": 0, "description": "FEED/DERIVED. Normalized line travel off open. Feeds selector weight." },
+        "openLine": { "type": "NUMBER", "nullable": true, "description": "FEED. Raw open, for arrow + selector." },
+        "liveLine": { "type": "NUMBER", "nullable": true, "description": "FEED. Raw live." }
+      }
+    },
+
+    "play": {
+      "type": "OBJECT",
+      "description": "FEED. One play-feed row.",
+      "propertyOrdering": ["inning", "desc", "scoreAfter", "isScoring"],
+      "required": ["inning", "desc"],
+      "properties": {
+        "inning": { "type": "STRING", "maxLength": 6, "description": "e.g. 'T5', 'B4'." },
+        "desc": { "type": "STRING", "maxLength": 200, "description": "Play description. May use <strong> on player names." },
+        "scoreAfter": { "type": "STRING", "maxLength": 24, "nullable": true, "description": "e.g. 'NYY 3 · BOS 1'. Present on scoring plays." },
+        "isScoring": { "type": "BOOLEAN", "nullable": true, "description": "Drives .scoring text-1 presence." }
+      }
+    }
+  }
+}
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-19T00:32:01-07:00.
+
+The user's current state is as follows:
+Active Document: /Users/k.far.88/Downloads/reverie/lib/orchestration-schemas.ts (LANGUAGE_TYPESCRIPT)
+Cursor is on line: 465
+Other open documents:
+- /Users/k.far.88/Downloads/reverie/package.json (LANGUAGE_JSON)
+- /Users/k.far.88/Downloads/reverie/src/tools/browser.tools.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/src/routes/drip.routes.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/src/scripts/seed-teams.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/Dockerfile (LANGUAGE_DOCKERFILE)
+Browser State:
+  Page 9DEF47FA3AA41F1C1062E435FB3C9397 (LIVE: NYY 3, BOS 1 — T5 | The Drip) - file:///Users/k.far.88/Downloads/reverie/thedrip/live-game.html [ACTIVE]
+    Viewport: 2240x1172, Page Height: 1172
+</ADDITIONAL_METADATA>

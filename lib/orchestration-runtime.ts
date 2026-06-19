@@ -57,7 +57,7 @@ const log = {
 
 export interface SpecialistCaller {
   /** Call a specialist model (non-streaming, JSON mode). Returns raw text. */
-  call(model: string, systemPrompt: string, userPrompt: string, signal?: AbortSignal): Promise<string>;
+  call(model: string, systemPrompt: string, userPrompt: string, signal?: AbortSignal, schema?: SchemaName): Promise<string>;
   /** Check if a model is available (has API key configured) */
   isAvailable(model: string): boolean;
 }
@@ -263,7 +263,7 @@ export async function executeDelegation(
 
       const startMs = Date.now();
       const rawResponse = await Promise.race([
-        caller.call(resolution.model, systemPrompt, userPrompt, signal),
+        caller.call(resolution.model, systemPrompt, userPrompt, signal, delegationArgs.required_output_schema),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error(`Specialist timeout (${SPECIALIST_TIMEOUT_MS}ms)`)), SPECIALIST_TIMEOUT_MS)
         ),

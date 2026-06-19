@@ -1,0 +1,129 @@
+{
+  "type": "Box",
+  "props": {
+    "className": "player-page",
+    "theme": "dark"
+  },
+  "children": [
+    {
+      "type": "PlayerHero",
+      "props": {
+        "name": "$data.player.name",
+        "photoUrl": "$data.player.photoUrl",
+        "number": "$data.player.number",
+        "position": "$data.player.position",
+        "playerType": "$data.player.playerType",
+        "bats": "$data.player.bats",
+        "throws": "$data.player.throws",
+        "age": "$data.player.age",
+        "height": "$data.player.height",
+        "weight": "$data.player.weight",
+        "drafted": "$data.player.drafted",
+        "team": "$data.player.team",
+        "seasonStats": "$data.player.seasonStats"
+      }
+    },
+    {
+      "type": "Tabs",
+      "props": {
+        "items": ["Overview", "Splits", "Game Log", "Matchups"]
+      },
+      "children": [
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Overview"
+          },
+          "children": [
+            {
+               "type": "Flex",
+               "props": { "direction": "row", "gap": "24px", "className": "overview-tab" },
+               "children": [
+                 {
+                   "type": "Box",
+                   "props": { "className": "overview-main", "style": { "flex": "1" } },
+                   "children": [
+                     { "type": "TrendChart", "props": { "data": "$data.player.trendChart", "type": "sparkline-bars" } },
+                     { "type": "FormGrid", "props": { "data": "$data.player.recentForm" } }
+                   ]
+                 },
+                 {
+                   "type": "Box",
+                   "props": { "className": "overview-sidebar", "style": { "width": "300px" } },
+                   "children": [
+                     { "type": "SidebarSection", "props": { "title": "Next Matchup", "data": "$data.player.nextMatchup" } },
+                     { "type": "SidebarSection", "props": { "title": "Tonight's Props", "data": "$data.player.props" } },
+                     { "type": "SidebarSection", "props": { "title": "Statcast", "data": "$data.player.statcast" } },
+                     { "type": "SidebarSection", "props": { "title": "Bio", "data": "$data.player" } }
+                   ]
+                 }
+               ]
+            }
+          ]
+        },
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Splits"
+          },
+          "children": [
+            {
+              "type": "DataGrid",
+              "props": {
+                "columns": ["Split", "PA", "AVG", "OBP", "SLG", "OPS", "HR", "K%", "BB%"],
+                "data": "$data.player.splits",
+                "scrollable": true
+              }
+            }
+          ]
+        },
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Game Log"
+          },
+          "children": [
+            {
+              "type": "DataGrid",
+              "props": {
+                "columns": ["Date", "Opp", "AB", "R", "H", "HR", "RBI", "BB", "K", "AVG"],
+                "data": "$data.player.gameLog",
+                "scrollable": true
+              }
+            }
+          ]
+        },
+        {
+          "type": "Box",
+          "props": {
+            "tabId": "Matchups"
+          },
+          "children": [
+            {
+               "type": "Flex",
+               "props": { "direction": "column", "gap": "24px" },
+               "children": [
+                 {
+                   "type": "DataGrid",
+                   "props": {
+                     "title": "vs Probable Pitchers",
+                     "columns": ["Pitcher", "Team", "AB", "H", "HR", "AVG", "OPS", "K"],
+                     "data": "$data.player.vsPitchers"
+                   }
+                 },
+                 {
+                   "type": "DataGrid",
+                   "props": {
+                     "title": "vs Pitch Types",
+                     "columns": ["Pitch", "Seen", "AVG", "SLG", "Whiff%", "Hard%", "HR"],
+                     "data": "$data.player.vsPitchTypes"
+                   }
+                 }
+               ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

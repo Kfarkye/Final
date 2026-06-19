@@ -54,8 +54,23 @@ async function readSnapshot(
   const db = getDb();
   try {
     const snapshotDate = date || todayET();
-    let sql = `SELECT ${columns.join(", ")} FROM ${table} WHERE Season = @season AND SnapshotDate = @date`;
-    const params: Record<string, any> = { season: Spanner.int(SEASON), date: snapshotDate };
+    const params: Record<string, any> = { season: Spanner.int(SEASON) };
+    
+    let subqueryWhere = "WHERE Season = @season";
+    if (date) {
+      subqueryWhere += " AND SnapshotDate <= @date";
+      params.date = date;
+    }
+
+    let sql = `
+      SELECT ${columns.join(", ")}
+      FROM (
+        SELECT *, ROW_NUMBER() OVER(PARTITION BY TeamCode ORDER BY SnapshotDate DESC) as _rn
+        FROM ${table}
+        ${subqueryWhere}
+      )
+      WHERE _rn = 1
+    `;
 
     if (teamFilter) {
       sql += ` AND TeamCode = @team`;

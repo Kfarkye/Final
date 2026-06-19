@@ -1,0 +1,629 @@
+{
+  "model": "gpt-5.1",
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "drip_live_game",
+      "strict": true,
+      "schema": {
+        "description": "Complete data payload for one live game render.",
+        "type": "object",
+        "properties": {
+          "gameState": {
+            "description": "FEED. Drives JS market selection and score dimming.",
+            "type": "object",
+            "properties": {
+              "inning": {
+                "description": "FEED. Current inning number.",
+                "type": "integer"
+              },
+              "inningHalf": {
+                "description": "FEED.",
+                "type": "string",
+                "enum": [
+                  "top",
+                  "bottom",
+                  "middle",
+                  "end"
+                ]
+              },
+              "leader": {
+                "description": "FEED. Abbr of leading team, or null if tied.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "margin": {
+                "description": "FEED. Absolute run differential.",
+                "type": "integer"
+              },
+              "runsScored": {
+                "description": "FEED. Total runs across both teams.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "inning",
+              "inningHalf",
+              "leader",
+              "margin",
+              "runsScored"
+            ],
+            "additionalProperties": false
+          },
+          "teams": {
+            "description": "FEED. Identity + score. Score dimming is DERIVED in JS from these scores.",
+            "type": "object",
+            "properties": {
+              "away": {
+                "description": "FEED.",
+                "type": "object",
+                "properties": {
+                  "abbr": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "record": {
+                    "description": "e.g. '50–22'.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "score": {
+                    "type": "integer"
+                  },
+                  "teamId": {
+                    "description": "MLB team id for logo CDN.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "abbr",
+                  "name",
+                  "record",
+                  "score",
+                  "teamId"
+                ],
+                "additionalProperties": false
+              },
+              "home": {
+                "description": "FEED.",
+                "type": "object",
+                "properties": {
+                  "abbr": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "record": {
+                    "description": "e.g. '50–22'.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "score": {
+                    "type": "integer"
+                  },
+                  "teamId": {
+                    "description": "MLB team id for logo CDN.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "abbr",
+                  "name",
+                  "record",
+                  "score",
+                  "teamId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "away",
+              "home"
+            ],
+            "additionalProperties": false
+          },
+          "situation": {
+            "description": "FEED. The diamond + count + outs. All facts from the scoreboard.",
+            "type": "object",
+            "properties": {
+              "bases": {
+                "description": "FEED. Base occupancy. Drives diamond .on classes.",
+                "type": "object",
+                "properties": {
+                  "first": {
+                    "type": "boolean"
+                  },
+                  "second": {
+                    "type": "boolean"
+                  },
+                  "third": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "first",
+                  "second",
+                  "third"
+                ],
+                "additionalProperties": false
+              },
+              "outs": {
+                "description": "FEED.",
+                "type": "integer"
+              },
+              "balls": {
+                "description": "FEED.",
+                "type": "integer"
+              },
+              "strikes": {
+                "description": "FEED.",
+                "type": "integer"
+              },
+              "line": {
+                "description": "MODEL. e.g. 'Top 5th · Two Outs'. Plain restatement of inning+outs. Optional — JS can compose from FEED instead.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sub": {
+                "description": "MODEL. e.g. 'Yankees batting · 2–1 on Judge'. Plain. No commentary.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "bases",
+              "outs",
+              "balls",
+              "strikes",
+              "line",
+              "sub"
+            ],
+            "additionalProperties": false
+          },
+          "atBat": {
+            "description": "Current batter. Name/stat FEED; photo id FEED.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "description": "FEED. Batter full name.",
+                "type": "string"
+              },
+              "playerId": {
+                "description": "FEED. MLBAM id for headshot CDN. Null -> monogram fallback.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "monogram": {
+                "description": "DERIVED/FEED. Initials for fallback, e.g. 'AJ'.",
+                "type": "string"
+              },
+              "statLine": {
+                "description": "FEED. e.g. '2–2, RBI single in 3rd'. Factual line only.",
+                "type": "string"
+              },
+              "count": {
+                "description": "FEED. e.g. '2–1'. Mirrors balls–strikes.",
+                "type": "string"
+              },
+              "onDeck": {
+                "description": "FEED.",
+                "type": "string"
+              },
+              "dueUp": {
+                "description": "FEED.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "playerId",
+              "monogram",
+              "statLine",
+              "count",
+              "onDeck",
+              "dueUp"
+            ],
+            "additionalProperties": false
+          },
+          "pitcher": {
+            "description": "Current pitcher. All FEED.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "description": "FEED.",
+                "type": "string"
+              },
+              "playerId": {
+                "description": "FEED. MLBAM id. Null -> monogram.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "monogram": {
+                "description": "DERIVED/FEED.",
+                "type": "string"
+              },
+              "teamAbbr": {
+                "description": "FEED. e.g. 'BOS'.",
+                "type": "string"
+              },
+              "teamId": {
+                "description": "FEED. MLB team id for logo CDN. Null -> text abbr.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "statLine": {
+                "description": "FEED. e.g. '4.1 IP · 5 H · 3 ER · 78 P · 3.47 ERA'.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "playerId",
+              "monogram",
+              "teamAbbr",
+              "teamId",
+              "statLine"
+            ],
+            "additionalProperties": false
+          },
+          "markets": {
+            "description": "All three markets, always populated. JS selector picks which surfaces — model does NOT choose. Numbers FEED, read MODEL.",
+            "type": "object",
+            "properties": {
+              "total": {
+                "description": "One betting market. cells = 3 anchor numbers (FEED). read = plain-English movement (MODEL). movement/openLine/liveLine feed the JS selector.",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "description": "Display name + market kind.",
+                    "type": "string",
+                    "enum": [
+                      "Total",
+                      "Moneyline",
+                      "Run Line"
+                    ]
+                  },
+                  "cells": {
+                    "description": "FEED. Exactly 3 anchor cells: typically open / live / context.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "num": {
+                          "description": "FEED. The number, e.g. '8.5', '−180', '+150'.",
+                          "type": "string"
+                        },
+                        "cap": {
+                          "description": "FEED. Label under it, e.g. 'Open', 'NYY Live'.",
+                          "type": "string"
+                        },
+                        "arrow": {
+                          "description": "DERIVED. Direction vs open. JS can set from openLine/liveLine instead.",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "up",
+                            "down",
+                            null
+                          ]
+                        }
+                      },
+                      "required": [
+                        "num",
+                        "cap",
+                        "arrow"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "read": {
+                    "description": "MODEL. One–two sentences: what the number did, plain. No prediction, no pick, no 'edge'.",
+                    "type": "string"
+                  },
+                  "movement": {
+                    "description": "FEED/DERIVED. Normalized line travel off open. Feeds selector weight.",
+                    "type": "number"
+                  },
+                  "openLine": {
+                    "description": "FEED. Raw open, for arrow + selector.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "liveLine": {
+                    "description": "FEED. Raw live.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "cells",
+                  "read",
+                  "movement",
+                  "openLine",
+                  "liveLine"
+                ],
+                "additionalProperties": false
+              },
+              "moneyline": {
+                "description": "One betting market. cells = 3 anchor numbers (FEED). read = plain-English movement (MODEL). movement/openLine/liveLine feed the JS selector.",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "description": "Display name + market kind.",
+                    "type": "string",
+                    "enum": [
+                      "Total",
+                      "Moneyline",
+                      "Run Line"
+                    ]
+                  },
+                  "cells": {
+                    "description": "FEED. Exactly 3 anchor cells: typically open / live / context.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "num": {
+                          "description": "FEED. The number, e.g. '8.5', '−180', '+150'.",
+                          "type": "string"
+                        },
+                        "cap": {
+                          "description": "FEED. Label under it, e.g. 'Open', 'NYY Live'.",
+                          "type": "string"
+                        },
+                        "arrow": {
+                          "description": "DERIVED. Direction vs open. JS can set from openLine/liveLine instead.",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "up",
+                            "down",
+                            null
+                          ]
+                        }
+                      },
+                      "required": [
+                        "num",
+                        "cap",
+                        "arrow"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "read": {
+                    "description": "MODEL. One–two sentences: what the number did, plain. No prediction, no pick, no 'edge'.",
+                    "type": "string"
+                  },
+                  "movement": {
+                    "description": "FEED/DERIVED. Normalized line travel off open. Feeds selector weight.",
+                    "type": "number"
+                  },
+                  "openLine": {
+                    "description": "FEED. Raw open, for arrow + selector.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "liveLine": {
+                    "description": "FEED. Raw live.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "cells",
+                  "read",
+                  "movement",
+                  "openLine",
+                  "liveLine"
+                ],
+                "additionalProperties": false
+              },
+              "runline": {
+                "description": "One betting market. cells = 3 anchor numbers (FEED). read = plain-English movement (MODEL). movement/openLine/liveLine feed the JS selector.",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "description": "Display name + market kind.",
+                    "type": "string",
+                    "enum": [
+                      "Total",
+                      "Moneyline",
+                      "Run Line"
+                    ]
+                  },
+                  "cells": {
+                    "description": "FEED. Exactly 3 anchor cells: typically open / live / context.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "num": {
+                          "description": "FEED. The number, e.g. '8.5', '−180', '+150'.",
+                          "type": "string"
+                        },
+                        "cap": {
+                          "description": "FEED. Label under it, e.g. 'Open', 'NYY Live'.",
+                          "type": "string"
+                        },
+                        "arrow": {
+                          "description": "DERIVED. Direction vs open. JS can set from openLine/liveLine instead.",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "up",
+                            "down",
+                            null
+                          ]
+                        }
+                      },
+                      "required": [
+                        "num",
+                        "cap",
+                        "arrow"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "read": {
+                    "description": "MODEL. One–two sentences: what the number did, plain. No prediction, no pick, no 'edge'.",
+                    "type": "string"
+                  },
+                  "movement": {
+                    "description": "FEED/DERIVED. Normalized line travel off open. Feeds selector weight.",
+                    "type": "number"
+                  },
+                  "openLine": {
+                    "description": "FEED. Raw open, for arrow + selector.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "liveLine": {
+                    "description": "FEED. Raw live.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "cells",
+                  "read",
+                  "movement",
+                  "openLine",
+                  "liveLine"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "total",
+              "moneyline",
+              "runline"
+            ],
+            "additionalProperties": false
+          },
+          "plays": {
+            "description": "FEED. Reverse-chronological play feed. Booth paragraphs may reference ONLY these.",
+            "type": "array",
+            "items": {
+              "description": "FEED. One play-feed row.",
+              "type": "object",
+              "properties": {
+                "inning": {
+                  "description": "e.g. 'T5', 'B4'.",
+                  "type": "string"
+                },
+                "desc": {
+                  "description": "Play description. May use <strong> on player names.",
+                  "type": "string"
+                },
+                "scoreAfter": {
+                  "description": "e.g. 'NYY 3 · BOS 1'. Present on scoring plays.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "isScoring": {
+                  "description": "Drives .scoring text-1 presence.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "inning",
+                "desc",
+                "scoreAfter",
+                "isScoring"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "booth": {
+            "description": "MODEL. Optional long-form color commentary, rendered below the data. Highest-risk field — fully instruction-bounded. Omit entirely (null) if not generating commentary this render.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lead": {
+                "description": "MODEL. One-sentence opening, present tense, the situation now.",
+                "type": "string"
+              },
+              "paragraphs": {
+                "description": "MODEL. 2–4 short paragraphs. Reference only events in plays[]. Name count and line. End on tension, never a forecast.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "lead",
+              "paragraphs"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "gameState",
+          "teams",
+          "situation",
+          "atBat",
+          "pitcher",
+          "markets",
+          "plays",
+          "booth"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "_note": "strict:true enforces SHAPE at decode (types, enums, required, no extra keys). It does NOT enforce maxLength / minItems / numeric ranges — those were stripped and are now enforced ONLY by validate.mjs. Prose guardrail (system_instruction) must be sent as a system message."
+}

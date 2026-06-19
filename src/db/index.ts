@@ -18,7 +18,7 @@ export const createPool = () => {
     user: env.SQL_USER,
     password: env.SQL_PASSWORD,
     database: env.SQL_DB_NAME,
-    connectionTimeoutMillis: 15000,
+    connectionTimeoutMillis: 1000, // Reduced from 15000 to prevent 30s hangs on Cloud Run without a DB
   });
 };
 
