@@ -28,6 +28,7 @@ import { profileTools } from './profile.tools';
 import { gameStateTools } from './game_state.tools';
 import { deepthinkTools } from './deepthink.tools';
 import { dripTools } from './drip.tools';
+import { gcpInfraTools } from './gcp-infra.tools';
 
 
 // Initialize the registry
@@ -61,6 +62,7 @@ toolRegistry.registerMany([
   ...gameStateTools,
   ...deepthinkTools,
   ...dripTools,
+  ...gcpInfraTools,
 ]);
 
 export { toolRegistry };
