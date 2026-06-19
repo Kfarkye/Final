@@ -424,17 +424,65 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
   // provider-specific multimodal content formats.
   type ParsedAttachment = { mimeType: string; base64Data: string; name: string; isImage: boolean };
 
-  const parsedAttachments: ParsedAttachment[] = (attachments as any[]).map((att: any) => {
+  const parsedAttachments: ParsedAttachment[] = [];
+  for (const att of (attachments as any[])) {
     const dataUrl = att.dataUrl || '';
-    // data:image/png;base64,iVBOR... → mimeType + base64Data
     const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    return {
-      mimeType: match ? match[1] : (att.type || 'application/octet-stream'),
-      base64Data: match ? match[2] : '',
-      name: att.name || 'attachment',
-      isImage: (match ? match[1] : (att.type || '')).startsWith('image/'),
-    };
-  }).filter((a: ParsedAttachment) => a.base64Data.length > 0);
+    const mimeType = match ? match[1] : (att.type || 'application/octet-stream');
+    const base64Data = match ? match[2] : '';
+    let name = att.name || 'attachment';
+    let isImage = mimeType.startsWith('image/');
+
+    if (base64Data) {
+      // Check for inline Drive Reference
+      let isDriveRef = false;
+      try {
+        const decoded = Buffer.from(base64Data, 'base64').toString('utf-8');
+        // A quick heuristic before parsing JSON to avoid parsing large binaries
+        if (decoded.startsWith('{') && decoded.includes('"id"')) {
+          const parsed = JSON.parse(decoded);
+          if (parsed.id) {
+            isDriveRef = true;
+            if (deps.executeWorkspaceTool) {
+              const driveRes = await deps.executeWorkspaceTool({ name: 'readDriveFile', args: { fileId: parsed.id } }, googleAccessToken);
+              if (driveRes && driveRes.success) {
+                const fileContent = driveRes.content;
+                const formattedContent = `[FILE ATTACHED: "${driveRes.fileName || name}" — ${fileContent.split(/\\s+/).length} words extracted]\n${fileContent}`;
+                
+                parsedAttachments.push({
+                  mimeType: 'text/plain',
+                  base64Data: Buffer.from(formattedContent).toString('base64'),
+                  name: driveRes.fileName || name,
+                  isImage: false
+                });
+                continue;
+              } else {
+                const errorText = `[FAILED TO READ DRIVE FILE: ${parsed.id}] ${driveRes?.error?.message || driveRes?.error || 'Unknown error'}`;
+                parsedAttachments.push({
+                  mimeType: 'text/plain',
+                  base64Data: Buffer.from(errorText).toString('base64'),
+                  name: name,
+                  isImage: false
+                });
+                continue;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Not JSON, proceed normally
+      }
+
+      if (!isDriveRef) {
+        parsedAttachments.push({
+          mimeType,
+          base64Data,
+          name,
+          isImage
+        });
+      }
+    }
+  }
 
   const imageAttachments = parsedAttachments.filter(a => a.isImage);
   const textAttachments = parsedAttachments.filter(a => !a.isImage);
