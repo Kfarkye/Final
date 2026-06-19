@@ -76,7 +76,7 @@ export const spannerTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "execute_sql",
-      description: "Executes a SQL query (SELECT) or a DML statement (INSERT/UPDATE/DELETE). DML statements require human UX approval.",
+      description: "Executes a SQL query (SELECT) or a DML statement (INSERT/UPDATE/DELETE). DML statements require human UX approval. CANNOT run DDL (CREATE/ALTER/DROP TABLE) — use execute_ddl for schema changes.",
       schema: z.object({
         instanceId: z.string().min(1, "Instance ID is required"),
         databaseId: z.string().min(1, "Database ID is required"),
@@ -85,7 +85,17 @@ export const spannerTools: RegisteredTool<any>[] = [
     },
     handler: async (args, context) => {
       const sql = args.sql.trim();
-      const isWriteDML = /^\s*(insert|update|delete|merge|drop|create|alter)\b/i.test(sql);
+      const isDDL = /^\s*(create|alter|drop)\s+(table|index|view|database|change\s+stream)\b/i.test(sql);
+      const isWriteDML = /^\s*(insert|update|delete|merge)\b/i.test(sql);
+
+      // ── DDL rejection: fail loud, not silent ──────────────────────
+      if (isDDL) {
+        return {
+          error: "DDL statements (CREATE/ALTER/DROP TABLE) cannot be executed through execute_sql. " +
+            "The Spanner Query/DML API does not support DDL. Use the 'execute_ddl' tool instead, " +
+            "which calls the Database Admin API (UpdateDatabaseDdl RPC) and properly awaits the long-running operation."
+        };
+      }
 
       if (isWriteDML && context.connectionId) {
         const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;

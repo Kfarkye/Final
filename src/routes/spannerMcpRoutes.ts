@@ -60,7 +60,7 @@ router.post("/", async (req: Request, res: Response) => {
             },
             {
               name: "execute_sql",
-              description: "Executes a SQL query (SELECT) or a DML statement (INSERT/UPDATE/DELETE). DML statements require human UX approval.",
+              description: "Executes a SQL query (SELECT) or a DML statement (INSERT/UPDATE/DELETE). DML statements require human UX approval. CANNOT run DDL (CREATE/ALTER/DROP TABLE) — use update_database_ddl for that.",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -69,6 +69,40 @@ router.post("/", async (req: Request, res: Response) => {
                   sql: { type: "string" }
                 },
                 required: ["instanceId", "databaseId", "sql"]
+              }
+            },
+            {
+              name: "update_database_ddl",
+              description: "Executes DDL statements (CREATE TABLE, ALTER TABLE, DROP TABLE, CREATE INDEX, etc.) on a Spanner database. Uses the Database Admin API (UpdateDatabaseDdl). This is the ONLY tool that can run DDL — execute_sql cannot. DDL is a long-running operation; this tool awaits completion before returning.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  instanceId: { type: "string", description: "Spanner instance ID" },
+                  databaseId: { type: "string", description: "Spanner database ID" },
+                  statements: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Array of DDL statements to apply (e.g. ['CREATE TABLE Foo (id INT64 NOT NULL) PRIMARY KEY (id)'])"
+                  }
+                },
+                required: ["instanceId", "databaseId", "statements"]
+              }
+            },
+            {
+              name: "create_database",
+              description: "Creates a new Spanner database in a given instance, optionally with initial DDL statements.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  instanceId: { type: "string", description: "Spanner instance ID" },
+                  databaseId: { type: "string", description: "New database name" },
+                  initialDdl: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Optional initial DDL statements to apply on creation"
+                  }
+                },
+                required: ["instanceId", "databaseId"]
               }
             }
           ]
@@ -136,7 +170,21 @@ router.post("/", async (req: Request, res: Response) => {
         }
         
         const sql = args.sql.trim();
-        const isWriteDML = /^\s*(insert|update|delete|merge|drop|create|alter)\b/i.test(sql);
+        const isDDL = /^\s*(create|alter|drop)\s+(table|index|view|database|change\s+stream)\b/i.test(sql);
+        const isWriteDML = /^\s*(insert|update|delete|merge)\b/i.test(sql);
+
+        // ── DDL rejection: fail loud, not silent ──────────────────────
+        if (isDDL) {
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: "ERROR: DDL statements (CREATE/ALTER/DROP TABLE) cannot be executed through execute_sql. " +
+                "The Spanner Query/DML API does not support DDL. Use the 'update_database_ddl' tool instead, which calls the Database Admin API (UpdateDatabaseDdl RPC)." }]
+            }
+          });
+        }
 
         if (isWriteDML && connectionId) {
           const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
@@ -172,6 +220,109 @@ router.post("/", async (req: Request, res: Response) => {
             jsonrpc: "2.0",
             id,
             result: { content: [{ type: "text", text: JSON.stringify({ instanceId: args.instanceId, databaseId: args.databaseId, sql, rows: plainRows }) }] }
+          });
+        }
+      }
+
+      // ── update_database_ddl — Database Admin API (UpdateDatabaseDdl LRO) ──
+      if (toolName === "update_database_ddl") {
+        if (!args.instanceId || !args.databaseId || !args.statements?.length) {
+          return res.status(400).json({ error: "Missing required parameter: instanceId, databaseId, or statements[]" });
+        }
+
+        // DDL is always destructive-capable — require approval
+        if (connectionId) {
+          const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
+          sseManager.sendEvent(connectionId, 'tool_approval_required', {
+            approvalId,
+            tool: "update_database_ddl",
+            args: { ...args, statements: args.statements.map((s: string) => s.substring(0, 200) + (s.length > 200 ? '...' : '')) }
+          });
+          const approved = await waitForApproval(approvalId, "update_database_ddl", args);
+          if (!approved) {
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: { isError: true, content: [{ type: "text", text: "Permission Denied: User did not approve DDL execution." }] }
+            });
+          }
+        }
+
+        const database = spanner.instance(args.instanceId).database(args.databaseId);
+        try {
+          const [operation] = await database.updateSchema(args.statements);
+          // Await the LRO to completion — DDL routinely takes 20-60s
+          await operation.promise();
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              content: [{ type: "text", text: JSON.stringify({
+                success: true,
+                done: true,
+                appliedStatements: args.statements,
+                message: `Successfully applied ${args.statements.length} DDL statement(s) to ${args.instanceId}/${args.databaseId}`
+              }) }]
+            }
+          });
+        } catch (ddlErr: any) {
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: `DDL execution failed: ${ddlErr.message || ddlErr}` }]
+            }
+          });
+        }
+      }
+
+      // ── create_database ──
+      if (toolName === "create_database") {
+        if (!args.instanceId || !args.databaseId) {
+          return res.status(400).json({ error: "Missing required parameter: instanceId or databaseId" });
+        }
+
+        if (connectionId) {
+          const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
+          sseManager.sendEvent(connectionId, 'tool_approval_required', { approvalId, tool: "create_database", args });
+          const approved = await waitForApproval(approvalId, "create_database", args);
+          if (!approved) {
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: { isError: true, content: [{ type: "text", text: "Permission Denied: User did not approve database creation." }] }
+            });
+          }
+        }
+
+        const instance = spanner.instance(args.instanceId);
+        try {
+          const [database, operation] = await instance.createDatabase(args.databaseId, {
+            schema: args.initialDdl || []
+          });
+          await operation.promise();
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              content: [{ type: "text", text: JSON.stringify({
+                success: true,
+                databaseId: args.databaseId,
+                instanceId: args.instanceId,
+                initialDdlApplied: (args.initialDdl || []).length,
+                message: `Database '${args.databaseId}' created in instance '${args.instanceId}'`
+              }) }]
+            }
+          });
+        } catch (createErr: any) {
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: `Database creation failed: ${createErr.message || createErr}` }]
+            }
           });
         }
       }
