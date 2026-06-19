@@ -32,6 +32,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import { renderCard, CARD_REGISTRY } from './DisplayCards';
+import { getAccessToken } from './lib/firebase';
+import { PRELOADED_SERVERS } from './components/McpRegistry';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants — no magic numbers
@@ -89,6 +91,9 @@ interface ChatConfig {
   model?: string;
   modelConfig?: string;
   topic?: string;
+  mcpServers?: unknown[];
+  apiIntegrations?: unknown[];
+  accessToken?: string | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -215,8 +220,11 @@ function useChat(config: ChatConfig = {}) {
   const {
     apiEndpoint = API_ENDPOINT,
     model = 'gemini',
-    modelConfig = 'gemini-3.5-flash',
+    modelConfig = 'gemini-3.1-pre-preview',
     topic = 'Sports Intelligence',
+    mcpServers = [],
+    apiIntegrations = [],
+    accessToken = null,
   } = config;
 
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
@@ -235,7 +243,7 @@ function useChat(config: ChatConfig = {}) {
   const toolCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // ── Flush buffer → state (sync) ──
-  const flushNow = useCallback(() => {
+  const flushBufferNow = useCallback(() => {
     const id = activeIdRef.current;
     const chunk = streamBufferRef.current;
     if (!id || !chunk) return;
@@ -265,8 +273,8 @@ function useChat(config: ChatConfig = {}) {
   // ── Flush buffer → state (rAF-throttled) ──
   const flushBuffer = useCallback(() => {
     if (flushRafRef.current) cancelAnimationFrame(flushRafRef.current);
-    flushRafRef.current = requestAnimationFrame(flushNow);
-  }, [flushNow]);
+    flushRafRef.current = requestAnimationFrame(flushBufferNow);
+  }, [flushBufferNow]);
 
   // ── Tool cleanup — remove lingered tools ──
   const scheduleToolCleanup = useCallback((toolId: string) => {
@@ -373,13 +381,14 @@ function useChat(config: ChatConfig = {}) {
     reader: ReadableStreamDefaultReader<Uint8Array>,
     resetIdle: () => void
   ) => {
-    const dec = new TextDecoder();
+    const dec = new TextDecoder('utf-8');
     let buf = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       resetIdle();
+      
       buf += dec.decode(value, { stream: true });
       const parts = buf.split(/\r?\n\r?\n/);
       buf = parts.pop() || '';
@@ -387,24 +396,48 @@ function useChat(config: ChatConfig = {}) {
       for (const part of parts) {
         if (!part.trim()) continue;
         const lines = part.split(/\r?\n/);
-        const evtLine = lines.find(l => l.startsWith('event:'));
-        const dataLine = lines.find(l => l.startsWith('data:'));
-        if (!evtLine || !dataLine) continue;
-        const evt = evtLine.replace(/^event:\s*/, '').trim();
-        const raw = dataLine.replace(/^data:\s*/, '').trim();
-        if (evt && raw) processSseEvent(evt, raw);
+        const eventLine = lines.find(l => l.startsWith('event: '));
+        const dataLine = lines.find(l => l.startsWith('data: '));
+
+        if (!eventLine || !dataLine) {
+          // Fallback to older parsing logic if rigid formatting isn't found
+          let evt = 'message';
+          const dataLines: string[] = [];
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              evt = line.substring(6).trim();
+            } else if (line.startsWith('data:')) {
+              const dataStr = line.startsWith('data: ') ? line.substring(6) : line.substring(5);
+              dataLines.push(dataStr);
+            }
+          }
+          if (dataLines.length > 0) {
+            processSseEvent(evt, dataLines.join('\n'));
+          }
+          continue;
+        }
+
+        const eventName = eventLine.substring(7).trim();
+        const dataStr = dataLine.substring(6).trim();
+        processSseEvent(eventName, dataStr);
       }
     }
 
     // Flush remainder
     if (buf.trim()) {
       const lines = buf.split(/\r?\n/);
-      const evtLine = lines.find(l => l.startsWith('event:'));
-      const dataLine = lines.find(l => l.startsWith('data:'));
-      if (evtLine && dataLine) {
-        const evt = evtLine.replace(/^event:\s*/, '').trim();
-        const raw = dataLine.replace(/^data:\s*/, '').trim();
-        if (evt && raw) processSseEvent(evt, raw);
+      let evt = 'message';
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          evt = line.substring(6).trim();
+        } else if (line.startsWith('data:')) {
+          const dataStr = line.startsWith('data: ') ? line.substring(6) : line.substring(5);
+          dataLines.push(dataStr);
+        }
+      }
+      if (dataLines.length > 0) {
+        processSseEvent(evt, dataLines.join('\n'));
       }
     }
   }, [processSseEvent]);
@@ -458,6 +491,54 @@ function useChat(config: ChatConfig = {}) {
     resetIdle();
 
     try {
+      console.log('[MobileChat] fetch API_ENDPOINT:', apiEndpoint);
+      
+      let parsedMcpServers: any[] = [];
+      const mcpSaved = localStorage.getItem('mcp_full_servers');
+      if (mcpSaved) {
+        try {
+          parsedMcpServers = JSON.parse(mcpSaved);
+        } catch (e) {
+          console.error("Failed to parse local MCP servers", e);
+        }
+      }
+      // Merge missing preloaded servers into parsedMcpServers
+      PRELOADED_SERVERS.forEach(pre => {
+        const existing = parsedMcpServers.find(p => p.id === pre.id);
+        if (!existing) {
+          parsedMcpServers.push(pre);
+        } else if (existing.type === 'Official') {
+          existing.tools = pre.tools;
+          existing.commandOrUrl = pre.commandOrUrl;
+        }
+      });
+      // Fallback to config provided servers if local storage is empty
+      if (!parsedMcpServers.length && mcpServers && mcpServers.length > 0) {
+        parsedMcpServers = mcpServers;
+      }
+
+      let parsedIntegrations: any[] = [];
+      const apiSaved = localStorage.getItem('api_hub_integrations');
+      if (apiSaved) {
+        try {
+          parsedIntegrations = JSON.parse(apiSaved);
+        } catch (e) {
+          console.error("Failed to parse local API integrations", e);
+        }
+      }
+      if (!parsedIntegrations.length && apiIntegrations && apiIntegrations.length > 0) {
+        parsedIntegrations = apiIntegrations;
+      }
+
+      let finalAccessToken = accessToken;
+      if (!finalAccessToken) {
+        try {
+          finalAccessToken = await getAccessToken();
+        } catch (e) {
+          console.warn('Failed to fetch access token', e);
+        }
+      }
+
       const res = await fetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -469,9 +550,15 @@ function useChat(config: ChatConfig = {}) {
           topic,
           modelConfigs: { [model]: modelConfig },
           userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          client: 'mobile',
+          mcpServers: parsedMcpServers,
+          apiIntegrations: parsedIntegrations,
+          googleAccessToken: finalAccessToken,
         }),
         signal: ctrl.signal,
       });
+
+      console.log('[MobileChat] fetch response status:', res.status, 'Content-Type:', res.headers.get('Content-Type'));
 
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -487,7 +574,7 @@ function useChat(config: ChatConfig = {}) {
       await parseStream(res.body.getReader(), resetIdle);
 
       // Final flush
-      if (streamBufferRef.current) flushNow();
+      if (streamBufferRef.current) flushBufferNow();
 
       // Empty-turn guard: stream closed cleanly but produced no content + no cards
       setMsgs(prev => prev.map(m => {
@@ -518,11 +605,16 @@ function useChat(config: ChatConfig = {}) {
       ));
     } finally {
       clearTimeout(idleTimer!);
+      if (flushRafRef.current) {
+        cancelAnimationFrame(flushRafRef.current);
+        flushRafRef.current = undefined;
+      }
+      flushBufferNow(); // Ensure final flush is perfectly synchronous
       setBusy(false);
       activeIdRef.current = null;
       abortRef.current = null;
     }
-  }, [busy, model, modelConfig, topic, apiEndpoint, parseStream, flushNow]);
+  }, [busy, model, modelConfig, topic, apiEndpoint, parseStream, flushBufferNow, mcpServers, apiIntegrations, accessToken]);
 
   const cancel = useCallback(() => { abortRef.current?.abort(); }, []);
 
@@ -913,7 +1005,43 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default function MobileChat() {
-  const chat = useChat();
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [parsedMcpServers, setParsedMcpServers] = useState<any[]>([]);
+  const [parsedIntegrations, setParsedIntegrations] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Dynamic refresh of token and settings on mount
+    getAccessToken().then(setAccessToken).catch(console.error);
+
+    let servers: any[] = [];
+    const mcpSaved = localStorage.getItem('mcp_full_servers');
+    if (mcpSaved) {
+      try { servers = JSON.parse(mcpSaved); } catch (e) {}
+    }
+    PRELOADED_SERVERS.forEach(pre => {
+      const existing = servers.find(p => p.id === pre.id);
+      if (!existing) {
+        servers.push(pre);
+      } else if (existing.type === 'Official') {
+        existing.tools = pre.tools;
+        existing.commandOrUrl = pre.commandOrUrl;
+      }
+    });
+    setParsedMcpServers(servers);
+
+    let integrations: any[] = [];
+    const apiSaved = localStorage.getItem('api_hub_integrations');
+    if (apiSaved) {
+      try { integrations = JSON.parse(apiSaved); } catch (e) {}
+    }
+    setParsedIntegrations(integrations);
+  }, []);
+
+  const chat = useChat({
+    mcpServers: parsedMcpServers,
+    apiIntegrations: parsedIntegrations,
+    accessToken,
+  });
   const scroll = useAutoScroll();
   const msgCount = chat.msgs.length;
   const lastContent = chat.msgs.at(-1)?.content;
