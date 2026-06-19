@@ -495,6 +495,7 @@ function buildActivityLabel(role: DelegationRole, objective: string): string {
     audit: 'Auditing',
     pressure_test: 'Pressure testing',
     fact_check: 'Fact checking',
+    ui_engineer: 'Generating UI payload',
   };
   const short = objective.length > 40 ? objective.slice(0, 37) + '...' : objective;
   return `${labels[role]} · ${short}`;

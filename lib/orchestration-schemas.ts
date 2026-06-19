@@ -47,7 +47,7 @@ export type ValidationStatus = 'pending' | 'valid' | 'invalid';
 // Delegation — synthesis is NOT delegatable (head owns it)
 // ═══════════════════════════════════════════════════════════════
 
-export type DelegationRole = 'research' | 'audit' | 'pressure_test' | 'fact_check';
+export type DelegationRole = 'research' | 'audit' | 'pressure_test' | 'fact_check' | 'ui_engineer';
 export type SchemaName =
   | 'ResearchEvidenceV1'
   | 'AuditVerdictV1'
@@ -392,6 +392,7 @@ export const ROLE_FALLBACKS: Record<DelegationRole, string[]> = {
   audit: ['claude', 'chatgpt', 'gemini'],
   pressure_test: ['grok', 'chatgpt', 'claude'],
   fact_check: ['gemini', 'claude', 'chatgpt'],
+  ui_engineer: ['gemini', 'claude', 'chatgpt'],
 };
 
 /** Whether a role is required or can be skipped */
@@ -400,6 +401,7 @@ export const ROLE_REQUIRED: Record<DelegationRole, boolean> = {
   audit: true,      // required for consequential responses
   pressure_test: false, // optional — skip if unavailable
   fact_check: false,    // optional
+  ui_engineer: false,   // optional — triggered specifically for UI widgets
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -414,7 +416,7 @@ export const DELEGATE_TASK_TOOL = {
     properties: {
       role: {
         type: 'string' as const,
-        enum: ['research', 'audit', 'pressure_test', 'fact_check'],
+        enum: ['research', 'audit', 'pressure_test', 'fact_check', 'ui_engineer'],
         description: 'The specialist role to dispatch to. Synthesis is not delegatable.',
       },
       model_preference: {
@@ -489,6 +491,15 @@ RULES:
 - If a claim is wrong, provide the exact correction with evidence_ids
 - You may NOT delegate to other agents
 - You may NOT make new claims — only verify or correct existing ones`,
+
+  ui_engineer: `You are a UI ENGINEER agent in an orchestrated team.
+
+SCOPE: Translate verified data and state into specialized UI schema payloads for the frontend.
+OUTPUT: Return ONLY valid JSON matching the requested schema (e.g., DripLiveGameV1). No prose.
+RULES:
+- Do NOT invent, guess, or hallucinate data. Map only what is provided in the inputs.
+- You are strictly a formatter. Maintain structural fidelity.
+- You may NOT delegate to other agents.`,
 };
 
 // ═══════════════════════════════════════════════════════════════

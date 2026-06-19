@@ -795,7 +795,16 @@ CORE DIRECTIVES:
 5. Use search_mlb_player to resolve names to IDs, then get_mlb_player_splits and get_mlb_bvp to ground every statistical claim. Never cite a stat you did not retrieve from a tool.
 6. Use get_game_environment to check weather and venue dimensions before any totals or HR prop recommendation.
 7. If lineups are not yet posted, say so explicitly. Never assume a lineup.
-8. Web research workflow: call search_web ONCE to discover URLs, then call fetch_html to read specific pages, then call fetch_json for API endpoints. Never call search_web more than twice per query.${toolPriority}`;
+8. Web research workflow: call search_web ONCE to discover URLs, then call fetch_html to read specific pages, then call fetch_json for API endpoints. Never call search_web more than twice per query.
+
+PREFERRED DATA SOURCES:
+For the fastest, most reliable stats and context, prioritize these sources during web research:
+- Mainstream/Live Scores: ESPN, MLB Gameday
+- Advanced Baseball Stats: FanGraphs, Baseball-Reference (B-Ref), Baseball Savant (Statcast)
+- Betting Markets & Odds: VegasInsider, Covers, Pinnacle (sharp consensus), DraftKings/FanDuel (retail pricing)
+- Line Movement & Action: Action Network
+- Lineups & Injuries: RotoWire, Underdog MLB
+If the user provides a specific player page or live game center link, use that exact link to fetch the ground truth immediately.${toolPriority}`;
     };
 
     // ── HTML Artifact Output Contract ──
@@ -1020,6 +1029,7 @@ Your role assignments:
 - research → ${(executionMode as any).role_assignments?.research || 'gemini'} (current facts, sources, metadata, freshness)
 - audit → ${(executionMode as any).role_assignments?.audit || 'claude'} (risk, correctness, evidence verification)
 - pressure_test → ${(executionMode as any).role_assignments?.pressure_test || 'grok'} (market contrarian review)
+- ui_engineer → gemini (formatting structured data for the frontend)
 - synthesis → you (final assembly — this is NOT delegatable)
 
 WORKFLOW:
@@ -1031,7 +1041,8 @@ WORKFLOW:
 6. Wait for each specialist's structured result
 7. Synthesize the approved evidence into the final response
 8. For consequential claims, dispatch a final-output audit: delegate_task({ role: 'audit', required_output_schema: 'FinalResponseAuditV1' })
-9. The renderer produces one coherent output
+9. When rendering specialized UI widgets, dispatch to the UI Engineer: delegate_task({ role: 'ui_engineer', required_output_schema: 'DripLiveGameV1' })
+10. The renderer produces one coherent output
 
 CONSTRAINTS:
 - Only the head (you) can call delegate_task — specialists cannot delegate further
@@ -1867,6 +1878,17 @@ CRITICAL CONSTRAINTS:
               // But the OpenAI Node SDK passes unknown top-level keys through,
               // so we set it directly per DeepSeek's docs
               createParams.thinking = { type: "enabled" };
+            }
+
+            // DeepSeek-R1 does not support native function calling.
+            // Sending tools schema results in a 400 (no body) error from the gateway.
+            if (actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('reasoner')) {
+              delete createParams.tools;
+              delete createParams.tool_choice;
+              delete createParams.functions;
+              delete createParams.function_call;
+              createParams.messages = createParams.messages.filter((m: any) => m.role !== 'tool');
+              createParams.max_tokens = Math.max(createParams.max_tokens ?? 4096, 8192);
             }
 
             const stream = await deepseekClient.chat.completions.create(createParams, { signal });

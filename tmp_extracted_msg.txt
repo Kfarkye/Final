@@ -1,0 +1,86 @@
+<USER_REQUEST>
+
+Both unknowns resolved. ToolContext matches what I'm passing (signal, connectionId, googleAccessToken are all valid fields) — and since the engineering handlers may need the SDK clients, I'll pass the full context by spreading deps. Drive path (A) locked. Here are all nine files, commit-ready.
+
+1. src/components/attachments/useLocalSave.ts (new)
+import { useState, useCallback } from 'react';
+import { FileAttachment } from './types';
+
+const supportsFsAccess =
+  typeof window !== 'undefined' && 'showSaveFilePicker' in window;
+
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+interface SaveTextArgs {
+  content: string;
+  fileName: string;
+  mime?: string;
+}
+
+/**
+ * Single source of truth for local saves across Truth.
+ * Prefers the native OS folder picker (Chromium File System Access API),
+ * falls back to an anchor download (Downloads folder) everywhere else.
+ */
+export function useLocalSave() {
+  const [state, setState] = useState<SaveState>('idle');
+
+  const flash = useCallback((next: SaveState, resetMs = 1800) => {
+    setState(next);
+    if (next === 'saved' || next === 'error') {
+      setTimeout(() => setState('idle'), resetMs);
+    }
+  }, []);
+
+  const saveText = useCallback(
+    async ({ content, fileName, mime = 'text/plain' }: SaveTextArgs) => {
+      setState('saving');
+      const ext = fileName.split('.').pop() ?? 'txt';
+      try {
+        if (supportsFsAccess) {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{ description: ext.toUpperCase(), accept: { [mime]: ['.' + ext] } }],
+          });
+          const w = await handle.createWritable();
+          await w.write(content);
+          await w.close();
+        } else {
+          const url = URL.createObjectURL(new Blob([content], { type: mime }));
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          
+<truncated 15537 bytes>
+nloadMenu.tsx                      (new)
+src/components/CodeBlock.tsx                         (new)
+src/components/attachments/EnterpriseChatInput.tsx  (modified)
+src/components/MimeRenderer.tsx                      (modified)
+src/components/TruthArtifactPreview.tsx             (modified)
+lib/enterprise-chat-handler.ts                      (modified — Edits 1–5)
+api/drive-save.ts                                   (new)
+Two honest caveats on the two spots I inferred (everything else is contract-locked):
+
+create_drive_file arg shape — I assumed { name, content, mimeType }. If the workspace tool expects different keys, fix them in api/drive-save.ts only.
+Route mounting — driveSaveHandler needs deps (with executeWorkspaceTool) passed the same way enterpriseChatHandler gets it. Match your existing mount pattern.
+All nine are ready. Commit them to kfarkye/final — and after you redeploy, route the next engineering request to Claude Opus (cleanest filter path, no Gemini JSON clamp) and the agent will have write_file + git_branch_ops live.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-19T02:53:22-07:00.
+
+The user's current state is as follows:
+Active Document: /Users/k.far.88/Downloads/reverie/src/components/attachments/EnterpriseChatInput.tsx (LANGUAGE_TSX)
+Cursor is on line: 56
+Other open documents:
+- /Users/k.far.88/Downloads/reverie/src/components/dashboard/schemas/player.json (LANGUAGE_JSON)
+- /Users/k.far.88/Downloads/reverie/src/artifact-engine/store/SpannerArtifactStore.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/src/routes/drip-api.routes.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/lib/enterprise-chat-handler.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Downloads/reverie/lib/contract-router.ts (LANGUAGE_TYPESCRIPT)
+Browser State:
+  Page 9DEF47FA3AA41F1C1062E435FB3C9397 (LIVE: NYY 3, BOS 1 — T5 | The Drip) - file:///Users/k.far.88/Downloads/reverie/thedrip/live-game.html [ACTIVE]
+    Viewport: 2240x1172, Page Height: 1172
+</ADDITIONAL_METADATA>
