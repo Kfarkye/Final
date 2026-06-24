@@ -8,7 +8,7 @@ import WorkspaceHub from './components/WorkspaceHub';
 import GitWorkspaceHub from './components/GitWorkspaceHub';
 import WorkspaceModeToggle from './components/WorkspaceModeToggle';
 import McpRegistry, { PRELOADED_SERVERS } from './components/McpRegistry';
-import ApiHub from './components/ApiHub';
+import CredentialVault from './components/CredentialVault';
 import { logAuditAction } from './lib/audit';
 
 import ExportDialog from './components/ExportDialog';
@@ -17,6 +17,7 @@ import SettingsDialog from './components/SettingsDialog';
 import { MimeRenderer } from './components/MimeRenderer';
 import { ToolTrace, ToolTraceEntry } from './components/ToolTrace';
 import { ModelSelector } from './components/ModelSelector';
+import SuggestedPrompts from './components/SuggestedPrompts';
 
 import { useFileAttachment } from './components/attachments/useFileAttachment';
 import { FileChip } from './components/attachments/FileChip';
@@ -34,6 +35,12 @@ interface Responses {
   [key: string]: string | null | undefined;
 }
 
+interface Suggestion {
+  prompt: string;
+  model: string;
+  label: string;
+}
+
 interface Turn {
   id: number;
   prompt: string;
@@ -41,6 +48,7 @@ interface Turn {
   targeted: string[];
   attachments?: { name: string; size: number; type: string }[];
   trace?: ToolTraceEntry[];
+  suggestions?: Suggestion[];
 }
 
 export interface ModelConfigs {
@@ -52,18 +60,11 @@ export interface ModelConfigs {
   deepseek: string;
 }
 
-const TOPICS = [
-  "Normal",
-  "Sports",
-  "Research",
-  "Prediction Markets",
-  "Healthcare",
-  "News",
-  "Coding",
-  "Creative Writing",
-  "Finance",
-  "Education",
-  "Travel"
+export const DOMAINS = [
+  { id: 'DEV', label: 'DEV / CODE', color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' },
+  { id: 'SPORTS', label: 'SPORTS / DATA', color: 'text-green-400 bg-green-400/10 border-green-400/20' },
+  { id: 'OPS', label: 'OPS / AUTO', color: 'text-amber-400 bg-amber-400/10 border-amber-400/20' },
+  { id: 'GENERAL', label: 'GENERAL', color: 'text-zinc-400 bg-zinc-400/10 border-zinc-400/20' }
 ];
 
 interface Conversation {
@@ -81,7 +82,8 @@ export default function ChatClient() {
   const [config, setConfig] = useState<{ baseModel: string } | null>(null);
   const [mode, setMode] = useState<'compare' | 'shared' | 'team' | 'solo'>('compare');
   const [sharedModel, setSharedModel] = useState<string>('gemini');
-  const [topic, setTopic] = useState('Normal');
+  const [topic, setTopic] = useState('DEV');
+  const [historyFilter, setHistoryFilter] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -103,6 +105,8 @@ export default function ChatClient() {
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
+  const [secretInputValue, setSecretInputValue] = useState('');
+  const [isSubmittingSecret, setIsSubmittingSecret] = useState(false);
   const [workspaceSubTab, setWorkspaceSubTab] = useState<'google' | 'git'>('git');
   const [selectedProviders, setSelectedProviders] = useState<string[]>(['gemini', 'chatgpt', 'claude']);
 
@@ -156,6 +160,32 @@ export default function ChatClient() {
       console.error("Failed to submit tool approval decision", err);
     } finally {
       setPendingApproval(null);
+    }
+  };
+
+  const handleSecretSubmission = async () => {
+    if (!pendingApproval || !secretInputValue.trim()) return;
+    setIsSubmittingSecret(true);
+    try {
+      // 1. Vault the secret
+      const res = await fetch('/api/vault/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: pendingApproval.args.secretId,
+          value: secretInputValue.trim()
+        })
+      });
+      if (!res.ok) throw new Error('Failed to vault secret');
+
+      // 2. Approve the tool execution
+      await handleUXApprovalDecision(true);
+      setSecretInputValue('');
+    } catch (err) {
+      console.error(err);
+      setErrorToast("Failed to vault secret securely.");
+    } finally {
+      setIsSubmittingSecret(false);
     }
   };
 
@@ -582,6 +612,29 @@ export default function ChatClient() {
         }
       }
 
+      // ── Generate Suggested Follow-ups (fire-and-forget) ──
+      if (finalResponses) {
+        const firstResponse = (Object.values(finalResponses) as string[]).find(v => v && v.length > 0) || '';
+        fetch('/api/truth/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lastPrompt: userText,
+            lastResponse: firstResponse,
+            topic,
+          }),
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data.suggestions && data.suggestions.length > 0) {
+              setTurns(prev => prev.map(t =>
+                t.id === turnId ? { ...t, suggestions: data.suggestions } : t
+              ));
+            }
+          })
+          .catch(() => {}); // Silent fail — suggestions are non-critical
+      }
+
     } catch (err) {
       console.error(err);
       setTurns(prev => prev.map(t =>
@@ -777,7 +830,7 @@ export default function ChatClient() {
             <span className="hidden lg:inline">MCP Registry</span>
           </button>
 
-          {/* API Hub Button */}
+          {/* Secrets Vault Button */}
           <button
             onClick={() => {
               if (workspaceOpen && activeRightTab === 'integrations') {
@@ -788,10 +841,10 @@ export default function ChatClient() {
               }
             }}
             className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-full transition-all duration-300 border ${workspaceOpen && activeRightTab === 'integrations' ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.1)]' : 'text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 border-transparent'}`}
-            title="API Hub"
+            title="Secrets Vault"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
-            <span className="hidden lg:inline">API Hub</span>
+            <span className="hidden lg:inline">Secrets Vault</span>
           </button>
 
           <button onClick={() => setShowMenu(!showMenu)} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Options">
@@ -905,39 +958,73 @@ export default function ChatClient() {
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50 group-hover:opacity-100 transition-opacity"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
 
-                <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-3 pl-2">History</h3>
+                <div className="flex justify-between items-center mb-3 pr-2">
+                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 pl-2">History</h3>
+                  <select 
+                    className="bg-transparent text-[10px] text-zinc-500 uppercase tracking-wider focus:outline-none hover:text-zinc-300 cursor-pointer"
+                    value={historyFilter || ''}
+                    onChange={(e) => setHistoryFilter(e.target.value || null)}
+                  >
+                    <option value="">ALL DOMAINS</option>
+                    {DOMAINS.map(d => (
+                      <option key={d.id} value={d.id}>{d.id}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="space-y-1 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                  {conversations.length === 0 ? (
-                    <div className="text-zinc-600 text-xs px-2 py-4 italic">No previous conversations</div>
+                  {conversations.filter(c => !historyFilter || c.topic === historyFilter).length === 0 ? (
+                    <div className="text-zinc-600 text-xs px-2 py-4 italic">No matching threads</div>
                   ) : (
-                    conversations.map(c => (
-                      <div
-                        key={c.id}
-                        onClick={() => loadConversation(c.id)}
-                        className={`group w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 cursor-pointer flex justify-between items-center ${conversationId === c.id ? 'bg-white/10 text-white font-medium border border-white/5' : 'text-zinc-400 hover:text-white hover:bg-white/[0.03] border border-transparent'}`}
-                      >
-                        <span className="truncate pr-2 flex-1 text-[13px]">{c.title}</span>
-                        <button
-                          onClick={(e) => deleteConversation(c.id, e)}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-red-400 transition-all rounded-md hover:bg-white/5"
-                          title="Delete thread"
+                    conversations.filter(c => !historyFilter || c.topic === historyFilter).map(c => {
+                      const domainMeta = DOMAINS.find(d => d.id === c.topic) || DOMAINS.find(d => d.id === 'GENERAL') || { id: 'UNKNOWN', label: 'UNKNOWN', color: 'text-zinc-500 bg-zinc-500/10 border-zinc-500/20' };
+                      const isActive = c.title.includes('ACTIVE');
+                      const isBlocked = c.title.includes('BLOCKED');
+                      const stateColor = isActive ? 'bg-emerald-500' : isBlocked ? 'bg-red-500' : 'bg-zinc-500';
+                      
+                      let displayTitle = c.title;
+                      if (displayTitle.includes('TL;DR:')) {
+                        displayTitle = displayTitle.split('TL;DR:')[1].trim();
+                      } else if (displayTitle.includes('] ')) {
+                        displayTitle = displayTitle.split('] ').pop() || displayTitle;
+                      }
+
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => loadConversation(c.id)}
+                          className={`group w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 cursor-pointer flex flex-col gap-1.5 ${conversationId === c.id ? 'bg-white/10 text-white font-medium border border-white/5' : 'text-zinc-400 hover:text-white hover:bg-white/[0.03] border border-transparent'}`}
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </button>
-                      </div>
-                    ))
+                          <div className="flex justify-between items-center">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${domainMeta.color} font-mono tracking-wider`}>
+                              {domainMeta.id}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full ${stateColor} opacity-80`} title={isActive ? 'Active' : isBlocked ? 'Blocked' : 'Resolved'}></span>
+                              <button
+                                onClick={(e) => deleteConversation(c.id, e)}
+                                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all rounded-md hover:bg-white/5 flex items-center justify-center"
+                                title="Delete thread"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <span className="truncate w-full text-[12px] leading-relaxed text-zinc-300">{displayTitle}</span>
+                        </div>
+                      )
+                    })
                   )}
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-white/[0.06]">
-                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-3 pl-2">Topic Focus</h3>
+                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-3 pl-2">Active Domain</h3>
                   <select
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     className="w-full bg-zinc-900 border border-white/10 text-zinc-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-white/20"
                   >
-                    {TOPICS.map(t => (
-                      <option key={t} value={t}>{t}</option>
+                    {DOMAINS.map(d => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
                     ))}
                   </select>
                 </div>
@@ -958,7 +1045,7 @@ export default function ChatClient() {
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                 </div>
                 <div className="font-serif text-3xl mb-3 text-white tracking-tight">Ready to start.</div>
-                <p className="mb-8 font-light text-lg">Topic: <span className="font-semibold text-white">{topic}</span></p>
+                <p className="mb-8 font-light text-lg">Domain: <span className="font-semibold text-white">{topic}</span></p>
                 <div className="md:hidden flex flex-wrap justify-center gap-2 bg-zinc-900 border border-white/10 p-1 rounded-2xl text-xs font-semibold mx-auto w-fit">
                   <button
                     onClick={() => setMode('compare')}
@@ -1043,6 +1130,19 @@ export default function ChatClient() {
                       {turn.targeted.includes("deepseek") && renderModelCard("deepseek", "DeepSeek", turn.responses?.deepseek || null, turn.targeted.length > 1)}
                     </div>
                   </div>
+
+                  {/* Suggested Follow-up Prompts */}
+                  {turn.suggestions && turn.suggestions.length > 0 && (
+                    <SuggestedPrompts
+                      suggestions={turn.suggestions}
+                      onSelect={(prompt, model) => {
+                        setInputVal(prompt);
+                        setSharedModel(model);
+                        setMode('shared');
+                        textareaRef.current?.focus();
+                      }}
+                    />
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -1087,11 +1187,8 @@ export default function ChatClient() {
                     }}
                   />
                 ) : (
-                  <ApiHub
+                  <CredentialVault
                     onClose={() => setWorkspaceOpen(false)}
-                    onInsertContext={(text) => {
-                      setInputVal(prev => prev + (prev ? '\n\n' : '') + text);
-                    }}
                   />
                 )}
               </div>
@@ -1312,6 +1409,14 @@ export default function ChatClient() {
                   pingBg: isStaged ? "bg-amber-500" : "bg-rose-500"
                 };
               }
+              case "request_human_secret":
+                return {
+                  badge: "Credential Required",
+                  title: "AI Needs a Secret",
+                  description: args?.reason || `The AI model has requested the secret: ${args?.secretId}. Provide it below to continue.`,
+                  colorClass: "text-emerald-500",
+                  pingBg: "bg-emerald-500"
+                };
               default:
                 return {
                   badge: "UX Approval Required",
@@ -1341,27 +1446,71 @@ export default function ChatClient() {
                   </p>
                 </div>
 
-                <div className="bg-black/40 border border-zinc-900 rounded-xl p-4 overflow-y-auto max-h-48 font-mono text-[10px] text-zinc-300 space-y-1">
-                  <div className="text-zinc-500 font-bold uppercase tracking-wider text-[8px] mb-1">Payload parameters</div>
-                  <pre className="whitespace-pre-wrap">{JSON.stringify(pendingApproval.args, null, 2)}</pre>
-                </div>
-
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleUXApprovalDecision(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-zinc-900 hover:border-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
-                  >
-                    Deny Action
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUXApprovalDecision(true)}
-                    className="flex-1 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-black text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
-                  >
-                    Approve Action
-                  </button>
-                </div>
+                {pendingApproval.tool === "request_human_secret" ? (
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-zinc-500">Secure Vault Input</label>
+                      <input
+                        type="password"
+                        placeholder={`Enter ${pendingApproval.args?.secretId || 'secret'}...`}
+                        value={secretInputValue}
+                        onChange={(e) => setSecretInputValue(e.target.value)}
+                        className="w-full bg-black/40 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleUXApprovalDecision(false)}
+                        className="flex-1 py-2.5 rounded-xl border border-zinc-900 hover:border-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingApproval(null);
+                          setWorkspaceOpen(true);
+                          setActiveRightTab('integrations');
+                        }}
+                        className="flex-1 py-2.5 rounded-xl border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                      >
+                        Secrets Vault
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSecretSubmission}
+                        disabled={isSubmittingSecret || !secretInputValue.trim()}
+                        className="flex-1 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/20 disabled:opacity-50 text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                      >
+                        {isSubmittingSecret ? "Vaulting..." : "Vault & Resume"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-black/40 border border-zinc-900 rounded-xl p-4 overflow-y-auto max-h-48 font-mono text-[10px] text-zinc-300 space-y-1">
+                      <div className="text-zinc-500 font-bold uppercase tracking-wider text-[8px] mb-1">Payload parameters</div>
+                      <pre className="whitespace-pre-wrap">{JSON.stringify(pendingApproval.args, null, 2)}</pre>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleUXApprovalDecision(false)}
+                        className="flex-1 py-2.5 rounded-xl border border-zinc-900 hover:border-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                      >
+                        Deny Action
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUXApprovalDecision(true)}
+                        className="flex-1 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-black text-xs font-semibold tracking-wide transition-all active:scale-[0.98]"
+                      >
+                        Approve Action
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           );
