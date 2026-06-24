@@ -1,0 +1,1 @@
+This note was saved by Reverie to test the prompt bank integration.
