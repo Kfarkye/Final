@@ -16,22 +16,29 @@ function getSecretClient() {
 }
 
 async function getGithubPat(): Promise<string | null> {
-  // Check env first
-  if (env.GITHUB_PAT || process.env.GITHUB_PAT) {
-    return env.GITHUB_PAT || process.env.GITHUB_PAT || null;
-  }
+  // Check env first — support all common naming conventions
+  const envToken = env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN
+    || env.GITHUB_PAT || process.env.GITHUB_PAT
+    || process.env.GITHUB_TOKEN;
+  if (envToken) return envToken;
   
-  // Fallback to Secret Manager
-  if (!env.GCP_PROJECT) return null;
-  
+  // Check Secret Manager
   try {
     const client = getSecretClient();
+    try {
+      const [version] = await client.accessSecretVersion({
+        name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_PERSONAL_ACCESS_TOKEN/versions/latest`,
+      });
+      return version.payload?.data?.toString() || null;
+    } catch(e) {
+      // Fallback to GITHUB_PAT
+    }
     const [version] = await client.accessSecretVersion({
       name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_PAT/versions/latest`,
     });
     return version.payload?.data?.toString() || null;
   } catch (err: any) {
-    logger.error({ msg: "Failed to read GITHUB_PAT from Secret Manager", error: err.message });
+    logger.error({ msg: "Failed to read GitHub token from Secret Manager", error: err.message });
     return null;
   }
 }
@@ -40,7 +47,7 @@ export const githubTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "github_commit_file",
-      description: "Creates or updates a file directly in a GitHub repository using the GitHub API. This gives you physical autonomy to persist code changes directly to version control.",
+      description: "Creates or updates a file directly in a GitHub repository using the GitHub API. This gives you physical autonomy to persist code changes directly to version control. Pushing code to the 'main' branch will automatically trigger the CI/CD pipeline which tests and deploys the container to Cloud Run.",
       schema: z.object({
         repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/reverie')"),
         path: z.string().describe("The file path inside the repository to write to (e.g., 'src/tools/governance.tools.ts')"),
@@ -50,24 +57,25 @@ export const githubTools: RegisteredTool<any>[] = [
       })
     },
     handler: async (args, context) => {
-      // 1. Require Approval for all GitHub writes
-      if (context.connectionId) {
-        const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
-        sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
-          approvalId,
-          tool: "github_commit_file",
-          args: {
-            repo: args.repoFullName,
-            path: args.path,
-            branch: args.branch || "default",
-            commitMessage: args.commitMessage,
-            contentPreview: args.content.substring(0, 200) + (args.content.length > 200 ? '...' : '')
-          }
-        });
-        const approved = await waitForApproval(approvalId, "github_commit_file", args);
-        if (!approved) {
-          return { error: "Permission Denied: User did not approve GitHub commit." };
+      // 1. Fail-closed approval: refuse writes without interactive session
+      if (!context.connectionId) {
+        return { error: "Permission Denied: GitHub writes require an interactive session with approval. No connectionId available." };
+      }
+      const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
+      sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
+        approvalId,
+        tool: "github_commit_file",
+        args: {
+          repo: args.repoFullName,
+          path: args.path,
+          branch: args.branch || "default",
+          commitMessage: args.commitMessage,
+          contentPreview: args.content.substring(0, 200) + (args.content.length > 200 ? '...' : '')
         }
+      });
+      const decision = await waitForApproval(approvalId, "github_commit_file", args);
+      if (!decision) {
+        return { error: "Permission Denied: User did not approve GitHub commit." };
       }
 
       const pat = await getGithubPat();

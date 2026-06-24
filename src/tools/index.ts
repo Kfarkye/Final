@@ -29,7 +29,17 @@ import { gameStateTools } from './game_state.tools';
 import { deepthinkTools } from './deepthink.tools';
 import { dripTools } from './drip.tools';
 import { gcpInfraTools } from './gcp-infra.tools';
-
+import { entityTools } from './entity.tools';
+import { spannerAdminTools } from './spanner-admin.tools.js';
+import { runtimeTools, loadPersistedRuntimeTools } from './runtime.tools.js';
+import { secretsTools } from './secrets.tools.js';
+import { buildTools } from './build.tools.js';
+import { npmTools } from './npm.tools.js';
+import { appExecTools } from './app_exec.tools.js';
+import { conversationalTools } from './conversational.tools';
+import { sourceTools } from './source.tools';
+import { githubTools } from './github.tools';
+import { oddsAdminTools } from './odds_admin.tools.js';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -38,6 +48,7 @@ toolRegistry.registerMany([
   ...systemTools,
   ...workspaceTools,
   ...spannerTools,
+  ...spannerAdminTools,
   ...mcpTools,
   ...gcpTools,
   ...artifactTools,
@@ -63,7 +74,26 @@ toolRegistry.registerMany([
   ...deepthinkTools,
   ...dripTools,
   ...gcpInfraTools,
+  ...entityTools,
+  ...runtimeTools,
+  ...secretsTools,
+  ...buildTools,
+  ...npmTools,
+  ...appExecTools,
+  ...conversationalTools,
+  ...sourceTools,
+  ...githubTools,
+  ...oddsAdminTools,
 ]);
 
-export { toolRegistry };
+// Lock the built-in tool set before any runtime tools are restored.
+// After this, any tool registered (via runtime or persistence) will NOT be
+// classified as built-in, ensuring it can be safely unregistered later.
+toolRegistry.sealBuiltins();
 
+// Attempt to restore dynamically registered tools from the database
+loadPersistedRuntimeTools().catch(err => {
+  console.error("Failed to load persisted runtime tools:", err);
+});
+
+export { toolRegistry };

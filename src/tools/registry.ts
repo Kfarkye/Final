@@ -2,16 +2,64 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { CanonicalTool, ToolContext, RegisteredTool } from "./types";
 import { ValidationError } from "../utils/errors";
 import { logger } from "../utils/logger";
+import { deriveRenderContract } from "../hub/render-contract";
 
 class ToolRegistry {
   private tools = new Map<string, RegisteredTool<any>>();
+  /** Tools registered at boot time. Cannot be unregistered. */
+  private builtinNames = new Set<string>();
+  /** Set to true after initial boot registration is complete. */
+  private bootComplete = false;
 
   public register<T extends import("zod").ZodTypeAny>(tool: RegisteredTool<T>): void {
     this.tools.set(tool.definition.name, tool);
+    // Track as built-in if registration happens during boot
+    if (!this.bootComplete) {
+      this.builtinNames.add(tool.definition.name);
+    }
   }
 
   public registerMany(tools: RegisteredTool<any>[]): void {
     for (const tool of tools) this.register(tool);
+  }
+
+  /** Call after all built-in tools are registered to lock the built-in set. */
+  public sealBuiltins(): void {
+    this.bootComplete = true;
+    logger.info({ msg: "Built-in tool set sealed", count: this.builtinNames.size });
+  }
+
+  public has(name: string): boolean {
+    return this.tools.has(name);
+  }
+
+  public get(name: string): RegisteredTool<any> | undefined {
+    return this.tools.get(name);
+  }
+
+  public count(): number {
+    return this.tools.size;
+  }
+
+  public list(): string[] {
+    return [...this.tools.keys()].sort();
+  }
+
+  public isBuiltin(name: string): boolean {
+    return this.builtinNames.has(name);
+  }
+
+  /**
+   * Remove a tool from the registry. Built-in tools are protected and cannot
+   * be removed — this enforcement is at the registry level so no caller can bypass it.
+   * Returns true if the tool was removed, false if not found or protected.
+   */
+  public unregister(name: string): boolean {
+    if (this.builtinNames.has(name)) {
+      logger.warn({ msg: "Blocked attempt to unregister built-in tool", toolName: name });
+      return false;
+    }
+    return this.tools.delete(name);
   }
 
   // Converts Zod definitions to LLM-compatible JSON schemas
@@ -67,6 +115,15 @@ class ToolRegistry {
       const result = await tool.handler(parseResult.data, context);
       
       logger.info({ msg: "Tool execution successful", toolName: name, durationMs: Date.now() - startTime });
+
+      // ── Hub Envelope Post-Processor ──────────────────────────────
+      // Only tagged tools get envelopes — everything else returns raw.
+      // This is the single multiplier: tag a tool with entityType and
+      // it automatically gets render + promptHint without touching the handler.
+      if (tool.entityType && result && !result.error) {
+        return this.wrapInEnvelope(tool, name, result);
+      }
+
       return result;
     } catch (err: any) {
       logger.error({ 
@@ -78,6 +135,31 @@ class ToolRegistry {
       return { error: err.message };
     }
   }
+
+  // ── Envelope builder ─────────────────────────────────────────────
+  // Derives the render contract from the tool's entityType and result data,
+  // then wraps in the standard HubEnvelope shape that all three surfaces consume.
+  private wrapInEnvelope(tool: RegisteredTool<any>, name: string, result: any): any {
+    const data = result.data ?? result;
+    const { render, promptHint: derivedHint } = deriveRenderContract(tool.entityType!, data);
+
+    // Merge static tool-level hint with the derived context-aware hint
+    const promptHint = tool.promptHint
+      ? `${tool.promptHint} ${derivedHint}`
+      : derivedHint;
+
+    return {
+      type: tool.entityType,
+      id: data.id ?? data.game_id ?? data.gamePk ?? data.player_id ?? `${name}-${Date.now()}`,
+      status: 'resolved' as const,
+      summary: result.summary ?? '',
+      data,
+      render,
+      promptHint,
+      links: result.links ?? {},
+    };
+  }
 }
 
 export const toolRegistry = new ToolRegistry();
+

@@ -181,7 +181,7 @@ export const runtimeTools: RegisteredTool<any>[] = [
 
       const compileCheck = assertCompilable(args.handlerCode);
       if (!compileCheck.ok) {
-        return { error: `Failed to compile handler: ${compileCheck.error}` };
+        return { error: `Failed to compile handler: ${(compileCheck as any).error}` };
       }
 
       const approvalHash = hashCode(args.handlerCode);
@@ -190,11 +190,11 @@ export const runtimeTools: RegisteredTool<any>[] = [
       try {
         await edgeDb.runTransactionAsync(async (transaction) => {
           await transaction.run({
-            sql: `INSERT OR UPDATE RuntimeTools (Name, Description, Parameters, HandlerCode, ApprovalHash, ApprovedBy, ApprovedAt, CreatedAt)\n                  VALUES (@Name, @Description, @Parameters, @HandlerCode, @ApprovalHash, @ApprovedBy, PENDING_COMMIT_TIMESTAMP(), PENDING_COMMIT_TIMESTAMP())`,
+            sql: `INSERT OR UPDATE RuntimeTools (Name, Description, Parameters, HandlerCode, ApprovalHash, ApprovedBy, ApprovedAt, CreatedAt)\n                  VALUES (@Name, @Description, @Parameters, @HandlerCode, @ApprovalHash, @ApprovedBy, CURRENT_TIMESTAMP(), PENDING_COMMIT_TIMESTAMP())`,
             params: {
               Name: args.name,
               Description: args.description,
-              Parameters: JSON.stringify(args.parameters),
+              Parameters: args.parameters,
               HandlerCode: args.handlerCode,
               ApprovalHash: approvalHash,
               ApprovedBy: approvedBy,
@@ -251,7 +251,7 @@ export const runtimeTools: RegisteredTool<any>[] = [
       if (!toolRegistry.has(args.name)) {
         return { error: `Tool '${args.name}' not found in registry.` };
       }
-      if (getBuiltinNames().has(args.name) && !RUNTIME_TOOL_NAMES.has(args.name)) {
+      if (toolRegistry.isBuiltin(args.name)) {
         return { error: `Tool '${args.name}' is a built-in tool and cannot be removed.` };
       }
 
