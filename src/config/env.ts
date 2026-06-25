@@ -27,6 +27,8 @@ const envSchema = z.object({
   XAI_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_API_BASE_URL: z.string().default("https://api.deepseek.com"),
+  GITHUB_PERSONAL_ACCESS_TOKEN: z.string().optional(),
+  GITHUB_PAT: z.string().optional(),
 
   // Cloud Spanner Configuration
   SPANNER_PROJECT_ID: z.string().optional(),

@@ -29,6 +29,7 @@ interface Responses {
   claude: string | null;
   grok: string | null;
   deepseek: string | null;
+  codex: string | null;
   planner?: string | null;
   ui_engineer?: string | null;
   data_analyst?: string | null;
@@ -58,6 +59,7 @@ export interface ModelConfigs {
   claude: string;
   grok: string;
   deepseek: string;
+  codex: string;
 }
 
 export const DOMAINS = [
@@ -196,9 +198,11 @@ export default function ChatClient() {
     claude: 'claude-opus-4-8',
     grok: 'grok-4.3',
     deepseek: 'deepseek-v3.2-maas',
+    codex: 'gpt-5.5',
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
+  const [codexResponseId, setCodexResponseId] = useState<string | null>(null);
 
   // ── Approval notification effects ──────────────────────────────────────────
 
@@ -543,25 +547,132 @@ export default function ChatClient() {
         }
       }
 
-      const res = await fetch('/api/truth/chat', {
+      // Detect if Codex is among the targeted models
+      const hasCodex = targetModels.includes('codex');
+      const codexOnly = hasCodex && targetModels.length === 1;
+
+      // If Codex is the only target, route to the Codex handler.
+      // If mixed (codex + other models), send to default handler AND codex handler.
+      // The default handler ignores 'codex' in targetModels (it doesn't know that provider).
+      const chatEndpoint = codexOnly ? '/api/truth/codex/chat' : '/api/truth/chat';
+
+      const res = await fetch(chatEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream'
         },
-        body: JSON.stringify({
-          prompt: userText,
-          history,
-          mode,
-          targetModels,
-          topic,
-          googleAccessToken: accessToken,
-          modelConfigs,
-          mcpServers: parsedMcpServers,
-          apiIntegrations: parsedIntegrations,
-          attachments: filesPayload
-        })
+        body: codexOnly
+          ? JSON.stringify({
+              prompt: userText,
+              history,
+              connectionId: conversationId,
+              userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              modelVersion: modelConfigs.codex || 'gpt-5.5',
+              ...(codexResponseId ? { previousResponseId: codexResponseId } : {}),
+            })
+          : JSON.stringify({
+              prompt: userText,
+              history,
+              mode,
+              targetModels,
+              topic,
+              googleAccessToken: accessToken,
+              modelConfigs,
+              mcpServers: parsedMcpServers,
+              apiIntegrations: parsedIntegrations,
+              attachments: filesPayload
+            })
       });
+
+      // If we have codex AND other models, also fire the codex handler in parallel
+      if (hasCodex && !codexOnly) {
+        fetch('/api/truth/codex/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          body: JSON.stringify({
+            prompt: userText,
+            history,
+            connectionId: conversationId,
+            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            modelVersion: modelConfigs.codex || 'gpt-5.5',
+            ...(codexResponseId ? { previousResponseId: codexResponseId } : {}),
+          }),
+        }).then(async (codexRes) => {
+          if (!codexRes.ok || !codexRes.body) return;
+          const codexReader = codexRes.body.getReader();
+          const codexDecoder = new TextDecoder('utf-8');
+          let codexBuf = '';
+          while (true) {
+            const { done, value } = await codexReader.read();
+            if (done) break;
+            codexBuf += codexDecoder.decode(value, { stream: true });
+            const cParts = codexBuf.split(/\r?\n\r?\n/);
+            codexBuf = cParts.pop() || '';
+            for (const part of cParts) {
+              const lines = part.split(/\r?\n/);
+              const evtLine = lines.find(l => l.startsWith('event: '));
+              const datLine = lines.find(l => l.startsWith('data: '));
+              if (!evtLine || !datLine) continue;
+              const evtName = evtLine.substring(7).trim();
+              const datStr = datLine.substring(6).trim();
+              try {
+                const d = JSON.parse(datStr);
+                if (evtName === 'delta' && d.text) {
+                  setTurns(prev => prev.map(t => {
+                    if (t.id === turnId) {
+                      const cur = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null, codex: null };
+                      return { ...t, responses: { ...cur, codex: (cur['codex'] || '') + d.text } };
+                    }
+                    return t;
+                  }));
+                } else if (evtName === 'citations' && d.annotations?.length > 0) {
+                  const footnotes = '\n\n---\n**Sources:**\n' +
+                    d.annotations.map((a: any, i: number) => `${i + 1}. [${a.title || a.url}](${a.url})`).join('\n');
+                  setTurns(prev => prev.map(t => {
+                    if (t.id === turnId) {
+                      const cur = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null, codex: null };
+                      return { ...t, responses: { ...cur, codex: (cur['codex'] || '') + footnotes } };
+                    }
+                    return t;
+                  }));
+                } else if (evtName === 'codex_response_id' && d.responseId) {
+                  setCodexResponseId(d.responseId);
+                } else if (evtName === 'tool_call_started') {
+                  setTurns(prev => prev.map(t => {
+                    if (t.id === turnId) {
+                      const newEntry: ToolTraceEntry = {
+                        id: d.callId || `codex-cmp-${Date.now()}`,
+                        tool: d.tool,
+                        model: 'codex',
+                        status: 'running',
+                        argsPreview: d.args ? JSON.stringify(d.args, null, 2) : undefined,
+                        startedAt: Date.now(),
+                      };
+                      return { ...t, trace: [...(t.trace || []), newEntry] };
+                    }
+                    return t;
+                  }));
+                } else if (evtName === 'tool_call_completed') {
+                  setTurns(prev => prev.map(t => {
+                    if (t.id === turnId && t.trace) {
+                      const updatedTrace = [...t.trace];
+                      for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                        if (updatedTrace[i].id === d.callId || (updatedTrace[i].tool === d.tool && updatedTrace[i].status === 'running' && updatedTrace[i].model === 'codex')) {
+                          updatedTrace[i] = { ...updatedTrace[i], status: 'success', elapsedMs: Date.now() - (updatedTrace[i].startedAt || Date.now()), resultPreview: d.result?.slice?.(0, 200) };
+                          break;
+                        }
+                      }
+                      return { ...t, trace: updatedTrace };
+                    }
+                    return t;
+                  }));
+                }
+              } catch {}
+            }
+          }
+        }).catch(() => {});
+      }
 
       if (!res.ok || !res.body) {
         throw new Error(`HTTP error! status: ${res.status}`);
@@ -570,7 +681,7 @@ export default function ChatClient() {
       // Initialize responses state with empty strings for targeted models to show typing UI immediately
       setTurns(prev => prev.map(t => {
         if (t.id === turnId) {
-          const initRes: any = { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
+          const initRes: any = { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null, codex: null };
           targetModels.forEach(m => initRes[m] = '');
           return { ...t, responses: initRes as Responses };
         }
@@ -600,7 +711,133 @@ export default function ChatClient() {
           const eventName = eventLine.substring(7).trim();
           const dataStr = dataLine.substring(6).trim();
 
-          if (eventName === 'message') {
+          // ── Codex-specific SSE events ─────────────────────────────
+          if (eventName === 'delta') {
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.model === 'codex' && data.text) {
+                setTurns(prev => prev.map(t => {
+                  if (t.id === turnId) {
+                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
+                    const newResponses = {
+                      ...currentResponses,
+                      codex: (currentResponses['codex'] || '') + data.text
+                    };
+                    finalResponses = newResponses;
+                    return { ...t, responses: newResponses };
+                  }
+                  return t;
+                }));
+              }
+            } catch (e) { }
+          } else if (eventName === 'citations') {
+            // Codex citation annotations — append as markdown footnotes
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.annotations?.length > 0) {
+                const footnotes = '\n\n---\n**Sources:**\n' +
+                  data.annotations.map((a: any, i: number) => `${i + 1}. [${a.title || a.url}](${a.url})`).join('\n');
+                setTurns(prev => prev.map(t => {
+                  if (t.id === turnId) {
+                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
+                    return { ...t, responses: { ...currentResponses, codex: (currentResponses['codex'] || '') + footnotes } };
+                  }
+                  return t;
+                }));
+              }
+            } catch (e) { }
+          } else if (eventName === 'tool_call_started') {
+            // Codex tool trace
+            try {
+              const data = JSON.parse(dataStr);
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId) {
+                  const newEntry: ToolTraceEntry = {
+                    id: data.callId || `codex-${Date.now()}`,
+                    tool: data.tool,
+                    model: 'codex',
+                    status: 'running',
+                    argsPreview: data.args ? JSON.stringify(data.args, null, 2) : undefined,
+                    startedAt: Date.now(),
+                  };
+                  return { ...t, trace: [...(t.trace || []), newEntry] };
+                }
+                return t;
+              }));
+            } catch (e) { }
+          } else if (eventName === 'tool_call_completed') {
+            try {
+              const data = JSON.parse(dataStr);
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId && t.trace) {
+                  const updatedTrace = [...t.trace];
+                  for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                    if (updatedTrace[i].id === data.callId || (updatedTrace[i].tool === data.tool && updatedTrace[i].status === 'running')) {
+                      updatedTrace[i] = { ...updatedTrace[i], status: 'success', elapsedMs: Date.now() - (updatedTrace[i].startedAt || Date.now()), resultPreview: data.result?.slice?.(0, 200) };
+                      break;
+                    }
+                  }
+                  return { ...t, trace: updatedTrace };
+                }
+                return t;
+              }));
+            } catch (e) { }
+          } else if (eventName === 'codex_response_id') {
+            // Track response ID for multi-turn Codex state
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.responseId) {
+                setCodexResponseId(data.responseId);
+              }
+            } catch (e) { }
+          } else if (eventName === 'code_delta') {
+            // Live code execution preview from code_interpreter
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.code) {
+                setTurns(prev => prev.map(t => {
+                  if (t.id === turnId && t.trace) {
+                    const updatedTrace = [...t.trace];
+                    for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                      if (updatedTrace[i].tool === 'code_interpreter' && updatedTrace[i].status === 'running') {
+                        updatedTrace[i] = {
+                          ...updatedTrace[i],
+                          resultPreview: (updatedTrace[i].resultPreview || '') + data.code,
+                        };
+                        break;
+                      }
+                    }
+                    return { ...t, trace: updatedTrace };
+                  }
+                  return t;
+                }));
+              }
+            } catch (e) { }
+          } else if (eventName === 'tool_progress') {
+            // Tool execution status updates (searching, executing, etc.)
+            try {
+              const data = JSON.parse(dataStr);
+              setTurns(prev => prev.map(t => {
+                if (t.id === turnId && t.trace) {
+                  const updatedTrace = [...t.trace];
+                  for (let i = updatedTrace.length - 1; i >= 0; i--) {
+                    if (updatedTrace[i].id === data.callId && updatedTrace[i].status === 'running') {
+                      updatedTrace[i] = { ...updatedTrace[i], resultPreview: data.status };
+                      break;
+                    }
+                  }
+                  return { ...t, trace: updatedTrace };
+                }
+                return t;
+              }));
+            } catch (e) { }
+          } else if (eventName === 'codex_turn_completed') {
+            // Codex turn complete — log usage for cost tracking
+            try {
+              const data = JSON.parse(dataStr);
+              console.log('[Codex] Turn completed', data.usage);
+            } catch (e) { }
+          } else if (eventName === 'message') {
             try {
               const data = JSON.parse(dataStr);
               if (data.model && data.chunk) {
@@ -838,6 +1075,12 @@ export default function ChatClient() {
       if (version === 'deepseek-ocr-maas') return 'DeepSeek OCR';
       return `DeepSeek (${version})`;
     }
+    if (id === 'codex') {
+      if (version === 'gpt-5.5') return 'Codex GPT-5.5';
+      if (version === 'gpt-5.4') return 'Codex GPT-5.4';
+      if (version === 'gpt-5.4-mini') return 'Codex GPT-5.4 Mini';
+      return `Codex (${version})`;
+    }
     if (id === 'planner') return 'Planner';
     if (id === 'ui_engineer') return 'UI Engineer';
     if (id === 'data_analyst') return 'Data Analyst';
@@ -934,6 +1177,7 @@ export default function ChatClient() {
             Team
           </button>
         </div>
+
 
         <div className="flex space-x-3 items-center relative flex-1 justify-end">
           {/* Workspace Button */}

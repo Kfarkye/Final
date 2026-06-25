@@ -15,6 +15,7 @@ interface SettingsDialogProps {
     claude: string;
     grok: string;
     deepseek: string;
+    codex: string;
   };
   onUpdateModelConfigs: (configs: {
     gemini: string;
@@ -22,6 +23,7 @@ interface SettingsDialogProps {
     claude: string;
     grok: string;
     deepseek: string;
+    codex: string;
   }) => void;
 }
 
@@ -42,6 +44,7 @@ export default function SettingsDialog({
   const [claudeCustom, setClaudeCustom] = useState(!['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning'].includes(modelConfigs.grok));
   const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v3.2-maas', 'deepseek-r1-0528-maas', 'deepseek-v3.1-maas', 'deepseek-ocr-maas'].includes(modelConfigs.deepseek));
+  const [codexCustom, setCodexCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'].includes(modelConfigs.codex || 'gpt-5.5'));
 
   const handleSave = async () => {
     if (!currentUser) return;
@@ -71,7 +74,7 @@ export default function SettingsDialog({
     }
   };
 
-  const handleModelChange = (key: 'gemini' | 'chatgpt' | 'claude' | 'grok' | 'deepseek', val: string) => {
+  const handleModelChange = (key: 'gemini' | 'chatgpt' | 'claude' | 'grok' | 'deepseek' | 'codex', val: string) => {
     setConfigs(prev => ({ ...prev, [key]: val }));
   };
 
@@ -309,6 +312,38 @@ export default function SettingsDialog({
                   <option value="deepseek-r1-0528-maas">DeepSeek R1 0528 (Reasoning)</option>
                   <option value="deepseek-v3.1-maas">DeepSeek V3.1</option>
                   <option value="deepseek-ocr-maas">DeepSeek OCR</option>
+                </select>
+              )}
+            </div>
+
+            {/* Codex */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-zinc-400">Codex model</span>
+                <button
+                  onClick={() => setCodexCustom(!codexCustom)}
+                  className="text-zinc-500 hover:text-white transition-colors"
+                >
+                  {codexCustom ? "Select preset" : "Set custom model ID"}
+                </button>
+              </div>
+              {codexCustom ? (
+                <input
+                  type="text"
+                  value={configs.codex || 'gpt-5.5'}
+                  onChange={(e) => handleModelChange('codex', e.target.value)}
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  placeholder="e.g. gpt-5.5"
+                />
+              ) : (
+                <select
+                  value={configs.codex || 'gpt-5.5'}
+                  onChange={(e) => handleModelChange('codex', e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                >
+                  <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
+                  <option value="gpt-5.4">GPT-5.4 (Strong)</option>
+                  <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast)</option>
                 </select>
               )}
             </div>

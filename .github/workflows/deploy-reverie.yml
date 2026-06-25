@@ -32,7 +32,10 @@ jobs:
         run: npm ci
 
       - name: TypeScript Check
-        run: npm run lint
+        run: npx tsc --noEmit
+
+      - name: Run Tests
+        run: npx vitest run
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -49,10 +52,11 @@ jobs:
           service: reverie
           region: us-central1
           source: .
-          flags: --allow-unauthenticated --port=3000 --memory=1Gi --timeout=300
+          flags: --allow-unauthenticated --port=8080 --memory=2Gi --cpu=2 --timeout=300
 
       - name: Show deployed URL
         run: |
           gcloud run services describe reverie \
             --region us-central1 \
             --format='value(status.url)'
+

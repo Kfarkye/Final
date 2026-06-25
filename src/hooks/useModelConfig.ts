@@ -88,6 +88,16 @@ export const MODEL_REGISTRY: ModelProvider[] = [
       { id: 'deepseek-ocr-maas', label: 'OCR', hint: 'fast' },
     ],
   },
+  {
+    id: 'codex',
+    name: 'Codex',
+    accent: '#22C55E',
+    versions: [
+      { id: 'gpt-5.5', label: 'GPT-5.5', hint: 'reasoning' },
+      { id: 'gpt-5.4', label: 'GPT-5.4', hint: 'balanced' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', hint: 'fast' },
+    ],
+  },
 ];
 
 // ── Hook ────────────────────────────────────────────────────────────────
@@ -102,6 +112,7 @@ export function useModelConfig(initial?: Partial<ModelState>) {
       claude: 'claude-opus-4-8',
       grok: 'grok-4.3',
       deepseek: 'deepseek-v4-pro',
+      codex: 'gpt-5.5',
     }
   );
   const [selectedProviders, setSelectedProviders] = useState<string[]>(

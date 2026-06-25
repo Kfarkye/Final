@@ -13,6 +13,8 @@ import { logger } from "./src/utils/logger";
 import { closeDatabase } from "./src/db/index";
 import { spannerClient } from "./src/db/spanner";
 import { stopBackfill } from "./src/workers/odds-backfill-worker";
+import { driveSaveHandler } from "./api/drive-save";
+import { executeWorkspaceTool } from "./server_workspace";
 
 // Legacy MCP routers
 import stripeMcpRoutes from "./src/routes/stripeMcpRoutes";
@@ -34,6 +36,13 @@ import auditRoutes from "./src/routes/audit.routes";
 import pmRoutes from "./src/routes/pm.routes";
 import dripRoutes from "./src/routes/drip.routes";
 import dripApiRoutes from "./src/routes/drip-api.routes";
+import mathRoutes from "./src/routes/math.routes";
+import worldCupRoutes from "./src/routes/worldcup.routes";
+import vaultRoutes from "./src/routes/vault.routes";
+import designSystemRoutes from "./src/routes/designSystemRoutes";
+import suggestRoutes from "./src/routes/suggest.routes";
+import sourceRoutes from "./src/routes/source.routes";
+import bindExternalServiceRoute from "./src/routes/workers/bind-external-service.route";
 
 const app = express();
 const PORT = env.PORT;
@@ -52,7 +61,17 @@ app.use("/api/git", gitRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/pm", pmRoutes);
 app.use("/api", sportsRoutes); // MLB slate and worker controls
+app.use("/api/math", mathRoutes);
 app.use(dripApiRoutes);
+app.use("/api/worldcup", worldCupRoutes);
+app.use("/api/vault", vaultRoutes);
+app.use("/api/design-systems", designSystemRoutes);
+app.use("/api/truth", suggestRoutes);
+app.use("/api/source", sourceRoutes);
+app.use(bindExternalServiceRoute);
+
+// --- Google Drive Save Route ---
+app.post("/api/drive/save", (req, res) => driveSaveHandler(req, res, { executeWorkspaceTool }));
 
 // --- Multi-Service MCP Routes ---
 app.use("/api/mcp/stripe", stripeMcpRoutes);

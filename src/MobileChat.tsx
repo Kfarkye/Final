@@ -27,7 +27,7 @@ import React, {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Square, PenLine, RotateCcw, Copy, Check, X, ArrowUp } from 'lucide-react';
+import { Square, PenLine, RotateCcw, Copy, Check, X, ArrowUp, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
@@ -48,6 +48,7 @@ const TOOL_LINGER_MS = 800;
 const COPY_FEEDBACK_MS = 2000;
 const HISTORY_WINDOW = 40;
 const API_ENDPOINT = '/api/truth/chat';
+const CODEX_ENDPOINT = '/api/truth/codex/chat';
 const IDLE_TIMEOUT_MS = 30_000;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -57,7 +58,7 @@ const IDLE_TIMEOUT_MS = 30_000;
 /** A message segment — either streamed text or a display card injected mid-stream. */
 type Segment =
   | { kind: 'text'; content: string }
-  | { kind: 'card'; cardType: string; data: any };
+  | { kind: 'card'; cardType: string; data: any; render?: any };
 
 interface ChatMessage {
   id: string;
@@ -241,6 +242,7 @@ function useChat(config: ChatConfig = {}) {
   const activeIdRef = useRef<string | null>(null);
   const flushRafRef = useRef<number | undefined>(undefined);
   const toolCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const codexResponseIdRef = useRef<string | null>(null);
 
   // ── Flush buffer → state (sync) ──
   const flushBufferNow = useCallback(() => {
@@ -335,13 +337,24 @@ function useChat(config: ChatConfig = {}) {
         if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
 
         // Inject card segment into the stream — preserves interleaving order
-        if (name && CARD_REGISTRY[name] && d.data && activeIdRef.current) {
+        // Legacy path: CARD_REGISTRY lookup by tool name
+        // Render contract path: tool declares render metadata, forwarded by backend
+        const hasLegacyCard = name && CARD_REGISTRY[name] && d.data;
+        const renderContract = d.render as any;
+        const hasRenderContract = d.data && renderContract;
+
+        if ((hasLegacyCard || hasRenderContract) && activeIdRef.current) {
           const aId = activeIdRef.current;
           setMsgs(prev => prev.map(m => {
             if (m.id !== aId) return m;
             return {
               ...m,
-              segments: [...m.segments, { kind: 'card' as const, cardType: name, data: d.data }],
+              segments: [...m.segments, {
+                kind: 'card' as const,
+                cardType: hasLegacyCard ? name : renderContract?.renderType || name,
+                data: d.data,
+                render: renderContract,
+              }],
             };
           }));
         }
@@ -366,11 +379,69 @@ function useChat(config: ChatConfig = {}) {
         break;
       }
       case 'error': {
-        const message = typeof d.error === 'string' ? d.error : 'Something went wrong';
+        const message = typeof d.error === 'string' ? d.error
+          : typeof d.message === 'string' ? d.message
+          : 'Something went wrong';
         const code = typeof d.code === 'string' ? d.code : undefined;
         setError({ message, code, retryable: code !== 'RATE_LIMITED' && code !== 'AUTH_FAILED' });
         break;
       }
+
+      // ── Codex-specific SSE events ────────────────────────────────
+      case 'delta': {
+        // Codex text delta — same as 'message' but different event name
+        const text = typeof d.text === 'string' ? d.text : '';
+        if (text) {
+          streamBufferRef.current += text;
+          flushBuffer();
+        }
+        break;
+      }
+      case 'tool_call_started': {
+        const name = typeof d.tool === 'string' ? d.tool : '';
+        const id = typeof d.callId === 'string' ? d.callId : crypto.randomUUID();
+        if (!name) break;
+        setTools(prev => [...prev, { id, name, state: 'active', start: Date.now() }]);
+        break;
+      }
+      case 'tool_call_completed': {
+        const name = typeof d.tool === 'string' ? d.tool : '';
+        const id = typeof d.callId === 'string' ? d.callId : null;
+        if (!name && !id) break;
+        let toolIdToCleanup: string | null = null;
+        setTools(prev => {
+          const idx = id
+            ? prev.findIndex(t => t.id === id)
+            : prev.findIndex(t => t.name === name && t.state === 'active');
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          toolIdToCleanup = updated[idx].id;
+          updated[idx] = { ...updated[idx], state: 'done', end: Date.now() };
+          return updated;
+        });
+        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
+        break;
+      }
+      case 'tool_progress': {
+        // Codex tool progress (searching, executing) — visual only
+        break;
+      }
+      case 'codex_response_id': {
+        // Store for multi-turn continuation
+        const responseId = typeof d.responseId === 'string' ? d.responseId : null;
+        if (responseId) {
+          codexResponseIdRef.current = responseId;
+        }
+        break;
+      }
+      case 'codex_turn_started':
+      case 'codex_turn_completed':
+      case 'code_delta':
+      case 'citations':
+      case 'done':
+        // Handled events that don't need UI action in mobile
+        break;
+
       default:
         break;
     }
@@ -539,22 +610,35 @@ function useChat(config: ChatConfig = {}) {
         }
       }
 
-      const res = await fetch(apiEndpoint, {
+      const isCodex = model === 'codex';
+      const endpoint = isCodex ? CODEX_ENDPOINT : apiEndpoint;
+      const requestBody = isCodex
+        ? {
+            prompt: text,
+            history,
+            connectionId: `mobile_${Date.now()}`,
+            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            modelVersion: modelConfig || 'gpt-5.5',
+            ...(codexResponseIdRef.current ? { previousResponseId: codexResponseIdRef.current } : {}),
+          }
+        : {
+            prompt: text,
+            history,
+            mode: 'shared',
+            targetModels: [model],
+            topic,
+            modelConfigs: { [model]: modelConfig },
+            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            client: 'mobile',
+            mcpServers: parsedMcpServers,
+            apiIntegrations: parsedIntegrations,
+            googleAccessToken: finalAccessToken,
+          };
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({
-          prompt: text,
-          history,
-          mode: 'shared',
-          targetModels: [model],
-          topic,
-          modelConfigs: { [model]: modelConfig },
-          userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          client: 'mobile',
-          mcpServers: parsedMcpServers,
-          apiIntegrations: parsedIntegrations,
-          googleAccessToken: finalAccessToken,
-        }),
+        body: JSON.stringify(requestBody),
         signal: ctrl.signal,
       });
 
@@ -829,7 +913,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
               </ReactMarkdown>
             </div>
           )}
-          {seg.kind === 'card' && renderCard(seg.cardType, seg.data)}
+          {seg.kind === 'card' && renderCard(seg.cardType, seg.data, undefined, seg.render)}
         </React.Fragment>
       ))}
       {msg.streaming && <StreamingCursor />}
@@ -1009,6 +1093,9 @@ export default function MobileChat() {
   const [parsedMcpServers, setParsedMcpServers] = useState<any[]>([]);
   const [parsedIntegrations, setParsedIntegrations] = useState<any[]>([]);
 
+  const [model, setModel] = useState('gemini');
+  const [modelConfig, setModelConfig] = useState('gemini-3.1-pro-preview');
+
   useEffect(() => {
     // Dynamic refresh of token and settings on mount
     getAccessToken().then(setAccessToken).catch(console.error);
@@ -1038,6 +1125,8 @@ export default function MobileChat() {
   }, []);
 
   const chat = useChat({
+    model,
+    modelConfig,
     mcpServers: parsedMcpServers,
     apiIntegrations: parsedIntegrations,
     accessToken,
@@ -1060,7 +1149,25 @@ export default function MobileChat() {
           <div className="text-sm text-white/50 flex items-center" style={{ fontFamily: FONT_STACK }}>
             <span className="font-semibold text-white/80 tracking-tight">Truth</span>
             <span className="mx-2 opacity-30">•</span>
-            <span>Long-form AI Workspace</span>
+            <select
+              value={`${model}:${modelConfig}`}
+              onChange={(e) => {
+                const [m, mc] = e.target.value.split(':');
+                setModel(m);
+                setModelConfig(mc);
+              }}
+              className="bg-transparent text-white/50 appearance-none outline-none cursor-pointer hover:text-white/80 transition-colors"
+            >
+              <option value="gemini:gemini-3.1-pro-preview" className="text-black">Gemini 3.1 Pro</option>
+              <option value="gemini:gemini-3.5-flash" className="text-black">Gemini 3.5 Flash</option>
+              <option value="chatgpt:gpt-5.5" className="text-black">GPT 5.5</option>
+              <option value="claude:claude-sonnet-4-6" className="text-black">Claude 4.6 Sonnet</option>
+              <option value="claude:claude-opus-4-8" className="text-black">Claude 4.8 Opus</option>
+              <option value="grok:grok-4.3" className="text-black">Grok 4.3</option>
+              <option value="codex:gpt-5.5" className="text-black">Codex GPT-5.5</option>
+              <option value="codex:gpt-5.4" className="text-black">Codex GPT-5.4</option>
+            </select>
+            <ChevronDown className="size-3 ml-1 opacity-50" />
           </div>
           <button onClick={chat.reset}
             className="p-1.5 rounded-full text-white/25 hover:text-white/60 active:scale-90 transition-all duration-150"
