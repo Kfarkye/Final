@@ -7,9 +7,11 @@
  * requiring GitHub MCP, filesystem tools, or human intervention.
  *
  * Security layers:
- *   1. Auth gate — only localhost (tool calls) or requests with x-truth-internal header
+ *   1. Auth gate — nonce-only (boot-generated, never in source).
+ *      NOTE: the old localhost/Host bypass was removed because req.hostname
+ *      is derived from the client-controlled Host header and is forgeable.
  *   2. Directory traversal guard — resolved path must be inside /app
- *   3. Blocked paths — node_modules, .env, secrets, credentials explicitly denied
+ *   3. Blocked paths — precise secret-file matching, not substring matching
  *   4. Allowlisted dirs — only src/, lib/, config/, scripts/, data/, and specific root files
  *   5. Read-only — no writes, no deletes, no mutations
  *
@@ -29,46 +31,53 @@ const router = Router();
 const APP_ROOT = resolve("/app");
 
 // ── Security: Auth gate ──────────────────────────────────────────────
-// Only allow requests from localhost (the in-app AI's tool handlers call
-// via http://localhost:8080). External internet requests arrive via Cloud
-// Run's load balancer with the public hostname — never localhost.
-//
-// For server-to-server calls from other containers/services, a runtime-
-// generated nonce is required. This nonce is NOT in source — it's generated
-// fresh on each container boot and only available in-process.
+// Require the boot-generated nonce for every caller. Do not trust req.hostname:
+// Express derives it from the client-controlled Host header, so a public caller
+// can forge "Host: localhost".
 import { randomBytes } from "crypto";
 export const SOURCE_API_NONCE = randomBytes(32).toString('hex');
 
-function sourceAuthGate(req: Request, res: Response, next: NextFunction): void {
-  const host = req.hostname || '';
-  const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+export function sourceAuthGate(req: Request, res: Response, next: NextFunction): void {
   const hasValidNonce = req.headers['x-source-nonce'] === SOURCE_API_NONCE;
 
-  if (isLocalhost || hasValidNonce) {
+  if (hasValidNonce) {
     next();
     return;
   }
 
-  logger.warn({ msg: 'Source API access denied — external request', host, ip: req.ip });
+  logger.warn({
+    msg: 'Source API access denied — missing/invalid nonce',
+    host: req.hostname || '',
+    ip: req.ip,
+  });
   res.status(403).json({ error: 'Source API is internal-only. Access denied.' });
 }
 
 router.use(sourceAuthGate);
 
 // ── Security: Blocked paths ──────────────────────────────────────────
-// These patterns are NEVER served, even if they're inside /app.
+// These patterns match secret-bearing files by extension/convention. Avoid broad
+// substring blocks so source files like CredentialVault.tsx remain inspectable.
 const BLOCKED_PATTERNS = [
-  /node_modules/i,
-  /\.env/i,
-  /\.git\//i,
-  /secret/i,
-  /credential/i,
+  /(^|\/)node_modules(\/|$)/i,
+  /(^|\/)\.git(\/|$)/i,
+  /(^|\/)\.env(\.[\w.-]+)?$/i,
+  /(^|\/)[\w.-]*secrets?\.(json|ya?ml|txt|js|ts)$/i,
+  /(^|\/)[\w.-]*credentials?\.(json|ya?ml|txt)$/i,
+  /(^|\/)service[-_.]?account[\w.-]*\.json$/i,
+  /(^|\/)google.*credentials.*\.(json|ya?ml)$/i,
   /\.pem$/i,
   /\.key$/i,
   /\.p12$/i,
-  /service.account/i,
-  /google.*credentials/i,
+  /\.pfx$/i,
+  /\.crt$/i,
+  /\.cer$/i,
+  /(^|\/)id_(rsa|ed25519|ecdsa|dsa)$/i,
 ];
+
+export function isSourcePathBlocked(relPath: string): boolean {
+  return BLOCKED_PATTERNS.some(pattern => pattern.test(relPath));
+}
 
 // ── Security: Allowlisted directories ────────────────────────────────
 // Only these directories (and specific root files) are readable.
@@ -103,10 +112,8 @@ function safePath(userPath: string): { path: string | null; error?: string } {
   }
 
   // Blocked pattern check
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(relPath)) {
-      return { path: null, error: `Access to "${relPath}" is blocked by security policy.` };
-    }
+  if (isSourcePathBlocked(relPath)) {
+    return { path: null, error: `Access to "${relPath}" is blocked by security policy.` };
   }
 
   // Allowlist check
@@ -145,7 +152,7 @@ router.get("/tree", (req: Request, res: Response) => {
       .filter(e => {
         // Filter out blocked entries from listings
         const childRel = relative(APP_ROOT, join(abs, e.name));
-        return !BLOCKED_PATTERNS.some(p => p.test(childRel));
+        return !isSourcePathBlocked(childRel);
       })
       .map(e => ({
         name: e.name,
@@ -267,4 +274,3 @@ router.get("/search", (req: Request, res: Response) => {
 });
 
 export default router;
-
