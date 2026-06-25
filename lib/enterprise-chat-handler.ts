@@ -3,6 +3,7 @@ import path from 'path';
 import { Request, Response } from 'express';
 import { sseManager } from './sse/sse-manager';
 import { EnterpriseGovernanceService } from './governance/enterprise-governance';
+import { toolRegistry } from '../src/tools';
 import { ChatLogger } from './observability/chat-logger';
 import { knowledgeManager } from '../src/services/knowledge-manager';
 import { skillRouter } from '../src/services/skill-router';
@@ -25,6 +26,28 @@ import {
   type SchemaName,
 } from './orchestration-schemas.js';
 import { GEMINI_SCHEMAS } from './gemini-schemas.js';
+import { z } from 'zod';
+import { SchemaStream } from 'schema-stream';
+
+const zGeminiStructuredSchema = z.object({
+  thought_process: z.string().optional(),
+  user_message: z.string().optional()
+});
+
+const geminiStructuredSchema = {
+  type: "object",
+  properties: {
+    thought_process: {
+      type: "string",
+      description: "Internal reasoning, planning, and analysis before finalizing the response."
+    },
+    user_message: {
+      type: "string",
+      description: "The final, sanitized response that will be rendered directly to the user in Markdown."
+    }
+  },
+  required: ["thought_process", "user_message"]
+};
 
 function lowercaseSchemaTypes(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
@@ -32,6 +55,28 @@ function lowercaseSchemaTypes(schema: any): any {
   if (typeof newSchema.type === 'string') {
     newSchema.type = newSchema.type.toLowerCase();
   }
+
+  // ── Gemini-incompatible JSON Schema fields ──────────────────────────
+  // zodToJsonSchema emits these but Gemini's functionDeclarations rejects them.
+  // The API explicitly errors on: minimum/maximum bounds, formats like date-time, etc.
+  delete newSchema.exclusiveMinimum;
+  delete newSchema.exclusiveMaximum;
+  delete newSchema.minimum;
+  delete newSchema.maximum;
+  delete newSchema.format;
+  delete newSchema.pattern;
+  delete newSchema.minLength;
+  delete newSchema.maxLength;
+  delete newSchema.minItems;
+  delete newSchema.maxItems;
+  
+  delete newSchema.$schema;
+  delete newSchema.$defs;
+  delete newSchema.definitions;
+  delete newSchema.additionalProperties;
+  delete newSchema.$ref;
+  delete newSchema.default;  // Gemini uses defaultValue or ignores defaults
+
   if (newSchema.properties) {
     const newProps: any = {};
     for (const key of Object.keys(newSchema.properties)) {
@@ -41,6 +86,12 @@ function lowercaseSchemaTypes(schema: any): any {
   }
   if (newSchema.items) {
     newSchema.items = lowercaseSchemaTypes(newSchema.items);
+  }
+  // Recurse into anyOf/oneOf/allOf if present
+  for (const combiner of ['anyOf', 'oneOf', 'allOf']) {
+    if (Array.isArray(newSchema[combiner])) {
+      newSchema[combiner] = newSchema[combiner].map((s: any) => lowercaseSchemaTypes(s));
+    }
   }
   return newSchema;
 }
@@ -194,7 +245,10 @@ function getToolTimeoutMs(toolName: string): number {
 // Tools whose raw results should be forwarded to the frontend in the
 // `tool_result` SSE event as `data`. The frontend uses these to render
 // deterministic display cards — no LLM involvement in the rendering.
-const DISPLAY_CARD_TOOLS = new Set([
+//
+// Legacy set kept for backward compatibility. New tools should declare
+// a `render` property on their RegisteredTool definition instead.
+const LEGACY_CARD_TOOLS = new Set([
   'get_espn_scoreboard',
   'get_espn_live_games',
   'get_espn_final_scores',
@@ -203,6 +257,20 @@ const DISPLAY_CARD_TOOLS = new Set([
   'get_mlb_slate_overview',
   'get_mlb_schedule',
 ]);
+
+/** Check if a tool should forward its data to the frontend for card rendering. */
+function getToolRenderMeta(toolName: string): { isCardEligible: boolean; render?: any } {
+  // Check for render contract on the tool definition (new path)
+  const toolDef = toolRegistry.get(toolName);
+  if (toolDef?.render) {
+    return { isCardEligible: true, render: toolDef.render };
+  }
+  // Fallback to legacy hardcoded set
+  if (LEGACY_CARD_TOOLS.has(toolName)) {
+    return { isCardEligible: true };
+  }
+  return { isCardEligible: false };
+}
 
 function summarizeArgs(args: any): string {
   if (!args) return '';
@@ -332,13 +400,18 @@ async function executeToolForModel({
 
     const result = truncateToolResult(rawResult);
 
+    // Check render contract — forward data + render metadata for card-eligible tools
+    const renderMeta = getToolRenderMeta(effectiveToolName);
+
     sendSse('tool_result', {
       model,
       tool: effectiveToolName,
       elapsedMs: Date.now() - startedAt,
       resultPreview: summarizeToolResult(result),
       // Forward full structured data for card-eligible tools (deterministic UI rendering)
-      ...(DISPLAY_CARD_TOOLS.has(effectiveToolName) && result ? { data: result } : {}),
+      ...(renderMeta.isCardEligible && result ? { data: result } : {}),
+      // Forward render contract metadata (new path — self-describing cards)
+      ...(renderMeta.render ? { render: renderMeta.render } : {}),
     });
 
     return result;
@@ -448,7 +521,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
               if (driveRes && driveRes.success) {
                 const fileContent = driveRes.content;
                 const formattedContent = `[FILE ATTACHED: "${driveRes.fileName || name}" — ${fileContent.split(/\\s+/).length} words extracted]\n${fileContent}`;
-                
+
                 parsedAttachments.push({
                   mimeType: 'text/plain',
                   base64Data: Buffer.from(formattedContent).toString('base64'),
@@ -707,8 +780,14 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
       async call(model: string, systemPrompt: string, userPrompt: string, sig?: AbortSignal, schema?: SchemaName): Promise<string> {
         // Route to the appropriate SDK for a single non-streaming completion
         if ((model === 'gemini') && deps.ai) {
-          const geminiModelId = modelConfigs.gemini || 'gemini-3.5-flash';
-          const actualModel = geminiModelId === 'gemini-3.5-flash-puppeteer' ? 'gemini-3.5-flash' : geminiModelId;
+          const geminiModelId = modelConfigs.gemini || 'gemini-3.1-pre-preview';
+          let actualModel = geminiModelId;
+          if (geminiModelId.includes('puppeteer')) {
+            actualModel = geminiModelId.replace('-puppeteer', '');
+          }
+          if (actualModel === 'gemini-3.1-pre-preview' || actualModel === 'gemini-3.1-pro-preview-next') {
+            actualModel = 'gemini-3.1-pro-preview';
+          }
           const config: any = { systemInstruction: systemPrompt, temperature: 0.2 };
           if (schema && GEMINI_SCHEMAS[schema]) {
             config.responseMimeType = "application/json";
@@ -814,6 +893,48 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
 
+    // ── Missing Secrets Detection ──────────────────────────────────────
+    // Detects critical secrets that aren't configured and injects a system
+    // prompt block so the AI proactively calls request_human_secret.
+    // This means non-technical users never need to know the tool name —
+    // the AI just asks for what it needs.
+    const CRITICAL_SECRETS: { envVar: string; secretId: string; label: string; intentMatch: string }[] = [
+      {
+        envVar: 'GITHUB_PERSONAL_ACCESS_TOKEN',
+        secretId: 'GITHUB_PERSONAL_ACCESS_TOKEN',
+        label: 'GitHub Personal Access Token',
+        intentMatch: 'push, PR, branch, merge, deploy to GitHub'
+      },
+      {
+        envVar: 'ODDS_API_KEY',
+        secretId: 'ODDS_API_KEY',
+        label: 'Odds API Key',
+        intentMatch: 'odds queries when no active ServiceBinding exists and the odds feed is failing authorization'
+      }
+    ];
+
+    const missingSecrets = CRITICAL_SECRETS.filter(s => !process.env[s.envVar]);
+    const missingSecretsBlock = missingSecrets.length > 0 ? `
+
+<secret_acquisition_policy>
+PRINCIPLE: Request a credential ONLY when the CURRENT task cannot proceed without that SPECIFIC credential.
+Never gate a user's question behind an unrelated secret. Default posture: ANSWER the question.
+
+INTENT → SECRET MAP:
+${missingSecrets.map(s => `  ${s.secretId} → ONLY for: ${s.intentMatch}. NEVER for anything else.`).join('\n')}
+
+ROUTING RULES:
+1. Classify the user's intent FIRST. If their intent is sports, odds, scores, analysis, or general chat → answer it directly. Required secrets = none.
+2. If a data feed is down → say "feed unavailable." NEVER substitute a credential demand for an honest status answer.
+3. Only call request_human_secret when the user's explicit intent matches the secret's purpose AND proceeding is impossible without it.
+4. NEVER demand a secret on the first message. Understand the question first.
+
+FORBIDDEN:
+- Demanding GITHUB_PERSONAL_ACCESS_TOKEN for any sports/odds/scores/analysis question.
+- Running request_human_secret before understanding the user's question.
+- Blocking a product answer on a secret the answer doesn't require.
+</secret_acquisition_policy>` : '';
+
     const getBaseSystemPrompt = (modelName: string, actualModelId: string = ''): string => {
       const id = actualModelId.toLowerCase();
       let toolPriority = '';
@@ -827,7 +948,14 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
         toolPriority = '\n9. CRITICAL TOOL PRIORITY: You MUST prioritize using the Database FIRST to find data, schedules, and odds before falling back to web search or other methods.';
       }
 
-      return `You are Truth. An objective, lightning-fast sports intelligence platform.
+      return `<meta_context>
+You are operating within the "Kfarkye/final" repository.
+The overarching project you belong to is called "Truth" — an objective, lightning-fast sports intelligence platform.
+You are a frontier LLM powering this environment.
+CRITICAL AWARENESS: We are currently in a testing and development phase. You are actively helping to build this application from the inside out alongside the developer. Treat architectural questions, debugging, and code modifications as your primary collaborative directive during this phase.
+</meta_context>
+
+You are Truth. An objective, lightning-fast sports intelligence platform.
 Your voice is concise, data-driven, and strictly professional.
 Act normal. Answer the actual question the user asked. If they say hello, say hello back. If they ask about sports, give them sports. Don't force data into every response.
 NEVER use disclaimers about financial advice. NEVER roleplay or use financial metaphors.
@@ -1099,14 +1227,94 @@ CONSTRAINTS:
 - Synthesis is YOUR job — never delegate it
 </collaboration_mode>` : '';
 
+    // ── Database Audit Contract ──
+    // Gives all models the ability to autonomously audit and maintain Spanner databases
+    const databaseAuditInstructions = `
+
+<database_audit_instructions>
+DATABASE AUDIT & MAINTENANCE PROTOCOL
+
+You have full access to Cloud Spanner databases via the execute_sql and describe_spanner_table tools.
+When asked to audit, check, inspect, or maintain database state, follow this protocol:
+
+═══════════════════════════════════════════════════════════════
+INFRASTRUCTURE MAP
+═══════════════════════════════════════════════════════════════
+Instance: clearspace
+Databases:
+  - sports-mlb-db: MLB odds, governance contracts, odds snapshots, feed health, prediction markets
+  - sports-entities-db: Entity aliases, stat aliases, embeddings (vector search)
+
+═══════════════════════════════════════════════════════════════
+WORKFLOW: ALWAYS describe_spanner_table FIRST
+═══════════════════════════════════════════════════════════════
+1. ALWAYS call describe_spanner_table to get the exact schema before writing any SQL.
+   This prevents hallucinated column names.
+2. Use execute_sql for reads (SELECT) and writes (UPDATE/INSERT/DELETE).
+3. For large DML (>1000 rows), set timeoutMs: 120000 (2 minutes).
+   Default DML timeout is 30s. Default read timeout is 10s.
+
+═══════════════════════════════════════════════════════════════
+CRITICAL TABLES & AUDIT QUERIES
+═══════════════════════════════════════════════════════════════
+
+── CurrentOdds (sports-mlb-db) ──
+P0 CHECK: Expired rows still marked active
+  SELECT COUNT(*) AS active_total,
+    SUM(CASE WHEN ValidUntil < CURRENT_TIMESTAMP() THEN 1 ELSE 0 END) AS expired_active
+  FROM CurrentOdds WHERE IsActive = TRUE;
+TARGET: expired_active = 0
+FIX (requires timeoutMs: 120000):
+  UPDATE CurrentOdds SET IsActive = FALSE, IsFresh = FALSE,
+    ValidationState = 'EXPIRED', UpdatedAt = PENDING_COMMIT_TIMESTAMP()
+  WHERE IsActive = TRUE AND ValidUntil < CURRENT_TIMESTAMP();
+
+── DataFeedHealth (sports-mlb-db) ──
+P0 CHECK: All feeds should be healthy
+  SELECT FeedId, IsHealthy, LastSuccessAt, RowsLast5Min, RowsLast1Hour, LastError
+  FROM DataFeedHealth ORDER BY FeedId;
+TARGET: All IsHealthy = true, RowsLast5Min > 0
+
+── PmPriceHistory (sports-mlb-db) ──
+P0 CHECK: Should have historical snapshots
+  SELECT COUNT(*) AS total_rows,
+    COUNT(DISTINCT MarketId) AS distinct_markets,
+    MAX(SnapshotTimestamp) AS latest_snapshot
+  FROM PmPriceHistory;
+TARGET: total_rows > 0
+
+── EntityAliases (sports-entities-db) ──
+P1 CHECK: Embedding coverage
+  SELECT Sport, EntityType,
+    COUNT(*) AS total,
+    SUM(CASE WHEN AliasEmbedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded,
+    SUM(CASE WHEN AliasEmbedding IS NULL THEN 1 ELSE 0 END) AS missing
+  FROM EntityAliases GROUP BY Sport, EntityType ORDER BY Sport, EntityType;
+FIX: Use backfill_embeddings tool with sport filter and limit.
+
+═══════════════════════════════════════════════════════════════
+SAFE READ FILTER (use when serving odds to users)
+═══════════════════════════════════════════════════════════════
+WHERE IsActive = TRUE
+  AND ValidUntil >= CURRENT_TIMESTAMP()
+  AND IsFresh = TRUE
+  AND IsComplete = TRUE
+  AND IsSuspicious = FALSE
+
+When reporting audit results, present findings in a structured table format.
+Flag any P0 issues prominently. Include row counts and timestamps.
+</database_audit_instructions>`;
+
     const getSystemPrompt = (modelName: string, actualModelId: string = '') => [
       getBaseSystemPrompt(modelName, actualModelId),
       agentOperatingContract,
       collaborationPrompt,
+      databaseAuditInstructions,
       knowledgeBlock,
       skillBlock,
       artifactContract,
       toolUseInstruction,
+      missingSecretsBlock,
       toolCatalog ? `\n\n${toolCatalog}` : '',
     ].join('');
 
@@ -1126,6 +1334,8 @@ CONSTRAINTS:
       const dbToolNames = new Set([
         'execute_sql', 'get_database_ddl', 'list_instances', 'list_databases',
         'execute_sql_readonly', 'describe_spanner_table', 'query_truth_ledger',
+        'batch_write', 'backfill_embeddings', 'generate_embeddings',
+        'create_vector_index', 'create_database', 'execute_ddl',
         'get_mlb_scores', 'get_mlb_player_splits', 'get_game_environment',
         'get_mlb_live_games', 'get_mlb_schedule', 'get_mlb_slate_overview',
         'get_espn_game', 'get_espn_live_games', 'get_espn_scoreboard',
@@ -1152,7 +1362,8 @@ CONSTRAINTS:
           if (name.includes('odds')) return true;
           if (name.startsWith('browser_')) return true;
           if (websiteToolNames.has(name)) return true;
-          if (dbToolNames.has(name)) return false;
+          // allow db tools so website models can audit databases
+          if (dbToolNames.has(name)) return true;
           return true;
         }
 
@@ -1222,6 +1433,13 @@ CONSTRAINTS:
           geminiConfig = { systemInstruction };
         }
 
+        // Apply structured JSON enforcement for non-puppeteer Gemini models
+        if (!selectedGeminiModel.includes("puppeteer")) {
+          geminiConfig = geminiConfig || {};
+          geminiConfig.responseMimeType = "application/json";
+          geminiConfig.responseSchema = geminiStructuredSchema;
+        }
+
         if (mergedDecls.length > 0) {
           geminiConfig = geminiConfig || {};
           geminiConfig.tools = [{ functionDeclarations: filterToolsForModel('gemini', selectedGeminiModel, mergedDecls) }];
@@ -1240,7 +1458,7 @@ CONSTRAINTS:
         if (selectedGeminiModel === "gemini-3.1-pre-preview") {
           geminiConfig = geminiConfig || {};
           geminiConfig.thinkingConfig = {
-            thinkingLevel: 'MAX',
+            thinkingLevel: 'HIGH',  // MAX is not a valid Gemini API thinkingLevel
             includeThoughts: true
           };
           const auditDirective = [
@@ -1263,6 +1481,7 @@ CONSTRAINTS:
 
         const MODEL_ID_MAP: Record<string, string> = {
           'gemini-3.5-flash-puppeteer': 'gemini-3.5-flash',
+          'gemini-3.1-pre-preview-puppeteer': 'gemini-3.1-pro-preview',
           'gemini-3.1-pro-preview-next': 'gemini-3.1-pro-preview',
           'gemini-3.1-pre-preview': 'gemini-3.1-pro-preview',
         };
@@ -1270,9 +1489,9 @@ CONSTRAINTS:
 
         let runCount = 0;
         let continueLoop = true;
-        const failedToolCalls = new Map<string, number>(); // track tool failure counts
+        const identicalToolCalls = new Map<string, number>(); // track exact tool+args combinations
 
-        while (runCount < 30 && continueLoop && !signal.aborted) {
+        while (runCount < 40 && continueLoop && !signal.aborted) {
           runCount++;
           let genStream = await deps.ai.models.generateContentStream({
             model: actualModelId,
@@ -1283,25 +1502,109 @@ CONSTRAINTS:
           let functionCalls: any[] = [];
           let candidateContent: any = { role: 'model', parts: [] };
 
-          for await (const chunk of genStream) {
+          let userMessageSentLength = 0;
+          let hasSentThinkingStatus = false;
+          let fullParsed: any = {};
+          let isParseSuccess = false;
+
+          if (selectedGeminiModel.includes("puppeteer")) {
+            for await (const chunk of genStream) {
+              if (signal.aborted) break;
+              if (chunk.functionCalls && chunk.functionCalls.length > 0) {
+                functionCalls.push(...chunk.functionCalls);
+              }
+              if (chunk.candidates?.[0]?.content?.parts) {
+                const validParts = chunk.candidates[0].content.parts.filter((p: any) => (p.text !== undefined && p.text !== "") || p.functionCall !== undefined);
+                candidateContent.parts.push(...validParts);
+              }
+              const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
+              if (hasText && chunk.text) {
+                sendSse('message', { model: targetId, chunk: chunk.text });
+              }
+            }
+          } else {
+            const parser = new SchemaStream(zGeminiStructuredSchema);
+            const streamParser = parser.parse();
+            const writer = streamParser.writable.getWriter();
+            const reader = streamParser.readable.getReader();
+            const encoder = new TextEncoder();
+            const decoder = new TextDecoder();
+
+            const pump = async () => {
+              try {
+                for await (const chunk of genStream) {
+                  if (signal.aborted) break;
+                  if (chunk.functionCalls && chunk.functionCalls.length > 0) {
+                    functionCalls.push(...chunk.functionCalls);
+                  }
+                  if (chunk.candidates?.[0]?.content?.parts) {
+                    const validParts = chunk.candidates[0].content.parts.filter((p: any) => (p.text !== undefined && p.text !== "") || p.functionCall !== undefined);
+                    candidateContent.parts.push(...validParts);
+                  }
+                  const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
+                  if (hasText && chunk.text) {
+                    await writer.write(encoder.encode(chunk.text));
+                  }
+                }
+              } finally {
+                await writer.close();
+              }
+            };
+
+            const consume = async () => {
+              let done = false;
+              while (!done) {
+                const { value, done: doneReading } = await reader.read();
+                done = doneReading;
+                if (value) {
+                  const chunkStr = decoder.decode(value, { stream: true });
+                  try {
+                    const result = JSON.parse(chunkStr);
+                    fullParsed = result;
+                    
+                    if (!hasSentThinkingStatus && typeof result.thought_process === 'string' && result.thought_process.length > 0 && typeof result.user_message !== 'string') {
+                      sendSse('status', { model: targetId, status: 'Agent is thinking...' });
+                      hasSentThinkingStatus = true;
+                    }
+
+                    if (typeof result.user_message === 'string') {
+                      if (hasSentThinkingStatus) {
+                        sendSse('status', { model: targetId, status: null });
+                        hasSentThinkingStatus = false;
+                      }
+                      const delta = result.user_message.substring(userMessageSentLength);
+                      if (delta.length > 0) {
+                        sendSse('message', { model: targetId, chunk: delta });
+                        userMessageSentLength = result.user_message.length;
+                      }
+                    }
+                  } catch (e) {
+                    // Ignore JSON parse errors for incomplete stubs
+                  }
+                }
+              }
+              isParseSuccess = true;
+            };
+
+            await Promise.all([pump(), consume()]);
+
             if (signal.aborted) break;
-            const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
-            if (hasText && chunk.text) {
-              sendSse('message', { model: targetId, chunk: chunk.text });
-            }
-            if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-              functionCalls.push(...chunk.functionCalls);
-            }
-            if (chunk.candidates?.[0]?.content?.parts) {
-              const validParts = chunk.candidates[0].content.parts.filter((p: any) => {
-                if (p.text !== undefined && p.text === "") return false;
-                return true;
+
+            if (isParseSuccess) {
+              ChatLogger.info('gemini_structured_response', {
+                 connectionId,
+                 thought_process: fullParsed.thought_process,
+                 operational_metadata: fullParsed.operational_metadata,
+                 tool_calls_count: functionCalls.length
               });
-              candidateContent.parts.push(...validParts);
+              
+              const finalMessage = fullParsed.user_message || "";
+              const delta = finalMessage.substring(userMessageSentLength);
+              if (delta.length > 0) {
+                sendSse('message', { model: targetId, chunk: delta });
+              }
             }
           }
-
-          if (signal.aborted) break;
 
           if (functionCalls.length > 0 && candidateContent.parts.length > 0) {
             contents.push(candidateContent);
@@ -1309,13 +1612,15 @@ CONSTRAINTS:
             const responseParts = await Promise.all(functionCalls.map(async (call) => {
               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-              const priorFailures = failedToolCalls.get(call.name) || 0;
-              if (priorFailures >= 2) {
+              const callSignature = `${call.name}:${JSON.stringify(call.args || {})}`;
+              const priorCalls = identicalToolCalls.get(callSignature) || 0;
+              
+              if (priorCalls >= 2) {
                 return {
                   functionResponse: {
                     name: call.name,
-                    id: call.id || call.name,
-                    response: { result: { error: `Tool "${call.name}" has failed ${priorFailures} times already. Do NOT retry it. Answer from your own knowledge or use a different tool.` } }
+                    response: { result: { error: `System Guard: You have already called "${call.name}" with these exact arguments multiple times. Do NOT repeat the exact same tool call. Analyze the previous responses or change your arguments.` } },
+                    ...(call.id ? { id: call.id } : {})
                   }
                 };
               }
@@ -1331,15 +1636,13 @@ CONSTRAINTS:
                 deps
               });
 
-              if (toolResult && typeof toolResult === 'object' && 'error' in toolResult) {
-                failedToolCalls.set(call.name, priorFailures + 1);
-              }
+              identicalToolCalls.set(callSignature, priorCalls + 1);
 
               return {
                 functionResponse: {
                   name: call.name,
-                  id: call.id || call.name,
-                  response: { result: toolResult }
+                  response: { result: toolResult },
+                  ...(call.id ? { id: call.id } : {})
                 }
               };
             }));
@@ -1350,18 +1653,18 @@ CONSTRAINTS:
             continueLoop = false;
           }
 
-          if (runCount >= 30 && continueLoop && !signal.aborted) {
-            sendSse('message', { model: targetId, chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          if (runCount >= 40 && continueLoop && !signal.aborted) {
+            sendSse('message', { model: targetId, chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
           }
         }
       })()));
     };
 
     if (targetModels.includes('gemini') && deps.ai) {
-      const selectedGeminiModel = modelConfigs.gemini || "gemini-3.5-flash";
+      const selectedGeminiModel = modelConfigs.gemini || "gemini-3.1-pre-preview";
       let modelSystemPrompt = getSystemPrompt('gemini', selectedGeminiModel);
 
-      if (selectedGeminiModel === "gemini-3.5-flash-puppeteer") {
+      if (selectedGeminiModel.includes("puppeteer")) {
         modelSystemPrompt = `You are an expert with the JS puppeteer tool. When told a task, you must study the site and dom and then recreate it with un hallucinated data.
 CRITICAL CONSTRAINTS:
 1. Data can NEVER be missing if it is replicating the page.
@@ -1455,7 +1758,7 @@ CRITICAL CONSTRAINTS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 30 && !signal.aborted) {
+        while (runCount < 40 && !signal.aborted) {
           const stream = await deps.openai.chat.completions.create({
             model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
             messages: currentMessages,
@@ -1526,8 +1829,8 @@ CRITICAL CONSTRAINTS:
           currentMessages.push(...toolResults);
           runCount++;
 
-          if (runCount >= 30 && !signal.aborted) {
-            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          if (runCount >= 40 && !signal.aborted) {
+            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
           }
         }
       })()));
@@ -1581,7 +1884,7 @@ CRITICAL CONSTRAINTS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 30 && !signal.aborted) {
+        while (runCount < 40 && !signal.aborted) {
           const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
 
           // Opus 4 supports up to 128k output tokens.
@@ -1689,8 +1992,8 @@ CRITICAL CONSTRAINTS:
           }
           runCount++;
 
-          if (runCount >= 30 && hasToolUse && !signal.aborted) {
-            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+          if (runCount >= 40 && hasToolUse && !signal.aborted) {
+            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
           }
         }
       })()));
@@ -1758,7 +2061,7 @@ CRITICAL CONSTRAINTS:
           let currentMessages = [...msgs];
           let runCount = 0;
 
-          while (runCount < 30 && !signal.aborted) {
+          while (runCount < 40 && !signal.aborted) {
             const stream = await grokClient.chat.completions.create({
               model: modelConfigs.grok || "grok-4.3",
               messages: currentMessages,
@@ -1829,8 +2132,8 @@ CRITICAL CONSTRAINTS:
             currentMessages.push(...toolResults);
             runCount++;
 
-            if (runCount >= 30 && !signal.aborted) {
-              sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+            if (runCount >= 40 && !signal.aborted) {
+              sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
             }
           }
         })()));
@@ -1907,7 +2210,7 @@ CRITICAL CONSTRAINTS:
           let currentMessages = [...msgs];
           let runCount = 0;
 
-          while (runCount < 30 && !signal.aborted) {
+          while (runCount < 40 && !signal.aborted) {
             // Per official docs: thinking and reasoning_effort are top-level params
             // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
             const createParams: any = {
@@ -2021,8 +2324,8 @@ CRITICAL CONSTRAINTS:
             currentMessages.push(...toolResults);
             runCount++;
 
-            if (runCount >= 30 && !signal.aborted) {
-              sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 30; stopping here.]' });
+            if (runCount >= 40 && !signal.aborted) {
+              sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
             }
           }
         })()));
