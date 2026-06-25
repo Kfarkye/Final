@@ -68,7 +68,7 @@ const readFileTool: RegisteredTool<any> = {
       "Supports line windowing for large files (startLine/endLine). " +
       "Use this to inspect interfaces, function signatures, type definitions, and implementation details. " +
       "Paths are relative to the project root (e.g., 'src/services/mlb-slate-aggregator.ts'). " +
-      "Maximum 500 lines per request — use line windowing for larger files.",
+      "Maximum 2000 lines per request — use line windowing for larger files.",
     schema: z.object({
       path: z.string().min(1, "Path is required"),
       startLine: z.number().int().positive().optional()
@@ -101,7 +101,7 @@ const readFileTool: RegisteredTool<any> = {
     const totalLines = allLines.length;
 
     const start = Math.max(1, args.startLine || 1);
-    const end = Math.min(totalLines, args.endLine || Math.min(totalLines, start + 499));
+    const end = Math.min(totalLines, args.endLine || Math.min(totalLines, start + 1999));
     const selectedLines = allLines.slice(start - 1, end);
 
     const content = selectedLines
