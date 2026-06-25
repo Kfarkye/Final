@@ -30,9 +30,14 @@ import { env } from '../src/config/env.js';
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
 const MAX_CODEX_TOOLS = 64;
-const MAX_TOOL_TURNS = 15;
-const MAX_STREAM_RECONNECTS = 1;
-const STREAM_IDLE_TIMEOUT_MS = 30_000;
+const MAX_TOOL_TURNS = 30;
+const MAX_STREAM_RECONNECTS = 2;
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
+const MAX_CODEX_OUTPUT_TOKENS = 16_384;
+const MAX_TOTAL_RESPONSE_TOKENS = 200_000;
+const MAX_TOTAL_TOOL_CALLS = 80;
+const MAX_REPEATED_TOOL_CALLS = 3;
+const MAX_STUCK_TOOL_ONLY_TURNS = 6;
 const TOOL_OUTPUT_TRUNCATE_AT = 8_000;
 const TOOL_OUTPUT_HEAD_CHARS = 4_000;
 
@@ -110,18 +115,21 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
   const sanitizedPrompt = EnterpriseGovernanceService.redactText(prompt);
 
   // ── Resolve model ──────────────────────────────────────────────────────
-  const codexModel = resolveCodexModel(modelVersion);
+  let codexModel = resolveCodexModel(modelVersion);
+  const requestedModel = modelVersion?.trim() || undefined;
 
   // ── Build initial input ────────────────────────────────────────────────
+  const inputWithHistory: OpenAI.Responses.ResponseCreateParams['input'] = [
+    ...history.map(h => ({
+      role: h.role as 'user' | 'assistant',
+      content: h.content,
+    })),
+    { role: 'user' as const, content: sanitizedPrompt },
+  ];
+
   const input: OpenAI.Responses.ResponseCreateParams['input'] = previousResponseId
     ? sanitizedPrompt
-    : [
-        ...history.map(h => ({
-          role: h.role as 'user' | 'assistant',
-          content: h.content,
-        })),
-        { role: 'user' as const, content: sanitizedPrompt },
-      ];
+    : inputWithHistory;
 
   // ── Build tools ────────────────────────────────────────────────────────
   const truthToolDefs = getCodexToolDefinitions().slice(0, MAX_CODEX_TOOLS);
@@ -148,11 +156,19 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
 
   sendSSE('codex_turn_started', {
     model: codexModel,
-    requestedModel: modelVersion?.trim() || undefined,
-    defaultedModel: Boolean(modelVersion?.trim() && modelVersion.trim() !== codexModel),
+    requestedModel,
+    defaultedModel: Boolean(requestedModel && requestedModel !== codexModel),
     timestamp: new Date().toISOString(),
     realCodex: true,
   });
+
+  if (requestedModel && requestedModel !== codexModel) {
+    sendSSE('model_fallback', {
+      requestedModel,
+      fallbackModel: codexModel,
+      reason: 'unsupported_model',
+    });
+  }
 
   try {
     // ── Governed execution loop ──────────────────────────────────────────
@@ -171,6 +187,11 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     let currentPreviousResponseId: string | undefined = previousResponseId || undefined;
     let latestResponseId: string | null = null;
     let totalToolCalls = 0;
+    let totalResponseTokens = 0;
+    let consecutiveToolOnlyTurns = 0;
+    let recoveredFromBadPreviousResponseId = false;
+    let modelFallbackRetryAttempted = false;
+    const repeatedToolCallCounts = new Map<string, number>();
     let endedNaturally = false;
     let stoppedWithTerminalError = false;
 
@@ -179,6 +200,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       let turnCompleted = false;
       let turnErrored = false;
       let emittedUserVisibleOutput = false;
+      let emittedTextOutput = false;
       let lastSequenceNumber = 0;
 
       // ── Stream one response turn ─────────────────────────────────────
@@ -188,38 +210,49 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         stream: true,
         tools,
         instructions: systemInstructions,
+        parallel_tool_calls: true,
+        max_output_tokens: MAX_CODEX_OUTPUT_TOKENS,
+        reasoning: {
+          effort: 'high',
+          summary: 'auto',
+          context: 'all_turns',
+        },
+        store: true,
+        prompt_cache_retention: '24h',
+        truncation: 'auto',
         ...(currentPreviousResponseId ? { previous_response_id: currentPreviousResponseId } : {}),
         include: ['web_search_call.results'],
       };
 
       let turnHadFunctionCalls = false;
 
-      await consumeResponseStream(
-        {
-          createStream: () => openaiClient.responses.create(createParams),
-          resumeStream: (state) => {
-            const retrieveParams: OpenAI.Responses.ResponseRetrieveParamsStreaming = {
-              stream: true,
-              include: createParams.include,
-              ...(state.startingAfter ? { starting_after: state.startingAfter } : {}),
-            };
-            return openaiClient.responses.retrieve(state.responseId, retrieveParams);
+      try {
+        await consumeResponseStream(
+          {
+            createStream: () => openaiClient.responses.create(createParams),
+            resumeStream: (state) => {
+              const retrieveParams: OpenAI.Responses.ResponseRetrieveParamsStreaming = {
+                stream: true,
+                include: createParams.include,
+                ...(state.startingAfter ? { starting_after: state.startingAfter } : {}),
+              };
+              return openaiClient.responses.retrieve(state.responseId, retrieveParams);
+            },
+            getRetryState: () => ({
+              responseId: latestResponseId,
+              startingAfter: lastSequenceNumber > 0 ? lastSequenceNumber : undefined,
+            }),
           },
-          getRetryState: () => ({
-            responseId: latestResponseId,
-            startingAfter: lastSequenceNumber > 0 ? lastSequenceNumber : undefined,
-          }),
-        },
-        (event: any) => {
-          const sequenceNumber = getEventSequenceNumber(event);
-          if (sequenceNumber !== undefined) {
-            if (sequenceNumber <= lastSequenceNumber) {
-              return;
+          (event: any) => {
+            const sequenceNumber = getEventSequenceNumber(event);
+            if (sequenceNumber !== undefined) {
+              if (sequenceNumber <= lastSequenceNumber) {
+                return;
+              }
+              lastSequenceNumber = sequenceNumber;
             }
-            lastSequenceNumber = sequenceNumber;
-          }
 
-          switch (event.type) {
+            switch (event.type) {
           // ── Response lifecycle ──────────────────────────────────────
           case 'response.created': {
             latestResponseId = event.response.id;
@@ -230,6 +263,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           // ── Text streaming ─────────────────────────────────────────
           case 'response.output_text.delta': {
             emittedUserVisibleOutput = true;
+            emittedTextOutput = true;
             sendSSE('delta', {
               model: 'codex',
               text: event.delta,
@@ -402,10 +436,11 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
                   }
                 }
               }
-              if (annotations.length > 0) {
+              const cleanAnnotations = normalizeCitationAnnotations(annotations);
+              if (cleanAnnotations.length > 0) {
                 sendSSE('citations', {
                   model: 'codex',
-                  annotations,
+                  annotations: cleanAnnotations,
                 });
               }
             }
@@ -417,6 +452,14 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
             // Don't emit turn_completed yet — we may need to continue
             // with function outputs. Store for potential final emission.
             latestResponseId = event.response.id;
+            totalResponseTokens += extractUsageTokens(event.response?.usage);
+            if (totalResponseTokens > MAX_TOTAL_RESPONSE_TOKENS) {
+              turnErrored = true;
+              sendSSE('error', {
+                message: `Codex stopped because token usage exceeded the ${MAX_TOTAL_RESPONSE_TOKENS} token safety budget.`,
+              });
+              break;
+            }
             turnCompleted = true;
             break;
           }
@@ -431,8 +474,10 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
 
           case 'response.incomplete': {
             turnErrored = true;
+            totalResponseTokens += extractUsageTokens(event.response?.usage);
+            const reason = extractIncompleteReason(event.response);
             sendSSE('error', {
-              message: 'Codex response incomplete — context window may have been exceeded.',
+              message: `Codex response incomplete${reason ? ` (${reason})` : ''} — context window, output budget, or safety limits may have been reached.`,
             });
             break;
           }
@@ -449,22 +494,93 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           default:
             break;
         }
-        },
-        {
-          canRetry: () => !turnCompleted && !turnErrored && (Boolean(latestResponseId) || !emittedUserVisibleOutput),
-          isTerminalEventReceived: () => turnCompleted || turnErrored,
-          onRetry: (attempt, err, state) => sendSSE('stream_reconnecting', {
-            attempt,
-            maxAttempts: MAX_STREAM_RECONNECTS,
-            responseId: state?.responseId,
-            startingAfter: state?.startingAfter,
-            message: err.message,
-          }),
-        },
-      );
+          },
+          {
+            canRetry: () => !turnCompleted && !turnErrored && (Boolean(latestResponseId) || !emittedUserVisibleOutput),
+            isTerminalEventReceived: () => turnCompleted || turnErrored,
+            onRetry: (attempt, err, state) => sendSSE('stream_reconnecting', {
+              attempt,
+              maxAttempts: MAX_STREAM_RECONNECTS,
+              responseId: state?.responseId,
+              startingAfter: state?.startingAfter,
+              message: err.message,
+            }),
+          },
+        );
+      } catch (err: any) {
+        const error = err instanceof Error ? err : new Error(String(err));
+
+        if (
+          isBadPreviousResponseError(error)
+          && currentPreviousResponseId
+          && currentPreviousResponseId === previousResponseId
+          && !recoveredFromBadPreviousResponseId
+        ) {
+          const badPreviousResponseId = currentPreviousResponseId;
+          recoveredFromBadPreviousResponseId = true;
+          currentInput = inputWithHistory;
+          currentPreviousResponseId = undefined;
+          sendSSE('previous_response_id_recovered', {
+            previousResponseId: badPreviousResponseId,
+            message: 'Previous Codex response was unavailable; replaying this turn with full local history.',
+          });
+          turn--;
+          continue;
+        }
+
+        if (
+          isModelUnavailableError(error)
+          && codexModel !== DEFAULT_CODEX_MODEL
+          && !modelFallbackRetryAttempted
+          && !emittedUserVisibleOutput
+        ) {
+          const failedModel = codexModel;
+          codexModel = DEFAULT_CODEX_MODEL;
+          modelFallbackRetryAttempted = true;
+          sendSSE('model_fallback', {
+            requestedModel: failedModel,
+            fallbackModel: codexModel,
+            reason: 'api_unavailable',
+          });
+          turn--;
+          continue;
+        }
+
+        if (isOversizedContextError(error)) {
+          stoppedWithTerminalError = true;
+          sendSSE('error', {
+            message: 'Codex context was too large even after automatic truncation. Start a fresh thread or narrow the request.',
+          });
+          break;
+        }
+
+        throw error;
+      }
 
       if (turnErrored) {
         stoppedWithTerminalError = true;
+        break;
+      }
+
+      if (!turnCompleted) {
+        stoppedWithTerminalError = true;
+        sendSSE('error', {
+          message: 'Codex stream ended before a terminal response event; refusing to continue from a partial stream.',
+        });
+        break;
+      }
+
+      if (turnHadFunctionCalls && !emittedTextOutput) {
+        consecutiveToolOnlyTurns++;
+      } else {
+        consecutiveToolOnlyTurns = 0;
+      }
+
+      if (consecutiveToolOnlyTurns >= MAX_STUCK_TOOL_ONLY_TURNS) {
+        stoppedWithTerminalError = true;
+        sendSSE('error', {
+          message: `Codex stopped because it made ${consecutiveToolOnlyTurns} consecutive tool-only turns without producing answer text.`,
+        });
         break;
       }
 
@@ -520,8 +636,33 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           continue;
         }
 
+        const toolCallFingerprint = buildToolCallFingerprint(call.name, toolArgs);
+        const repeatedCount = (repeatedToolCallCounts.get(toolCallFingerprint) || 0) + 1;
+        repeatedToolCallCounts.set(toolCallFingerprint, repeatedCount);
+
         try {
-          if (isToolBlocked(call.name)) {
+          if (totalToolCalls > MAX_TOTAL_TOOL_CALLS) {
+            toolResult = {
+              error: `Tool call budget exceeded after ${MAX_TOTAL_TOOL_CALLS} calls. Stop calling tools and answer from prior results or explain what is missing.`,
+            };
+            sendSSE('guardrail_triggered', {
+              guardrail: 'total_tool_calls',
+              limit: MAX_TOTAL_TOOL_CALLS,
+              tool: displayToolName,
+              callId: call.itemId,
+            });
+          } else if (repeatedCount > MAX_REPEATED_TOOL_CALLS) {
+            toolResult = {
+              error: `Repeated tool call guard: "${displayToolName}" was requested ${repeatedCount} times with the same arguments. Use prior results, change strategy, or answer with the available evidence.`,
+            };
+            sendSSE('guardrail_triggered', {
+              guardrail: 'repeated_tool_call',
+              limit: MAX_REPEATED_TOOL_CALLS,
+              count: repeatedCount,
+              tool: displayToolName,
+              callId: call.itemId,
+            });
+          } else if (isToolBlocked(call.name)) {
             toolResult = { error: `Tool "${call.name}" is not available in Codex autonomy mode.` };
           } else if (!call.name) {
             toolResult = { error: 'Codex function call was missing a tool name.' };
@@ -633,6 +774,9 @@ async function consumeResponseStream(
         return;
       }
       const error = err instanceof Error ? err : new Error(String(err));
+      if (isBadPreviousResponseError(error) || isOversizedContextError(error) || isModelUnavailableError(error)) {
+        throw error;
+      }
       const retryAvailable = attempt < MAX_STREAM_RECONNECTS && options.canRetry();
       if (!retryAvailable) {
         throw error;
@@ -685,6 +829,127 @@ function getEventSequenceNumber(event: any): number | undefined {
   return typeof event?.sequence_number === 'number' ? event.sequence_number : undefined;
 }
 
+/* ── Response Guardrails ───────────────────────────────────────────────── */
+
+function extractUsageTokens(usage: any): number {
+  if (!usage || typeof usage !== 'object') {
+    return 0;
+  }
+
+  const totalTokens = getNumericField(usage, 'total_tokens') ?? getNumericField(usage, 'totalTokens');
+  if (totalTokens !== undefined) {
+    return totalTokens;
+  }
+
+  return [
+    getNumericField(usage, 'input_tokens'),
+    getNumericField(usage, 'output_tokens'),
+    getNumericField(usage, 'reasoning_tokens'),
+    getNumericField(usage?.output_tokens_details, 'reasoning_tokens'),
+  ].reduce((sum, value) => sum + (value || 0), 0);
+}
+
+function getNumericField(record: any, field: string): number | undefined {
+  const value = record?.[field];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function extractIncompleteReason(response: any): string {
+  const reason = response?.incomplete_details?.reason || response?.incompleteDetails?.reason;
+  return typeof reason === 'string' ? reason : '';
+}
+
+function isBadPreviousResponseError(error: Error): boolean {
+  const text = getErrorSearchText(error);
+  return text.includes('previous_response_id')
+    && (
+      text.includes('not found')
+      || text.includes('no response')
+      || text.includes('invalid')
+      || text.includes('does not exist')
+      || text.includes('expired')
+    );
+}
+
+function isOversizedContextError(error: Error): boolean {
+  const text = getErrorSearchText(error);
+  return text.includes('context_length_exceeded')
+    || text.includes('maximum context')
+    || text.includes('context window')
+    || text.includes('context too large')
+    || text.includes('too many tokens')
+    || text.includes('input is too large');
+}
+
+function isModelUnavailableError(error: Error): boolean {
+  const text = getErrorSearchText(error);
+  return text.includes('model')
+    && (
+      text.includes('not found')
+      || text.includes('does not exist')
+      || text.includes('not available')
+      || text.includes('unsupported')
+      || text.includes('no access')
+      || text.includes('permission')
+    );
+}
+
+function getErrorSearchText(error: Error): string {
+  const err = error as any;
+  return [
+    err.message,
+    err.code,
+    err.type,
+    err.status,
+    err.error?.message,
+    err.response?.data?.error?.message,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function buildToolCallFingerprint(toolName: string, toolArgs: Record<string, unknown>): string {
+  return `${toolName || 'unknown_function'}:${stableStringify(toolArgs)}`;
+}
+
+function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === 'bigint') {
+    return JSON.stringify(value.toString());
+  }
+
+  if (typeof value === 'undefined') {
+    return '"[undefined]"';
+  }
+
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    return JSON.stringify(String(value));
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item, seen)).join(',')}]`;
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) {
+      return '"[Circular]"';
+    }
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    const entries = Object.keys(record)
+      .sort()
+      .map(key => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`);
+    seen.delete(value);
+    return `{${entries.join(',')}}`;
+  }
+
+  return JSON.stringify(String(value));
+}
+
 /* ── Model Routing ──────────────────────────────────────────────────────── */
 
 function resolveCodexModel(modelVersion?: string): string {
@@ -716,6 +981,54 @@ function serializeToolResult(toolResult: unknown): string {
     return JSON.stringify({
       error: `Tool result could not be serialized: ${err.message || 'unknown error'}`,
     });
+  }
+}
+
+function normalizeCitationAnnotations(
+  annotations: Array<{ url: string; title: string }>,
+): Array<{ url: string; title: string }> {
+  const seen = new Set<string>();
+  const normalized: Array<{ url: string; title: string }> = [];
+
+  for (const annotation of annotations) {
+    const url = normalizeCitationUrl(annotation.url);
+    if (!url || seen.has(url)) {
+      continue;
+    }
+    seen.add(url);
+    normalized.push({
+      url,
+      title: normalizeCitationTitle(annotation.title, url),
+    });
+  }
+
+  return normalized;
+}
+
+function normalizeCitationUrl(url: string): string {
+  const trimmed = url?.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function normalizeCitationTitle(title: string, url: string): string {
+  const trimmed = title?.replace(/\s+/g, ' ').trim();
+  if (trimmed && normalizeCitationUrl(trimmed) !== url) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.replace(/^www\./, '') || url;
+  } catch {
+    return url;
   }
 }
 
@@ -769,6 +1082,13 @@ Current time: ${now} (${tz})
 3. Always cite your sources with URLs when using web search.
 4. When tool calls fail, report the failure honestly — do not make up results.
 
+## Autonomous Deep Research Loop
+- Work autonomously through multi-step research, tool, and calculation loops until the evidence is sufficient or a safety/approval/source blocker is reached.
+- For current, ambiguous, disputed, or market-sensitive questions, search, inspect, compare, and verify across multiple sources before answering.
+- Prefer primary or canonical sources first: ESPN/league feeds for sports facts, The Odds API/bookmakers for odds, Covers/team-stat sources for trends, and Spanner/Truth tools for persisted platform data.
+- For deep dives, cross-check at least three materially independent sources when available; call out when fewer reliable sources exist.
+- Do not ask the user to confirm routine research steps. Ask only when an action is approval-gated, destructive, blocked, or materially ambiguous.
+
 ## Capabilities
 You have access to:
 - **Web Search**: Real-time search with grounded citations. Use this for current scores, news, and live data.
@@ -777,7 +1097,8 @@ You have access to:
 
 ## Response Format
 - Use Markdown for formatting
-- Include source URLs for all factual claims
+- Use clean citations: concise source names as Markdown links, no bare URLs in prose unless a URL itself is the answer, and no duplicate citation clutter
+- Cite every factual, statistical, odds, injury, schedule, or market claim; if a claim cannot be sourced, say so plainly
 - Structure complex responses with headers and tables
 - Be concise but thorough`;
 }

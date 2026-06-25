@@ -35,10 +35,11 @@ vi.mock('../../../lib/governance/enterprise-governance.js', () => ({
 
 // Mock tool bridge
 const mockExecuteCodexToolCall = vi.fn();
-const mockGetCodexToolDefinitions = vi.fn().mockReturnValue([
+const defaultCodexToolDefinitions = [
   { name: 'get_odds', description: 'Get live odds', inputSchema: { type: 'object', properties: {} } },
   { name: 'get_scores', description: 'Get live scores', inputSchema: { type: 'object', properties: {} } },
-]);
+];
+const mockGetCodexToolDefinitions = vi.fn().mockReturnValue(defaultCodexToolDefinitions);
 const mockIsToolBlocked = vi.fn().mockReturnValue(false);
 const mockIsToolApprovalRequired = vi.fn().mockReturnValue(false);
 
@@ -135,11 +136,42 @@ function createMockReq(overrides: Record<string, any> = {}) {
   };
 }
 
+function createFunctionCallStream(
+  responseId: string,
+  itemId: string,
+  callId: string,
+  name = 'get_odds',
+  args = '{}',
+) {
+  return createMockStream([
+    { type: 'response.created', response: { id: responseId } },
+    { type: 'response.function_call_arguments.done', item_id: itemId, name, arguments: args },
+    { type: 'response.output_item.done', item: { type: 'function_call', id: itemId, call_id: callId, name, arguments: args } },
+    { type: 'response.completed', response: { id: responseId, usage: {} } },
+  ]);
+}
+
+function createCompletedTextStream(responseId: string, text = 'Done.') {
+  return createMockStream([
+    { type: 'response.created', response: { id: responseId } },
+    { type: 'response.output_text.delta', delta: text },
+    { type: 'response.completed', response: { id: responseId, usage: {} } },
+  ]);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('Codex Handler — Responses API', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockCreate.mockReset();
+    mockRetrieve.mockReset();
+    mockExecuteCodexToolCall.mockReset();
+    mockGetCodexToolDefinitions.mockReset();
+    mockGetCodexToolDefinitions.mockReturnValue(defaultCodexToolDefinitions);
+    mockIsToolBlocked.mockReset();
+    mockIsToolBlocked.mockReturnValue(false);
+    mockIsToolApprovalRequired.mockReset();
+    mockIsToolApprovalRequired.mockReturnValue(false);
   });
 
   describe('Tool Configuration', () => {
@@ -180,6 +212,33 @@ describe('Codex Handler — Responses API', () => {
       const ciTool = createCall.tools.find((t: any) => t.type === 'code_interpreter');
       expect(ciTool).toBeDefined();
       expect(ciTool.container).toEqual({ type: 'auto' });
+    });
+
+    it('configures long autonomous research loops', async () => {
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_long_loop' } },
+        { type: 'response.completed', response: { id: 'resp_long_loop', usage: {} } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const createCall = mockCreate.mock.calls[0][0];
+      expect(createCall.parallel_tool_calls).toBe(true);
+      expect(createCall.max_output_tokens).toBe(16_384);
+      expect(createCall.truncation).toBe('auto');
+      expect(createCall.store).toBe(true);
+      expect(createCall.prompt_cache_retention).toBe('24h');
+      expect(createCall.reasoning).toEqual({
+        effort: 'high',
+        summary: 'auto',
+        context: 'all_turns',
+      });
+      expect(createCall.instructions).toContain('Autonomous Deep Research Loop');
+      expect(createCall.instructions).toContain('Use clean citations');
     });
 
     it('caps Truth tools at 64', async () => {
@@ -243,6 +302,12 @@ describe('Codex Handler — Responses API', () => {
       expect(createCall.model).toBe('gpt-5.5');
       const started = res.events.find(e => e.event === 'codex_turn_started');
       expect(started!.data.defaultedModel).toBe(true);
+      const fallback = res.events.find(e => e.event === 'model_fallback');
+      expect(fallback!.data).toMatchObject({
+        requestedModel: 'not-a-real-codex-model',
+        fallbackModel: 'gpt-5.5',
+        reason: 'unsupported_model',
+      });
     });
   });
 
@@ -341,8 +406,9 @@ describe('Codex Handler — Responses API', () => {
             content: [{
               type: 'output_text',
               annotations: [
-                { type: 'url_citation', url: 'https://espn.com/mlb', title: 'ESPN MLB' },
-                { type: 'url_citation', url: 'https://covers.com', title: 'Covers' },
+                { type: 'url_citation', url: ' https://espn.com/mlb ', title: '  ESPN   MLB  ' },
+                { type: 'url_citation', url: 'https://covers.com', title: '' },
+                { type: 'url_citation', url: 'https://espn.com/mlb', title: 'Duplicate ESPN' },
               ],
             }],
           },
@@ -360,6 +426,8 @@ describe('Codex Handler — Responses API', () => {
       expect(citations).toBeDefined();
       expect(citations!.data.annotations).toHaveLength(2);
       expect(citations!.data.annotations[0].url).toBe('https://espn.com/mlb');
+      expect(citations!.data.annotations[0].title).toBe('ESPN MLB');
+      expect(citations!.data.annotations[1].title).toBe('covers.com');
     });
 
     it('forwards rate limit events', async () => {
@@ -536,9 +604,9 @@ describe('Codex Handler — Responses API', () => {
       expect(secondCall.input[0].output).toContain('not available in Codex autonomy mode');
     });
 
-    it('respects MAX_TOOL_TURNS (15) safety cap', async () => {
-      // Create 16 turns of function calls — should stop at 15
-      for (let i = 0; i < 16; i++) {
+    it('respects MAX_TOOL_TURNS (30) safety cap', async () => {
+      // Create 31 turns of function calls — should stop at 30
+      for (let i = 0; i < 31; i++) {
         mockCreate.mockResolvedValueOnce(createMockStream([
           { type: 'response.created', response: { id: `resp_loop_${i}` } },
           { type: 'response.function_call_arguments.done', item_id: `fc_loop_${i}`, name: 'get_odds', arguments: '{}' },
@@ -554,8 +622,216 @@ describe('Codex Handler — Responses API', () => {
 
       await handleCodexChat(req as any, res as any);
 
-      // Should cap at 15 iterations of responses.create
-      expect(mockCreate.mock.calls.length).toBeLessThanOrEqual(15);
+      // Should cap at 30 iterations of responses.create
+      expect(mockCreate.mock.calls.length).toBeLessThanOrEqual(30);
+    });
+  });
+
+  describe('Guardrails', () => {
+    it('stops stuck tool-only loops before they run indefinitely', async () => {
+      for (let i = 0; i < 7; i++) {
+        mockCreate.mockResolvedValueOnce(createFunctionCallStream(
+          `resp_stuck_${i}`,
+          `fc_stuck_${i}`,
+          `call_stuck_${i}`,
+          'get_odds',
+          JSON.stringify({ turn: i }),
+        ));
+        mockExecuteCodexToolCall.mockResolvedValueOnce({ result: 'ok' });
+      }
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      expect(mockCreate.mock.calls.length).toBe(6);
+      expect(mockExecuteCodexToolCall.mock.calls.length).toBeLessThan(6);
+      const error = res.events.find(e => e.event === 'error');
+      expect(error!.data.message).toContain('consecutive tool-only turns');
+    });
+
+    it('returns a guardrail output for repeated identical tool calls', async () => {
+      for (let i = 0; i < 4; i++) {
+        mockCreate.mockResolvedValueOnce(createFunctionCallStream(
+          `resp_repeat_${i}`,
+          `fc_repeat_${i}`,
+          `call_repeat_${i}`,
+          'get_odds',
+          '{"team":"Yankees"}',
+        ));
+        mockExecuteCodexToolCall.mockResolvedValueOnce({ odds: '-150' });
+      }
+      mockCreate.mockResolvedValueOnce(createCompletedTextStream('resp_repeat_final', 'Using prior odds.'));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      expect(mockExecuteCodexToolCall).toHaveBeenCalledTimes(3);
+      const guardedContinuation = mockCreate.mock.calls[4][0];
+      expect(guardedContinuation.input[0].output).toContain('Repeated tool call guard');
+      const guardrail = res.events.find(e => e.event === 'guardrail_triggered');
+      expect(guardrail!.data).toMatchObject({
+        guardrail: 'repeated_tool_call',
+        limit: 3,
+        count: 4,
+        tool: 'get_odds',
+      });
+    });
+
+    it('rejects partial streams that end without a terminal response event', async () => {
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_partial' } },
+        { type: 'response.output_text.delta', delta: 'Half an answer' },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const error = res.events.find(e => e.event === 'error');
+      expect(error!.data.message).toContain('partial stream');
+      expect(res.events.find(e => e.event === 'codex_turn_completed')).toBeUndefined();
+    });
+
+    it('stops runaway cost when cumulative response usage exceeds budget', async () => {
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_cost' } },
+        { type: 'response.completed', response: { id: 'resp_cost', usage: { total_tokens: 200_001 } } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const error = res.events.find(e => e.event === 'error');
+      expect(error!.data.message).toContain('token usage exceeded');
+      expect(res.events.find(e => e.event === 'codex_turn_completed')).toBeUndefined();
+    });
+
+    it('caps runaway tool fan-out cost within a single turn', async () => {
+      const events: Array<{ type: string;[key: string]: any }> = [
+        { type: 'response.created', response: { id: 'resp_tool_budget' } },
+      ];
+      for (let i = 0; i < 81; i++) {
+        const itemId = `fc_budget_${i}`;
+        const callId = `call_budget_${i}`;
+        const args = JSON.stringify({ index: i });
+        events.push(
+          { type: 'response.function_call_arguments.done', item_id: itemId, name: 'get_scores', arguments: args },
+          { type: 'response.output_item.done', item: { type: 'function_call', id: itemId, call_id: callId, name: 'get_scores', arguments: args } },
+        );
+        mockExecuteCodexToolCall.mockResolvedValueOnce({ index: i });
+      }
+      events.push({ type: 'response.completed', response: { id: 'resp_tool_budget', usage: {} } });
+
+      mockCreate.mockResolvedValueOnce(createMockStream(events));
+      mockCreate.mockResolvedValueOnce(createCompletedTextStream('resp_tool_budget_final', 'Budget guarded.'));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      expect(mockExecuteCodexToolCall).toHaveBeenCalledTimes(80);
+      const guardedOutput = mockCreate.mock.calls[1][0].input[80].output;
+      expect(guardedOutput).toContain('Tool call budget exceeded');
+      const guardrail = res.events.find(e => e.event === 'guardrail_triggered' && e.data.guardrail === 'total_tool_calls');
+      expect(guardrail!.data.limit).toBe(80);
+    });
+
+    it('recovers from a stale previous_response_id by replaying local history', async () => {
+      mockCreate.mockRejectedValueOnce(new Error('No response found for previous_response_id resp_missing'));
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_replayed' } },
+        { type: 'response.completed', response: { id: 'resp_replayed', usage: {} } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq({
+        previousResponseId: 'resp_missing',
+        history: [{ role: 'assistant', content: 'Earlier sourced answer.' }],
+      });
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      expect(mockCreate).toHaveBeenCalledTimes(2);
+      expect(mockCreate.mock.calls[0][0].previous_response_id).toBe('resp_missing');
+      expect(mockCreate.mock.calls[1][0].previous_response_id).toBeUndefined();
+      expect(Array.isArray(mockCreate.mock.calls[1][0].input)).toBe(true);
+      const recovered = res.events.find(e => e.event === 'previous_response_id_recovered');
+      expect(recovered!.data.previousResponseId).toBe('resp_missing');
+    });
+
+    it('fails cleanly when context is oversized even with auto truncation', async () => {
+      mockCreate.mockRejectedValueOnce(new Error('context_length_exceeded: maximum context length exceeded'));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq({ prompt: 'x'.repeat(20_000) });
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const error = res.events.find(e => e.event === 'error');
+      expect(error!.data.message).toContain('context was too large');
+      expect(error!.data.message).toContain('automatic truncation');
+    });
+
+    it('falls back to the default model when a supported requested model is unavailable', async () => {
+      mockCreate.mockRejectedValueOnce(new Error('The model o3-pro does not exist or you do not have access'));
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_model_fallback' } },
+        { type: 'response.completed', response: { id: 'resp_model_fallback', usage: {} } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq({ modelVersion: 'o3-pro' });
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      expect(mockCreate.mock.calls[0][0].model).toBe('o3-pro');
+      expect(mockCreate.mock.calls[1][0].model).toBe('gpt-5.5');
+      const fallback = res.events.find(e => e.event === 'model_fallback');
+      expect(fallback!.data).toMatchObject({
+        requestedModel: 'o3-pro',
+        fallbackModel: 'gpt-5.5',
+        reason: 'api_unavailable',
+      });
+    });
+
+    it('serializes malformed tool outputs as safe error payloads', async () => {
+      mockCreate.mockResolvedValueOnce(createFunctionCallStream(
+        'resp_bad_output_1',
+        'fc_bad_output',
+        'call_bad_output',
+        'get_scores',
+      ));
+      mockCreate.mockResolvedValueOnce(createCompletedTextStream('resp_bad_output_2', 'Tool output was malformed.'));
+
+      const circular: any = { source: 'test' };
+      circular.self = circular;
+      mockExecuteCodexToolCall.mockResolvedValueOnce(circular);
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const secondCall = mockCreate.mock.calls[1][0];
+      const output = JSON.parse(secondCall.input[0].output);
+      expect(output.error).toContain('Tool result could not be serialized');
     });
   });
 
