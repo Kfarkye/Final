@@ -1,4 +1,4 @@
-name: Deploy Reverie to Cloud Run
+name: Deploy Truth to GKE
 
 on:
   push:
@@ -11,14 +11,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-reverie-${{ github.ref }}
+  group: deploy-truth-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    name: Deploy Reverie
+  gate:
+    name: Quality Gates
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +26,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -38,6 +36,14 @@ jobs:
       - name: Run Tests
         run: npx vitest run
 
+  deploy:
+    name: Build & Deploy
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -47,17 +53,23 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: reverie
-          region: us-central1
-          source: .
-          flags: --allow-unauthenticated --port=8080 --memory=2Gi --cpu=2 --timeout=300
-
-      - name: Show deployed URL
+      - name: Build image (Cloud Build + kaniko cache)
         run: |
-          gcloud run services describe reverie \
-            --region us-central1 \
-            --format='value(status.url)'
+          gcloud builds submit \
+            --config=cloudbuild.yaml \
+            --substitutions=SHORT_SHA=${{ github.sha }} \
+            --project=gen-lang-client-0281999829
 
+      - name: Create Cloud Deploy release
+        run: |
+          gcloud deploy releases create release-${{ github.run_number }} \
+            --delivery-pipeline=truth-pipeline \
+            --region=us-central1 \
+            --images=reverie=us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:${{ github.sha }}
+
+      - name: Show release status
+        run: |
+          gcloud deploy releases describe release-${{ github.run_number }} \
+            --delivery-pipeline=truth-pipeline \
+            --region=us-central1 \
+            --format='value(renderState)'

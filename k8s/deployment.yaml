@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reverie
+  labels:
+    app: reverie
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reverie
+  template:
+    metadata:
+      labels:
+        app: reverie
+    spec:
+      containers:
+        - name: reverie
+          image: us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "2"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8080"
+            - name: GCP_PROJECT
+              value: "gen-lang-client-0281999829"
+            - name: GCP_LOCATION
+              value: "global"
+          envFrom:
+            - secretRef:
+                name: truth-secrets
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30

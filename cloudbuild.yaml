@@ -1,0 +1,28 @@
+steps:
+  # Build with kaniko — cached layers, pushes to Artifact Registry
+  - name: 'gcr.io/kaniko-project/executor:latest'
+    args:
+      - '--dockerfile=Dockerfile'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:$SHORT_SHA'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:latest'
+      - '--cache=true'
+      - '--cache-ttl=168h'
+      - '--compressed-caching=false'
+      - '--snapshot-mode=redo'
+      - '--context=.'
+
+  # Deploy the immutable SHA-tagged image to GKE Autopilot
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        gcloud container clusters get-credentials truth-cluster --region=us-central1 --project=$PROJECT_ID
+        kubectl set image deployment/reverie reverie=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:$SHORT_SHA
+        kubectl rollout status deployment/reverie --timeout=300s
+
+timeout: '1800s'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'

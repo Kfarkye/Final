@@ -1,0 +1,30 @@
+apiVersion: deploy.cloud.google.com/v1
+kind: DeliveryPipeline
+metadata:
+  name: truth-pipeline
+description: Truth platform progressive delivery pipeline
+serialPipeline:
+  stages:
+    - targetId: truth-production
+      profiles:
+        - production
+      strategy:
+        canary:
+          runtimeConfig:
+            kubernetes:
+              serviceNetworking:
+                service: "reverie"
+                deployment: "reverie"
+          canaryDeployment:
+            percentages:
+              - 10
+              - 50
+            verify: false
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: truth-production
+description: GKE Autopilot production cluster
+gke:
+  cluster: projects/gen-lang-client-0281999829/locations/us-central1/clusters/truth-cluster
