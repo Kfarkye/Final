@@ -477,7 +477,18 @@ async function tieredApproval(
 
   sseManager.sendEvent(context.connectionId, "tool_approval_required", ssePayload);
 
-  return await waitForApproval(approvalId, request.tool, request.args);
+  return await waitForApproval(approvalId, request.tool, request.args, undefined, {
+    connectionId: context.connectionId,
+    onRePing: (aid: string) => {
+      // Re-send the approval event with a re-ping flag so the frontend
+      // can re-trigger sound/notification for unacknowledged approvals
+      sseManager.sendEvent(context.connectionId, "tool_approval_reping", {
+        ...ssePayload,
+        isRePing: true,
+        rePingMessage: "⚠️ Approval still pending — action is paused until you respond.",
+      });
+    },
+  });
 }
 
 // ── Non-Approval Handler ─────────────────────────────────────────────────────

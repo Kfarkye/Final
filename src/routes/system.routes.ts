@@ -4,7 +4,7 @@ import { toolRegistry } from "../tools";
 import { env } from "../config/env";
 import { getBackfillStatus } from "../workers/odds-backfill-worker";
 import { callGcpMcpTool } from "../tools/gcp-mcp-client";
-import { handleApprovalResponse } from "../utils/approval";
+import { handleApprovalResponse, acknowledgeApproval } from "../utils/approval";
 import { logger } from "../utils/logger";
 
 const router = Router();
@@ -49,6 +49,11 @@ router.get("/api/system/status", (_req: Request, res: Response) => {
     workers: {
       oddsBackfill: getBackfillStatus(),
     },
+    cloudRun: {
+      revision: process.env.K_REVISION || "local",
+      service: process.env.K_SERVICE || "local",
+      configuration: process.env.K_CONFIGURATION || "local"
+    },
     node: process.version,
     platform: process.platform,
     env: env.NODE_ENV,
@@ -59,12 +64,39 @@ router.get("/api/system/status", (_req: Request, res: Response) => {
 
 // --- Debug Tools List ---
 router.get("/api/debug/tools", (_req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const schemas = toolRegistry.getSchemas();
   const toolDetails = Object.entries(schemas).map(([name, schema]: [string, any]) => ({
     name,
     description: schema.description || '',
   }));
   res.json({ registeredTools: Object.keys(schemas), count: Object.keys(schemas).length, tools: toolDetails });
+});
+
+// CORS preflight — allow any origin, any tool
+router.options('/api/debug/tools', (_req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.sendStatus(204);
+});
+
+// POST — execute any registered tool via HTTP (universal API layer)
+router.post('/api/debug/tools', async (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  try {
+    const { toolName, args } = req.body;
+    if (!toolName) {
+      res.status(400).json({ error: 'toolName required' });
+      return;
+    }
+    const result = await toolRegistry.execute(toolName, args || {});
+    res.json({ result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Tool execution failed' });
+  }
 });
 
 // --- MCP Approval Route (v2: supports audit/fetch_docs/undo actions) ---
@@ -109,6 +141,22 @@ router.post("/api/mcp/approve", (req: Request, res: Response) => {
     res.json({ success: true, decision: typeof response === "boolean" ? (response ? "approved" : "denied") : response.decision });
   } else {
     res.status(404).json({ error: "Approval request not found or expired." });
+  }
+});
+
+// --- Approval Seen Acknowledgment (v3) ---
+router.post("/api/mcp/approve/seen", (req: Request, res: Response) => {
+  const { approvalId } = req.body;
+  if (!approvalId) {
+    res.status(400).json({ error: "approvalId is required" });
+    return;
+  }
+
+  const acknowledged = acknowledgeApproval(approvalId);
+  if (acknowledged) {
+    res.json({ success: true, message: "Approval timeout extended — human is reviewing." });
+  } else {
+    res.status(404).json({ error: "Approval request not found or already expired." });
   }
 });
 

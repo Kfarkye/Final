@@ -75,6 +75,100 @@ interface Conversation {
   updatedAt: any;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Approval Notification Utilities (v3)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let audioCtx: AudioContext | null = null;
+
+/** Play an attention-grabbing notification tone using Web Audio API (no file needed) */
+function playApprovalSound() {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    const ctx = audioCtx;
+
+    // Two-tone chime: C5 → E5 (like a doorbell)
+    const playTone = (freq: number, startTime: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.3, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    };
+
+    const now = ctx.currentTime;
+    playTone(523, now, 0.15);       // C5
+    playTone(659, now + 0.18, 0.2); // E5
+    playTone(784, now + 0.4, 0.25); // G5
+  } catch {
+    // Audio not available — silent fallback
+  }
+}
+
+/** Request browser notification permission on first interaction */
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+/** Send an OS-level browser notification */
+function sendBrowserNotification(tool: string, isRePing = false) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const n = new Notification(
+      isRePing ? '⚠️ Approval Still Pending' : '🔔 Action Approval Needed',
+      {
+        body: `Truth needs your approval for: ${tool}`,
+        tag: 'truth-approval', // replaces previous notification
+        requireInteraction: true,
+      }
+    );
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  }
+}
+
+let titleFlashInterval: ReturnType<typeof setInterval> | null = null;
+const ORIGINAL_TITLE = typeof document !== 'undefined' ? document.title : 'Truth';
+
+/** Flash the tab title to attract attention */
+function startTitleFlash(tool: string) {
+  if (titleFlashInterval) return; // Already flashing
+  let isAlert = true;
+  titleFlashInterval = setInterval(() => {
+    document.title = isAlert ? `⚠️ APPROVAL NEEDED — ${tool}` : ORIGINAL_TITLE;
+    isAlert = !isAlert;
+  }, 1000);
+}
+
+function stopTitleFlash() {
+  if (titleFlashInterval) {
+    clearInterval(titleFlashInterval);
+    titleFlashInterval = null;
+    document.title = ORIGINAL_TITLE;
+  }
+}
+
+/** Send 'seen' acknowledgment to backend */
+async function sendSeenAcknowledgment(approvalId: string) {
+  try {
+    await fetch('/api/mcp/approve/seen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvalId }),
+    });
+  } catch {
+    // Best effort — don't block the UI
+  }
+}
+
 export default function ChatClient() {
   const navigate = useNavigate();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -105,6 +199,47 @@ export default function ChatClient() {
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
+
+  // ── Approval notification effects ──────────────────────────────────────────
+
+  // Request notification permission on first user interaction
+  useEffect(() => {
+    const handler = () => {
+      requestNotificationPermission();
+      document.removeEventListener('click', handler);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  // When approval arrives: play sound, send browser notification, flash title
+  useEffect(() => {
+    if (pendingApproval) {
+      playApprovalSound();
+
+      // If tab is hidden, send OS notification
+      if (document.hidden) {
+        sendBrowserNotification(pendingApproval.tool);
+      }
+
+      startTitleFlash(pendingApproval.tool);
+
+      // Send 'seen' acknowledgment immediately if tab is visible,
+      // otherwise wait for the user to focus the tab
+      if (!document.hidden) {
+        sendSeenAcknowledgment(pendingApproval.approvalId);
+      } else {
+        const onFocus = () => {
+          sendSeenAcknowledgment(pendingApproval.approvalId);
+          document.removeEventListener('visibilitychange', onFocus);
+        };
+        document.addEventListener('visibilitychange', onFocus);
+      }
+    } else {
+      // Approval cleared — stop flashing
+      stopTitleFlash();
+    }
+  }, [pendingApproval]);
   const [secretInputValue, setSecretInputValue] = useState('');
   const [isSubmittingSecret, setIsSubmittingSecret] = useState(false);
   const [workspaceSubTab, setWorkspaceSubTab] = useState<'google' | 'git'>('git');
@@ -494,6 +629,15 @@ export default function ChatClient() {
                   tool: data.tool,
                   args: data.args
                 });
+              }
+            } catch (e) { }
+          } else if (eventName === 'tool_approval_reping') {
+            // Re-ping: the backend is reminding us about an unacknowledged approval
+            try {
+              const data = JSON.parse(dataStr);
+              playApprovalSound();
+              if (document.hidden) {
+                sendBrowserNotification(data.tool || 'unknown tool', true);
               }
             } catch (e) { }
           } else if (eventName === 'tool_start') {
