@@ -3,8 +3,8 @@ kind: Ingress
 metadata:
   name: reverie
   annotations:
-    kubernetes.io/ingress.class: "gce"
     kubernetes.io/ingress.global-static-ip-name: "truth-ip"
+    networking.gke.io/managed-certificates: "truth-cert"
 spec:
   defaultBackend:
     service:
