@@ -103,10 +103,20 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
   }
 
   // ── SSE Setup ──────────────────────────────────────────────────────────
+  // Disable socket-level timeouts — Codex tool loops run 60-300s+.
+  // Without this, Node.js default 2-min socket timeout kills GKE streams.
+  if (req.socket) {
+    req.socket.setTimeout(0);
+    req.socket.setNoDelay(true);
+    req.socket.setKeepAlive(true, 30_000);
+  }
+  res.setTimeout(0);
+
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.flushHeaders();
 
   const sendSSE = (event: string, data: unknown) => {
