@@ -760,7 +760,7 @@ describe('Codex Handler — Responses API', () => {
     it('stops hosted web_search loops that produce no answer text', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_hosted_search_loop' } },
-        ...Array.from({ length: 12 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
+        ...Array.from({ length: 6 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
         { type: 'response.completed', response: { id: 'resp_hosted_search_loop', usage: {} } },
       ]));
 
@@ -774,8 +774,8 @@ describe('Codex Handler — Responses API', () => {
       expect(guardrail!.data).toMatchObject({
         guardrail: 'hosted_tool_calls_without_text',
         tool: 'web_search',
-        limit: 12,
-        callsWithoutText: 12,
+        limit: 6,
+        callsWithoutText: 6,
       });
       const error = res.events.find(e => e.event === 'error');
       expect(error!.data.message).toContain('hosted web_search calls');
