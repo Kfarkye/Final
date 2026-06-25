@@ -5,7 +5,6 @@ import { RegisteredTool } from './types';
 import { sseManager } from '../../lib/sse/sse-manager';
 import { waitForApproval } from '../utils/approval';
 import { env } from '../config/env';
-import { container_v1, google } from 'googleapis';
 import { GoogleAuth } from 'google-auth-library';
 import { Logging } from '@google-cloud/logging';
 
@@ -14,6 +13,23 @@ const REGION = process.env.GCP_REGION || 'us-central1';
 const CLUSTER = process.env.GKE_CLUSTER || 'truth-cluster';
 const NAMESPACE = process.env.K8S_NAMESPACE || 'default';
 
+// Cache cluster endpoint (doesn't change)
+let _clusterEndpoint: string | null = null;
+
+// Helper: get cluster endpoint via GKE REST API (no googleapis dep)
+async function getClusterEndpoint(auth: GoogleAuth): Promise<string> {
+  if (_clusterEndpoint) return _clusterEndpoint;
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  const url = `https://container.googleapis.com/v1/projects/${PROJECT}/locations/${REGION}/clusters/${CLUSTER}`;
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token.token}` },
+  });
+  const data = await res.json() as any;
+  _clusterEndpoint = `https://${data.endpoint}`;
+  return _clusterEndpoint;
+}
+
 // Helper: execute kubectl-equivalent via K8s API
 async function getK8sClient() {
   const auth = new GoogleAuth({
@@ -21,17 +37,11 @@ async function getK8sClient() {
   });
   const client = await auth.getClient();
   const token = await client.getAccessToken();
-
-  // Get cluster endpoint
-  const containerClient = google.container({ version: 'v1', auth: auth as any });
-  const { data: cluster } = await containerClient.projects.locations.clusters.get({
-    name: `projects/${PROJECT}/locations/${REGION}/clusters/${CLUSTER}`,
-  });
+  const endpoint = await getClusterEndpoint(auth);
 
   return {
-    endpoint: `https://${cluster.endpoint}`,
+    endpoint,
     token: token.token!,
-    ca: cluster.masterAuth?.clusterCaCertificate,
   };
 }
 
@@ -373,10 +383,13 @@ export const gkeTools: RegisteredTool<any>[] = [
     handler: async () => {
       try {
         const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-        const containerClient = google.container({ version: 'v1', auth: auth as any });
-        const { data: cluster } = await containerClient.projects.locations.clusters.get({
-          name: `projects/${PROJECT}/locations/${REGION}/clusters/${CLUSTER}`,
+        const client = await auth.getClient();
+        const token = await client.getAccessToken();
+        const url = `https://container.googleapis.com/v1/projects/${PROJECT}/locations/${REGION}/clusters/${CLUSTER}`;
+        const res = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token.token}` },
         });
+        const cluster = await res.json() as any;
         return {
           name: cluster.name,
           location: cluster.location,
