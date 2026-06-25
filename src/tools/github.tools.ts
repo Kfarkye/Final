@@ -15,7 +15,7 @@ function getSecretClient() {
   return secretClient;
 }
 
-async function getGithubPat(): Promise<string | null> {
+export async function getGithubPat(): Promise<string | null> {
   // Check env first — support all common naming conventions
   const envToken = env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN
     || env.GITHUB_PAT || process.env.GITHUB_PAT

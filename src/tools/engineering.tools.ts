@@ -1222,7 +1222,25 @@ const gitBranchOpsTool: RegisteredTool<any> = {
 
           if (result.decision !== "approved") return handleNonApproval(result, "git push", args);
 
-          const { stdout, stderr } = await execFileAsync("git", ["push", "origin", branch], gitOpts);
+          // Resolve the remote URL and inject GitHub PAT for authentication
+          let pushArgs = ["push", "origin", branch];
+          try {
+            const { stdout: remoteUrl } = await execFileAsync("git", ["remote", "get-url", "origin"], gitOpts);
+            const url = remoteUrl.trim();
+            // If HTTPS remote, inject PAT: https://x-access-token:PAT@github.com/...
+            if (url.startsWith("https://") && !url.includes("@")) {
+              const { getGithubPat } = await import("./github.tools");
+              const pat = await getGithubPat();
+              if (pat) {
+                const authedUrl = url.replace("https://", `https://x-access-token:${pat}@`);
+                pushArgs = ["push", authedUrl, branch];
+              }
+            }
+          } catch (e) {
+            // Fall through to default push — may still work with credential helper
+          }
+
+          const { stdout, stderr } = await execFileAsync("git", pushArgs, gitOpts);
 
           ledger.record({
             tool: "git", operation: "push",
