@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libasound2 \
     libxss1 \
+    ca-certificates \
     && curl -fsSL https://deno.land/x/install/install.sh | sh \
     && git config --global --add safe.directory /app \
     && apt-get purge -y --auto-remove curl unzip \
