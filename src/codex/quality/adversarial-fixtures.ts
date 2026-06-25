@@ -4,6 +4,7 @@ import {
   StreamFault,
   createFaultInjectedStream,
   functionCallEvents,
+  hostedWebSearchEvents,
   makeCompletedTextStreamSpec,
   makeFunctionCallStreamSpec,
   messageWithCitations,
@@ -85,6 +86,27 @@ export const ADVERSARIAL_EVAL_FIXTURES: AdversarialEvalFixture[] = [
     notes: [
       'Only the first three identical calls should execute.',
       'The fourth call should become a function_call_output guardrail error.',
+    ],
+  },
+  {
+    id: 'eval.hosted-web-search-loop',
+    guardrailId: 'stuck_loop',
+    title: 'Hosted web_search chains without producing answer text',
+    prompt: 'Find best bets with live web research.',
+    expectedSignals: ['guardrail_triggered', 'error'],
+    streamPlan: [
+      {
+        label: 'fixture_hosted_web_search_loop',
+        events: [
+          responseCreated('fixture_hosted_web_search_loop'),
+          ...Array.from({ length: 12 }, (_, index) => hostedWebSearchEvents(`fixture_hosted_ws_${index}`)).flat(),
+          responseCompleted('fixture_hosted_web_search_loop'),
+        ],
+      },
+    ],
+    notes: [
+      'Hosted tool calls happen inside a single Responses stream and need an in-stream guard.',
+      'The twelfth web_search completion without text should emit guardrail_triggered and stop.',
     ],
   },
   {

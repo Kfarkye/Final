@@ -38,6 +38,8 @@ const MAX_TOTAL_RESPONSE_TOKENS = 200_000;
 const MAX_TOTAL_TOOL_CALLS = 80;
 const MAX_REPEATED_TOOL_CALLS = 3;
 const MAX_STUCK_TOOL_ONLY_TURNS = 6;
+const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 12;
+const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 24;
 const TOOL_OUTPUT_TRUNCATE_AT = 8_000;
 const TOOL_OUTPUT_HEAD_CHARS = 4_000;
 
@@ -202,6 +204,8 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       let emittedUserVisibleOutput = false;
       let emittedTextOutput = false;
       let lastSequenceNumber = 0;
+      let hostedToolCallsCompleted = 0;
+      let hostedToolCallsWithoutText = 0;
 
       // ── Stream one response turn ─────────────────────────────────────
       const createParams: OpenAI.Responses.ResponseCreateParams = {
@@ -225,6 +229,37 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       };
 
       let turnHadFunctionCalls = false;
+
+      const recordHostedToolCompleted = (tool: 'web_search' | 'code_interpreter', callId?: string) => {
+        hostedToolCallsCompleted++;
+        hostedToolCallsWithoutText++;
+
+        if (
+          hostedToolCallsWithoutText >= MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT
+          || hostedToolCallsCompleted >= MAX_HOSTED_TOOL_CALLS_PER_RESPONSE
+        ) {
+          turnErrored = true;
+          const limit = hostedToolCallsWithoutText >= MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT
+            ? MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT
+            : MAX_HOSTED_TOOL_CALLS_PER_RESPONSE;
+          const guardrail = hostedToolCallsWithoutText >= MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT
+            ? 'hosted_tool_calls_without_text'
+            : 'hosted_tool_calls_per_response';
+
+          sendSSE('guardrail_triggered', {
+            guardrail,
+            tool,
+            callId,
+            limit,
+            completedCalls: hostedToolCallsCompleted,
+            callsWithoutText: hostedToolCallsWithoutText,
+          });
+          sendSSE('error', {
+            message: `Codex stopped because hosted ${tool} calls completed ${hostedToolCallsWithoutText} times without producing answer text.`,
+          });
+          throw new Error(`Codex hosted ${tool} loop guard triggered`);
+        }
+      };
 
       try {
         await consumeResponseStream(
@@ -264,6 +299,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           case 'response.output_text.delta': {
             emittedUserVisibleOutput = true;
             emittedTextOutput = true;
+            hostedToolCallsWithoutText = 0;
             sendSSE('delta', {
               model: 'codex',
               text: event.delta,
@@ -301,6 +337,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
               callId: event.item_id,
               result: 'Web search completed',
             });
+            recordHostedToolCompleted('web_search', event.item_id);
             break;
           }
 
@@ -339,6 +376,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
               callId: event.item_id,
               result: 'Code execution completed',
             });
+            recordHostedToolCompleted('code_interpreter', event.item_id);
             break;
           }
 
@@ -1087,6 +1125,7 @@ Current time: ${now} (${tz})
 - For current, ambiguous, disputed, or market-sensitive questions, search, inspect, compare, and verify across multiple sources before answering.
 - Prefer primary or canonical sources first: ESPN/league feeds for sports facts, The Odds API/bookmakers for odds, Covers/team-stat sources for trends, and Spanner/Truth tools for persisted platform data.
 - For deep dives, cross-check at least three materially independent sources when available; call out when fewer reliable sources exist.
+- Do not chain hosted web searches indefinitely. Once reliable evidence is gathered, stop searching and produce the answer with citations.
 - Do not ask the user to confirm routine research steps. Ask only when an action is approval-gated, destructive, blocked, or materially ambiguous.
 
 ## Capabilities

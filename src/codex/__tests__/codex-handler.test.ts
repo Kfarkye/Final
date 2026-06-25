@@ -159,6 +159,14 @@ function createCompletedTextStream(responseId: string, text = 'Done.') {
   ]);
 }
 
+function webSearchCallEvents(itemId: string) {
+  return [
+    { type: 'response.web_search_call.in_progress', item_id: itemId },
+    { type: 'response.web_search_call.searching', item_id: itemId },
+    { type: 'response.web_search_call.completed', item_id: itemId },
+  ];
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('Codex Handler — Responses API', () => {
@@ -747,6 +755,54 @@ describe('Codex Handler — Responses API', () => {
       expect(guardedOutput).toContain('Tool call budget exceeded');
       const guardrail = res.events.find(e => e.event === 'guardrail_triggered' && e.data.guardrail === 'total_tool_calls');
       expect(guardrail!.data.limit).toBe(80);
+    });
+
+    it('stops hosted web_search loops that produce no answer text', async () => {
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_hosted_search_loop' } },
+        ...Array.from({ length: 12 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
+        { type: 'response.completed', response: { id: 'resp_hosted_search_loop', usage: {} } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const guardrail = res.events.find(e => e.event === 'guardrail_triggered');
+      expect(guardrail!.data).toMatchObject({
+        guardrail: 'hosted_tool_calls_without_text',
+        tool: 'web_search',
+        limit: 12,
+        callsWithoutText: 12,
+      });
+      const error = res.events.find(e => e.event === 'error');
+      expect(error!.data.message).toContain('hosted web_search calls');
+      expect(res.events.find(e => e.event === 'codex_turn_completed')).toBeUndefined();
+    });
+
+    it('allows hosted web_search progress when answer text appears between calls', async () => {
+      const events: Array<{ type: string;[key: string]: any }> = [
+        { type: 'response.created', response: { id: 'resp_hosted_search_ok' } },
+      ];
+      for (let i = 0; i < 12; i++) {
+        events.push(...webSearchCallEvents(`ws_ok_${i}`));
+        events.push({ type: 'response.output_text.delta', delta: `Checked source ${i + 1}. ` });
+      }
+      events.push({ type: 'response.completed', response: { id: 'resp_hosted_search_ok', usage: {} } });
+
+      mockCreate.mockResolvedValueOnce(createMockStream(events));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      expect(res.events.find(e => e.event === 'guardrail_triggered')).toBeUndefined();
+      expect(res.events.find(e => e.event === 'codex_turn_completed')).toBeDefined();
+      expect(res.events.filter(e => e.event === 'delta')).toHaveLength(12);
     });
 
     it('recovers from a stale previous_response_id by replaying local history', async () => {

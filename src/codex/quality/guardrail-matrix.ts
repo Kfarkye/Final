@@ -48,13 +48,14 @@ export const GUARDRAIL_MATRIX: GuardrailMatrixEntry[] = [
     invariant: 'A model cannot continue tool-only turns indefinitely without producing answer text.',
     failureModes: [
       'recursive tool-only continuations',
+      'hosted web_search keeps chaining inside one response',
       'planner never exits research mode',
       'tool results are ignored and same loop shape repeats',
     ],
-    handlerEvents: ['error'],
-    productionSignals: ['codex.loop.tool_only_turns', 'codex.guardrail.stuck_loop'],
-    evalFixtureIds: ['eval.stuck-tool-only-loop'],
-    ciTestIds: ['guardrails.stuck-tool-only-loop'],
+    handlerEvents: ['error', 'guardrail_triggered'],
+    productionSignals: ['codex.loop.tool_only_turns', 'codex.guardrail.stuck_loop', 'codex.guardrail.hosted_tool_loop'],
+    evalFixtureIds: ['eval.stuck-tool-only-loop', 'eval.hosted-web-search-loop'],
+    ciTestIds: ['guardrails.stuck-tool-only-loop', 'guardrails.hosted-web-search-loop'],
     passCriteria: [
       'Stops at the configured stuck-loop threshold',
       'Does not execute the final pending tool batch after the threshold is crossed',

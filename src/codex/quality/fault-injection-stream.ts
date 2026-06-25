@@ -137,6 +137,26 @@ export function functionCallEvents(params: {
   ];
 }
 
+export function hostedWebSearchEvents(itemId: string, sequenceStart?: number): ResponseStreamEvent[] {
+  return [
+    {
+      type: 'response.web_search_call.in_progress',
+      ...(sequenceStart !== undefined ? { sequence_number: sequenceStart } : {}),
+      item_id: itemId,
+    },
+    {
+      type: 'response.web_search_call.searching',
+      ...(sequenceStart !== undefined ? { sequence_number: sequenceStart + 1 } : {}),
+      item_id: itemId,
+    },
+    {
+      type: 'response.web_search_call.completed',
+      ...(sequenceStart !== undefined ? { sequence_number: sequenceStart + 2 } : {}),
+      item_id: itemId,
+    },
+  ];
+}
+
 export function messageWithCitations(citations: Array<{ url: string; title?: string }>, sequenceNumber?: number): ResponseStreamEvent {
   return {
     type: 'response.output_item.done',
