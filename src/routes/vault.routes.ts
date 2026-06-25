@@ -36,30 +36,37 @@ async function activateSecret(key: string, value: string): Promise<ActivationRes
   try {
     switch (key) {
       case 'GITHUB_PERSONAL_ACCESS_TOKEN': {
-        // Test: hit GitHub API to verify the token is valid AND has required scopes
-        const testRes = await fetch('https://api.github.com/user', {
+        // Test: verify token can access the target repo (works for both classic and fine-grained PATs)
+        const userRes = await fetch('https://api.github.com/user', {
           headers: { 'Authorization': `Bearer ${value}`, 'User-Agent': 'Truth-Platform' }
         });
-        if (testRes.ok) {
-          const user = await testRes.json() as any;
-          
-          // Bug 3 fix: check X-OAuth-Scopes to verify the token has the scopes
-          // push_files and create_pull_request actually need (repo, workflow)
-          const scopesHeader = testRes.headers.get('x-oauth-scopes') || '';
-          const scopes = scopesHeader.split(',').map((s: string) => s.trim()).filter(Boolean);
-          const requiredScopes = ['repo'];
-          const missingScopes = requiredScopes.filter(rs => !scopes.some((s: string) => s === rs || s === 'admin:org'));
-          
-          if (missingScopes.length > 0) {
+        
+        if (!userRes.ok) {
+          result.tested = true;
+          result.testResult = `Token rejected by GitHub API: ${userRes.status} ${userRes.statusText}. Check that the token hasn't expired.`;
+          break;
+        }
+        
+        const user = await userRes.json() as any;
+        
+        // Test repo access directly — this is what push_files actually needs
+        const repoRes = await fetch('https://api.github.com/repos/Kfarkye/Final', {
+          headers: { 'Authorization': `Bearer ${value}`, 'User-Agent': 'Truth-Platform' }
+        });
+        
+        if (repoRes.ok) {
+          const repo = await repoRes.json() as any;
+          const perms = repo.permissions || {};
+          if (perms.push) {
             result.tested = true;
-            result.testResult = `Authenticated as "${user.login}" but token is MISSING required scopes: ${missingScopes.join(', ')}. Current scopes: [${scopes.join(', ')}]. push_files will fail with 403. Regenerate the token with "repo" scope at https://github.com/settings/tokens`;
+            result.testResult = `Verified — authenticated as "${user.login}" with push access to Kfarkye/Final. Token is valid.`;
           } else {
             result.tested = true;
-            result.testResult = `Verified — authenticated as GitHub user "${user.login}" (${user.name || 'no display name'}). Scopes: [${scopes.join(', ')}] — repo access confirmed.`;
+            result.testResult = `Authenticated as "${user.login}" but NO push permission on Kfarkye/Final. Grant "Contents: Read and write" in fine-grained PAT settings.`;
           }
         } else {
           result.tested = true;
-          result.testResult = `Token rejected by GitHub API: ${testRes.status} ${testRes.statusText}. Check that the token hasn't expired.`;
+          result.testResult = `Authenticated as "${user.login}" but cannot access Kfarkye/Final (HTTP ${repoRes.status}). Ensure the repo is added to the fine-grained PAT.`;
         }
 
         // Boot: try to connect the GitHub MCP now that the token is available
