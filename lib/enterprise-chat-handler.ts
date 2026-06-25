@@ -162,11 +162,28 @@ function truncateToolResult(result: any, maxLen = 30000): any {
     }
     return sliced;
   }
-  return {
-    ...result,
-    _truncated_notice: "This object's content was too large and has been trimmed.",
-    _truncated_data: jsonStr.substring(0, maxLen) + `... [Truncated after ${maxLen} chars]`
-  };
+  // For objects: find and truncate the largest string field(s) to fit within maxLen.
+  // This avoids the old bug of spreading the full object + adding another 30KB copy.
+  const truncated: any = {};
+  const entries = Object.entries(result);
+  // Sort by value size descending — truncate largest fields first
+  const sorted = entries
+    .map(([k, v]) => ({ k, v, size: JSON.stringify(v).length }))
+    .sort((a, b) => b.size - a.size);
+
+  let budget = maxLen - 100; // leave room for wrapper
+  for (const { k, v, size } of sorted) {
+    if (typeof v === 'string' && size > budget / 2) {
+      // Truncate large strings to fit budget
+      const allowedChars = Math.max(200, Math.floor(budget / 2));
+      truncated[k] = v.substring(0, allowedChars) + `\n[TRUNCATED: ${v.length} chars total, showing first ${allowedChars}]`;
+    } else {
+      truncated[k] = v;
+    }
+    budget -= JSON.stringify(truncated[k]).length;
+  }
+  truncated._truncated = true;
+  return truncated;
 }
 
 const TOOL_TIMEOUTS: Record<string, number> = {
