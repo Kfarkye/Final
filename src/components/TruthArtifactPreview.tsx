@@ -70,7 +70,7 @@ const truthTheme: SandpackTheme = {
 
 type DeployState = 'idle' | 'deploying' | 'deployed' | 'error';
 
-interface TruthArtifactPreviewProps {
+export interface TruthArtifactPreviewProps {
   html: string;
   title?: string;
 }
@@ -320,7 +320,7 @@ function ArtifactInner({
 
 // ── Main Component ──────────────────────────────────────────────────────
 
-export function TruthArtifactPreview({ html, title }: TruthArtifactPreviewProps) {
+export const TruthArtifactPreview: React.FC<TruthArtifactPreviewProps> = ({ html, title }) => {
   const [expanded, setExpanded] = useState(false);
   const resolvedTitle = title || extractTitle(html);
 

@@ -10,6 +10,10 @@ contracts:
       - run_script
       - execute_javascript
       - search_web
+      - request_human_secret
+      - read_source_file
+      - list_source_directory
+      - search_source_code
 
   # ═══════════════════════════════════════════════════════════════════════
   # SOCCER / WORLD CUP
@@ -176,12 +180,34 @@ contracts:
       - update
       - delete
       - db
+      - create table
+      - create database
+      - batch
+      - embed
+      - vector
+      - entity
+      - alias
+      - resolve
+      - statmuse
+      - stats
+      - player
+      - team
     tools:
       - list_instances
       - list_databases
       - get_database_ddl
       - execute_sql
       - describe_spanner_table
+      - execute_ddl
+      - create_database
+      - batch_write
+      - generate_embeddings
+      - backfill_embeddings
+      - create_vector_index
+      - resolve_entity
+      - resolve_question
+      - detect_sport
+      - seed_entity_aliases
 
   # ═══════════════════════════════════════════════════════════════════════
   # MLB — Games, Pitchers, Stats (ESPN + MLB Stats API)
@@ -590,6 +616,14 @@ contracts:
       - get_cloud_run_iam_policy
       - get_cloud_run_metrics
       - list_cloud_scheduler_jobs
+      # gcloud-based tools (richer output, requires gcloud CLI)
+      - list_cloud_run_services_detail
+      - describe_cloud_run_service
+      - list_cloud_run_revisions
+      - deploy_cloud_run_service
+      - get_service_logs
+      - enable_service_api
+      - create_scheduler_job
 
   # ═══════════════════════════════════════════════════════════════════════
   # GIT OPERATIONS
@@ -694,6 +728,7 @@ contracts:
   # ═══════════════════════════════════════════════════════════════════════
   - id: mcpaas-forge
     name: MCPaaS Forge Pipeline
+    always: true
     keywords:
       - forge
       - create mcp
@@ -719,12 +754,16 @@ contracts:
       - execute_ddl
       - deploy_staged_mcp
       - forge_mcp_endpoint
+      - list_registered_tools
+      - register_runtime_tool
+      - unregister_tool
 
   # ═══════════════════════════════════════════════════════════════════════
   # ENGINEERING WORKSPACE
   # ═══════════════════════════════════════════════════════════════════════
   - id: engineering-workspace
     name: Engineering Workspace
+    always: true
     keywords:
       - file
       - code
@@ -740,8 +779,20 @@ contracts:
       - command
       - shell
       - execute
-      - git branch
+      - git
+      - commit
+      - push
+      - branch
       - ops
+      - modify
+      - create
+      - add
+      - route
+      - handler
+      - endpoint
+      - source
+      - deploy
+      - undo
     tools:
       - read_file
       - write_file
@@ -752,6 +803,11 @@ contracts:
       - git_branch_ops
       - run_tests
       - run_tsc
+      - run_git_status
+      - get_git_diff
+      - view_git_commits
+      - undo_operation
+      - view_operations
 
   # ═══════════════════════════════════════════════════════════════════════
   # KNOWLEDGE SYSTEM

@@ -2,8 +2,7 @@ import pytest
 import json
 from typing import Dict, Any
 from aura.governance.enterprise_governance_service import EnterpriseGovernanceService, DataIntegrityEnforcer, AccessControlEnforcer
-
-# Mocking external dependencies for isolated testing
+from aura.core.artifact_provisioning_pipeline import ArtifactProvisioningPipeline
 
 class MockDataIntegrityEnforcer(DataIntegrityEnforcer):
     """A mock to simulate data integrity enforcement for testing."""
@@ -48,7 +47,7 @@ def test_governance_service_applies_all_policies_successfully(enterprise_governa
     compliant_payload = {
         "id": "operational-payload-001",
         "description": "Enterprise artifact with PII and sensitive token.",
-        "personal_email": "jane.doe@enterprise.com",
+        "personal_email": "<jane.doe@enterprise.com>",
         "authentication_token": "highly_sensitive_auth_string_123",
         "status": "approved_for_production"
     }
@@ -115,3 +114,48 @@ def test_governance_service_audit_log_integrity_and_detail(enterprise_governance
     initial_log_size = len(service.audit_log_stream)
     service.audit_log_stream.append({"timestamp_utc": "later", "event_type": "new_event", "details": {}})
     assert len(service.audit_log_stream) == initial_log_size + 1, "Audit log stream did not maintain append-only behavior."
+
+def test_artifact_deployment_denied_for_unprivileged_principal():
+    """
+    Initiates an artifact deployment request through ArtifactProvisioningPipeline
+    with a simulated unprivileged deployer_principal and a resource_identifier marked as HIGH sensitivity;
+    verifies the deployment is explicitly denied with a PermissionError.
+    """
+    pipeline = ArtifactProvisioningPipeline()
+    unprivileged_principal = {"principal_id": "unprivileged_user", "roles": ["viewer"]}
+    raw_artifact_manifest = {
+        "deployment_id": "staging-release-v1",
+        "sensitivity_level": "HIGH",
+        "authentication_token": "secret_token_123"
+    }
+
+    with pytest.raises(PermissionError) as exc_info:
+        pipeline.provision_artifact_for_deployment(raw_artifact_manifest, unprivileged_principal)
+    
+    assert "ACCESS_DENIED" in str(exc_info.value)
+    
+    # Audit log check
+    audit_stream = pipeline.enterprise_governance_service.audit_log_stream
+    failed_event = next((e for e in audit_stream if e["event_type"] == "artifact_deployment_provision_failed"), None)
+    assert failed_event is not None
+    assert failed_event["details"]["principal_id"] == "unprivileged_user"
+    assert failed_event["details"]["deployment_id"] == "staging-release-v1"
+
+def test_artifact_deployment_redacts_sensitive_fields():
+    """
+    Inspects the content of a deployed artifact manifest to confirm all specified
+    sensitive fields are transformed to [ENTERPRISE_REDACTED_BY_POLICY].
+    """
+    pipeline = ArtifactProvisioningPipeline()
+    authorized_principal = {"principal_id": "deployer", "roles": ["release_manager"]}
+    raw_artifact_manifest = {
+        "deployment_id": "prod-release-v1",
+        "sensitivity_level": "HIGH",
+        "personal_email": "admin@example.com",
+        "authentication_token": "super_secret"
+    }
+    
+    governed_manifest = pipeline.provision_artifact_for_deployment(raw_artifact_manifest, authorized_principal)
+    
+    assert governed_manifest["personal_email"] == "[ENTERPRISE_REDACTED_BY_POLICY]"
+    assert governed_manifest["authentication_token"] == "[ENTERPRISE_REDACTED_BY_POLICY]"

@@ -384,6 +384,9 @@ export const nflTools: RegisteredTool<any>[] = [
         games,
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'NFL schedule. Respect game status. Never state a score for an upcoming game. Report odds and weather exactly as provided.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -519,6 +522,9 @@ export const nflTools: RegisteredTool<any>[] = [
         total_drives: drives?.length || 0,
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'NFL boxscore. Report only stats present. Do not invent player statlines or drives.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -609,6 +615,9 @@ export const nflTools: RegisteredTool<any>[] = [
         position_groups: filtered,
       };
     },
+    entityType: 'team',
+    renderType: 'team-card',
+    promptHint: 'NFL depth chart / roster. Report injuries exactly as listed. Do not fabricate injury timelines.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -717,6 +726,9 @@ export const nflTools: RegisteredTool<any>[] = [
         injuries,
       };
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'NFL injury/practice report. Report designations exactly (Out, Doubtful, Questionable). Critical for line movement analysis.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -816,6 +828,9 @@ export const nflTools: RegisteredTool<any>[] = [
         standings: result,
       };
     },
+    entityType: 'standings',
+    renderType: 'standings-table',
+    promptHint: 'NFL standings. Report records exactly. Do not compute playoff scenarios not in the data.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -841,5 +856,8 @@ export const nflTools: RegisteredTool<any>[] = [
         })),
       };
     },
+    entityType: 'team',
+    renderType: 'team-card',
+    promptHint: 'NFL team directory. Report team info as listed.',
   },
 ];

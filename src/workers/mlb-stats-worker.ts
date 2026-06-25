@@ -16,6 +16,7 @@
 import { Spanner } from "@google-cloud/spanner";
 import { logger } from "../utils/logger";
 import { env } from "../config/env";
+import { recordFeedHeartbeat } from "../utils/feed-heartbeat";
 
 const MLB_API_BASE = "https://statsapi.mlb.com/api/v1";
 
@@ -434,9 +435,25 @@ export async function runMlbStatsIngestion(date: string): Promise<StatsIngestion
     result.gamesSkipped = games.length - finalGames.length;
 
     logger.info({ msg: "MLB stats ingestion complete", result });
+
+    await recordFeedHeartbeat({
+      feedId: "espn_scores",
+      success: result.errors.length === 0,
+      rowsWritten: result.gamesIngested + result.playersIngested,
+      runId: `espn-scores-${date}-${new Date().toISOString()}`,
+      errorMessage: result.errors.length > 0 ? result.errors.join("; ") : undefined,
+    });
   } catch (err: any) {
     logger.error({ msg: "MLB stats ingestion failed", err: err.message });
     result.errors.push(err.message);
+
+    await recordFeedHeartbeat({
+      feedId: "espn_scores",
+      success: false,
+      rowsWritten: 0,
+      runId: `espn-scores-${date}-${new Date().toISOString()}`,
+      errorMessage: err.message,
+    });
   }
 
   return result;

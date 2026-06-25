@@ -24,7 +24,7 @@ async function mlbFetch<T = any>(
   url: string,
   options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? 10000;
+  const timeoutMs = options.timeoutMs ?? 30000;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeoutSignal])
@@ -59,7 +59,7 @@ async function ensureTeamCache(signal?: AbortSignal): Promise<typeof teamCache> 
   if (teamCache && (now - teamCacheLoadedAt < TEAM_CACHE_TTL_MS)) {
     return teamCache;
   }
-  const data = await mlbFetch<any>(`${MLB_API_BASE}/teams?sportId=1`, { signal, timeoutMs: 10000 });
+  const data = await mlbFetch<any>(`${MLB_API_BASE}/teams?sportId=1`, { signal, timeoutMs: 30000 });
   teamCache = (data.teams || []).map((t: any) => ({
     id: t.id,
     name: t.name,
@@ -277,7 +277,7 @@ export const mlbTools: RegisteredTool<any>[] = [
       }
 
       const teamParam = teamId ? `&teamId=${teamId}` : "";
-      const hydrateParam = args.includeProbablePitchers !== false ? "&hydrate=probablePitcher" : "";
+      const hydrateParam = args.includeProbablePitchers !== false ? "&hydrate=probablePitcher,linescore,decisions" : "&hydrate=linescore,decisions";
       const url = `${MLB_API_BASE}/schedule?sportId=1&date=${formattedDate}${teamParam}${hydrateParam}`;
       const data = await mlbFetch<any>(url, { signal: context.signal, timeoutMs: 10000 });
 
@@ -368,7 +368,222 @@ export const mlbTools: RegisteredTool<any>[] = [
         in_progress: games.filter((g: any) => g.abstract_status === "Live").length,
         games,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'Respect game status — never state a score for a SCHEDULED game.',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  GET MLB GAME — Single game with flat envelope-ready fields
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_mlb_game",
+      description: "Get a single MLB game by gamePk ID, or find a team's game on a given date. Returns a flat game object with team names, logos, status, venue, and probable pitchers — ready for the render contract. Use when you need one specific game, not a full schedule.",
+      schema: z.object({
+        gamePk: z.number().optional().describe("MLB game primary key ID. If provided, fetches this specific game."),
+        team: z.string().optional().describe("Team name or abbreviation (e.g., 'CHW', 'White Sox'). Used with date to find a specific game."),
+        date: z.string().optional().describe("Date in YYYY-MM-DD or natural language ('today', 'tomorrow'). Default: today"),
+      }).refine(data => data.gamePk || data.team, {
+        message: "Either gamePk or team must be provided",
+      }),
+    },
+    handler: async (args, context) => {
+      const formattedDate = getMlbTargetDate(args.date);
+      const yyyy = Number(formattedDate.split("-")[0]);
+
+      let game: any;
+
+      if (args.gamePk) {
+        // Direct gamePk lookup via the live feed (single game, full data)
+        const url = `${MLB_API_V11}/game/${args.gamePk}/feed/live`;
+        const data = await mlbFetch<any>(url, { signal: context.signal, timeoutMs: 30000 });
+        const gd = data.gameData || {};
+        const ld = data.liveData || {};
+        const linescore = ld.linescore || {};
+
+        const away = gd.teams?.away || {};
+        const home = gd.teams?.home || {};
+        const status = gd.status?.detailedState || "Unknown";
+        const abstractStatus = gd.status?.abstractGameState || "Unknown";
+
+        game = {
+          gamePk: args.gamePk,
+          status,
+          abstract_status: abstractStatus,
+          start_time: gd.datetime?.dateTime || null,
+          away_team: away.name || "?",
+          home_team: home.name || "?",
+          away_abbrev: away.abbreviation || away.name?.slice(0, 3).toUpperCase() || "?",
+          home_abbrev: home.abbreviation || home.name?.slice(0, 3).toUpperCase() || "?",
+          away_logo: `https://a.espncdn.com/i/teamlogos/mlb/500/${away.id}.png`,
+          home_logo: `https://a.espncdn.com/i/teamlogos/mlb/500/${home.id}.png`,
+          venue: gd.venue?.name || null,
+          league_label: "MLB",
+          away_record: away.record ? `${away.record.wins}-${away.record.losses}` : null,
+          home_record: home.record ? `${home.record.wins}-${home.record.losses}` : null,
+        };
+
+        // Scores only when game is live or final
+        const isLive = abstractStatus === "Live";
+        const isFinal = abstractStatus === "Final";
+        if (isLive || isFinal) {
+          game.away_score = linescore.teams?.away?.runs ?? null;
+          game.home_score = linescore.teams?.home?.runs ?? null;
+          game.inning = linescore.currentInning ?? null;
+          game.inning_half = linescore.inningHalf ?? null;
+          const decisions = ld.decisions || {};
+          game.live = {
+            away_score: away?.score ?? null,
+            home_score: home?.score ?? null,
+            period: linescore?.currentInning ?? null,
+            line: {
+              away: { r: linescore?.teams?.away?.runs, h: linescore?.teams?.away?.hits, e: linescore?.teams?.away?.errors },
+              home: { r: linescore?.teams?.home?.runs, h: linescore?.teams?.home?.hits, e: linescore?.teams?.home?.errors },
+            },
+            balls: linescore?.balls,
+            strikes: linescore?.strikes,
+            outs: linescore?.outs,
+            bases: {
+              on1: !!linescore?.offense?.first,
+              on2: !!linescore?.offense?.second,
+              on3: !!linescore?.offense?.third,
+            },
+            pit: linescore?.defense?.pitcher ? { id: linescore.defense.pitcher.id, name: linescore.defense.pitcher.fullName } : null,
+            bat: linescore?.offense?.batter ? { id: linescore.offense.batter.id, name: linescore.offense.batter.fullName } : null,
+            win: decisions?.winner ? { id: decisions.winner.id, name: decisions.winner.fullName, elite: false } : null,
+            loss: decisions?.loser ? { id: decisions.loser.id, name: decisions.loser.fullName } : null,
+            save: decisions?.save ? { id: decisions.save.id, name: decisions.save.fullName } : null,
+          };
+        }
+
+        // Probable pitchers
+        const probables = gd.probablePitchers || {};
+        if (probables.away || probables.home) {
+          game.probable_pitchers = {
+            away: probables.away ? { id: probables.away.id, name: probables.away.fullName } : null,
+            home: probables.home ? { id: probables.home.id, name: probables.home.fullName } : null,
+          };
+        }
+      } else {
+        // Team + date lookup — use schedule API, return the matching game
+        let teamId: number | null = null;
+        if (args.team) {
+          teamId = await resolveTeamId(args.team, context.signal);
+        }
+
+        const teamParam = teamId ? `&teamId=${teamId}` : "";
+        const url = `${MLB_API_BASE}/schedule?sportId=1&date=${formattedDate}${teamParam}&hydrate=probablePitcher,linescore,decisions`;
+        const data = await mlbFetch<any>(url, { signal: context.signal, timeoutMs: 30000 });
+
+        const rawGame = data.dates?.[0]?.games?.[0];
+        if (!rawGame) {
+          return { error: `No game found for ${args.team || 'unknown'} on ${formattedDate}` };
+        }
+
+        const away = rawGame.teams?.away;
+        const home = rawGame.teams?.home;
+        const status = rawGame.status?.detailedState || "Unknown";
+        const abstractStatus = rawGame.status?.abstractGameState || "Unknown";
+
+        game = {
+          gamePk: rawGame.gamePk,
+          status,
+          abstract_status: abstractStatus,
+          start_time: rawGame.gameDate || null,
+          away_team: away?.team?.name || "?",
+          home_team: home?.team?.name || "?",
+          away_abbrev: away?.team?.abbreviation || away?.team?.name?.slice(0, 3).toUpperCase() || "?",
+          home_abbrev: home?.team?.abbreviation || home?.team?.name?.slice(0, 3).toUpperCase() || "?",
+          away_logo: `https://a.espncdn.com/i/teamlogos/mlb/500/${away?.team?.id}.png`,
+          home_logo: `https://a.espncdn.com/i/teamlogos/mlb/500/${home?.team?.id}.png`,
+          venue: rawGame.venue?.name || null,
+          league_label: "MLB",
+          away_record: `${away?.leagueRecord?.wins}-${away?.leagueRecord?.losses}`,
+          home_record: `${home?.leagueRecord?.wins}-${home?.leagueRecord?.losses}`,
+        };
+
+        // Scores only when game is live or final
+        const isLive = abstractStatus === "Live";
+        const isFinal = abstractStatus === "Final";
+        if (isLive || isFinal) {
+          game.away_score = away?.score ?? null;
+          game.home_score = home?.score ?? null;
+          const linescore = rawGame.linescore || {};
+          const decisions = rawGame.decisions || {};
+          game.live = {
+            away_score: away?.score ?? null,
+            home_score: home?.score ?? null,
+            period: linescore?.currentInning ?? null,
+            line: {
+              away: { r: linescore?.teams?.away?.runs, h: linescore?.teams?.away?.hits, e: linescore?.teams?.away?.errors },
+              home: { r: linescore?.teams?.home?.runs, h: linescore?.teams?.home?.hits, e: linescore?.teams?.home?.errors },
+            },
+            balls: linescore?.balls,
+            strikes: linescore?.strikes,
+            outs: linescore?.outs,
+            bases: {
+              on1: !!linescore?.offense?.first,
+              on2: !!linescore?.offense?.second,
+              on3: !!linescore?.offense?.third,
+            },
+            pit: linescore?.defense?.pitcher ? { id: linescore.defense.pitcher.id, name: linescore.defense.pitcher.fullName } : null,
+            bat: linescore?.offense?.batter ? { id: linescore.offense.batter.id, name: linescore.offense.batter.fullName } : null,
+            win: decisions?.winner ? { id: decisions.winner.id, name: decisions.winner.fullName, elite: false } : null,
+            loss: decisions?.loser ? { id: decisions.loser.id, name: decisions.loser.fullName } : null,
+            save: decisions?.save ? { id: decisions.save.id, name: decisions.save.fullName } : null,
+          };
+        }
+
+        // Probable pitchers
+        if (away?.probablePitcher || home?.probablePitcher) {
+          game.probable_pitchers = {
+            away: away?.probablePitcher ? { id: away.probablePitcher.id, name: away.probablePitcher.fullName } : null,
+            home: home?.probablePitcher ? { id: home.probablePitcher.id, name: home.probablePitcher.fullName } : null,
+          };
+
+          // Enrich with season stats
+          const pitcherIds = [
+            game.probable_pitchers.away?.id,
+            game.probable_pitchers.home?.id,
+          ].filter(Boolean);
+
+          if (pitcherIds.length > 0) {
+            try {
+              const statsData = await mlbFetch<any>(
+                `${MLB_API_BASE}/people?personIds=${pitcherIds.join(",")}&hydrate=stats(group=pitching,type=season,season=${yyyy})`,
+                { signal: context.signal, timeoutMs: 30000 }
+              );
+              const statsMap = new Map<number, any>();
+              for (const person of statsData.people || []) {
+                const stat = person.stats?.[0]?.splits?.[0]?.stat || {};
+                statsMap.set(person.id, {
+                  era: stat.era ?? null,
+                  whip: stat.whip ?? null,
+                  record: `${stat.wins ?? 0}-${stat.losses ?? 0}`,
+                  innings_pitched: stat.inningsPitched ?? null,
+                  strikeouts: stat.strikeOuts ?? null,
+                });
+              }
+              if (game.probable_pitchers.away?.id) {
+                Object.assign(game.probable_pitchers.away, statsMap.get(game.probable_pitchers.away.id) || {});
+              }
+              if (game.probable_pitchers.home?.id) {
+                Object.assign(game.probable_pitchers.home, statsMap.get(game.probable_pitchers.home.id) || {});
+              }
+            } catch (err) {
+              logger.warn({ msg: "Failed to fetch pitcher stats for get_mlb_game", err });
+            }
+          }
+        }
+      }
+
+      return game;
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'Single MLB game. Respect game status — never state a score for a game that has not started.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -500,7 +715,10 @@ export const mlbTools: RegisteredTool<any>[] = [
         top_performers: topPerformers,
         venue: gameData?.venue?.name,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'Boxscore data — report only stats present in the payload. Do not invent pitcher lines or batting stats.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -539,7 +757,10 @@ export const mlbTools: RegisteredTool<any>[] = [
         divisions: standings.length,
         standings,
       };
-    }
+    },
+    entityType: 'standings',
+    renderType: 'standings-table',
+    promptHint: 'MLB division standings — report records exactly as shown. Do not compute clinch numbers or projected records.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -679,7 +900,10 @@ export const mlbTools: RegisteredTool<any>[] = [
         stat_group: statGroup,
         stats: statSummary,
       };
-    }
+    },
+    entityType: 'player',
+    renderType: 'player-card',
+    promptHint: 'Player season stats. Cite only the stat numbers in this payload. Do not compute rate stats or projections not present.',
   },
 
   // ═══════════════════════════════════════════════════════════════════

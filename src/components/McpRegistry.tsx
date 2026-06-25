@@ -689,6 +689,54 @@ export const PRELOADED_SERVERS: McpServer[] = [
     ],
     lastChecked: 'Just verified',
     latency: 22
+  },
+  {
+    id: 'design-system-mcp',
+    name: 'Truth Design System',
+    publisher: 'Reverie Engine',
+    description: 'Provides access to the Truth Platform Design System components, tokens, and status.',
+    status: 'Connected',
+    icon: 'custom',
+    type: 'Official',
+    transport: 'Stdout',
+    commandOrUrl: 'node /opt/truth/mcp-servers/mcp-design-system-ts/dist/index.js',
+    tools: [
+      {
+        name: 'get_design_system_status',
+        description: 'Returns the operational status of the Truth Design System infrastructure.',
+        parameters: '{}',
+        sampleInput: '{}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 10
+  },
+  {
+    id: 'github-mcp',
+    name: 'GitHub Protocol',
+    publisher: 'GitHub Official API',
+    description: 'Provides autonomous repository access. Allows Truth to clone code, read issues, write new branches, and open automated Pull Requests directly on GitHub.',
+    status: 'Connected',
+    icon: 'git',
+    type: 'Official',
+    transport: 'Stdout',
+    commandOrUrl: 'npx -y @modelcontextprotocol/server-github',
+    tools: [
+      {
+        name: 'create_pull_request',
+        description: 'Creates a new Pull Request with the AI\'s proposed code changes.',
+        parameters: '{ owner: string, repo: string, title: string, body: string, head: string, base: string }',
+        sampleInput: '{"owner": "kfar88", "repo": "reverie", "title": "feat: advanced dashboard", "head": "feat-dashboard", "base": "main"}'
+      },
+      {
+        name: 'push_files',
+        description: 'Pushes new, modified, or deleted files directly to a GitHub branch.',
+        parameters: '{ owner: string, repo: string, branch: string, files: array, message: string }',
+        sampleInput: '{"owner": "kfar88", "repo": "reverie", "branch": "feat-dashboard", "message": "Add advanced dashboard components"}'
+      }
+    ],
+    lastChecked: 'Just verified',
+    latency: 18
   }
 ];
 

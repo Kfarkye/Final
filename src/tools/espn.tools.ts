@@ -56,7 +56,10 @@ export const espnTools: RegisteredTool<any>[] = [
         })),
         _source: evidence,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'ESPN MLB scoreboard. Respect game status. Never state a score for an upcoming game.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -88,7 +91,10 @@ export const espnTools: RegisteredTool<any>[] = [
         has_odds: game.bookmakers.length > 0,
         _source: evidence,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'ESPN single game detail. Report only data present in the response.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -131,7 +137,10 @@ export const espnTools: RegisteredTool<any>[] = [
         espn_url: game.source_url,
         _source: evidence,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'ESPN game search. Report only data present in the matched game.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -171,7 +180,10 @@ export const espnTools: RegisteredTool<any>[] = [
         })),
         _source: evidence,
       };
-    }
+    },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'ESPN probable pitchers. Report ERA and records exactly. Note if probables are not yet posted.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -209,7 +221,10 @@ export const espnTools: RegisteredTool<any>[] = [
         })),
         _source: evidence,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'ESPN live games only. Report current scores and inning exactly.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -249,6 +264,9 @@ export const espnTools: RegisteredTool<any>[] = [
         })),
         _source: evidence,
       };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'ESPN final scores. Report results exactly as returned.',
   },
 ];

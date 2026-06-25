@@ -1,0 +1,15 @@
+steps:
+  - name: 'python:3.9'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        apt-get update && apt-get install -y default-jre
+        pip install 'apache-beam[gcp]' requests
+        python dataflow/odds_pipeline.py \
+          --runner=DataflowRunner \
+          --project=$PROJECT_ID \
+          --region=us-central1 \
+          --temp_location=gs://${PROJECT_ID}-dataflow-temp/tmp \
+          --staging_location=gs://${PROJECT_ID}-dataflow-temp/staging \
+          --job_name=live-odds-devig-pipeline

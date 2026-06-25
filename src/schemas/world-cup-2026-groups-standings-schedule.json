@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://truth.clearspace.dev/schemas/world-cup-2026-groups-standings-schedule.json",
+  "title": "World Cup 2026 — All Groups, Standings & Schedule",
+  "description": "Schema for the World Cup 2026 groups/standings/schedule artifact. Verified against Spanner clearspace/sports-worldcup-db tables: WorldCupTournaments, WorldCupTeams, WorldCupMatches, WorldCupVenues.",
+  "type": "object",
+  "required": ["tournament", "groups", "meta"],
+  "additionalProperties": false,
+  "properties": {
+    "tournament": { "$ref": "#/$defs/Tournament" },
+    "groups": {
+      "type": "array",
+      "description": "All 12 groups (A–L).",
+      "items": { "$ref": "#/$defs/Group" },
+      "minItems": 12,
+      "maxItems": 12
+    },
+    "meta": { "$ref": "#/$defs/Meta" }
+  },
+  "$defs": {
+    "Tournament": {
+      "type": "object",
+      "description": "Top-level metadata. Source: WorldCupTournaments + aggregates over Teams/Matches/Venues.",
+      "required": ["tournamentId","displayName","season","totalTeams","totalGroups","totalGroupMatches","hostNations","totalVenues","startDate","endDate"],
+      "additionalProperties": false,
+      "properties": {
+        "tournamentId": { "type": "string", "description": "WorldCupTournaments.TournamentId (PK, STRING(32)).", "examples": ["wc-2026"] },
+        "displayName":  { "type": "string", "description": "WorldCupTournaments.DisplayName (STRING(128)).", "examples": ["World Cup 2026"] },
+        "season":       { "type": "string", "description": "WorldCupTournaments.CurrentSeason (STRING(16)).", "examples": ["2026"] },
+        "totalTeams":   { "type": "integer", "const": 48 },
+        "totalGroups":  { "type": "integer", "const": 12 },
+        "totalGroupMatches": { "type": "integer", "const": 72 },
+        "hostNations":  { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "DISTINCT WorldCupVenues.Country.", "examples": [["United States","Mexico","Canada"]] },
+        "totalVenues":  { "type": "integer", "minimum": 1, "description": "COUNT(WorldCupVenues). Artifact shows 16." },
+        "startDate":    { "type": "string", "format": "date", "examples": ["2026-06-11"] },
+        "endDate":      { "type": "string", "format": "date", "examples": ["2026-07-19"] }
+      }
+    },
+
+    "Group": {
+      "type": "object",
+      "description": "One group: 4 teams, computed standings, up to 6 matches.",
+      "required": ["letter","hostLabel","standings","matches","matchesPlayed","totalMatches","dateRange"],
+      "additionalProperties": false,
+      "properties": {
+        "letter":    { "type": "string", "enum": ["A","B","C","D","E","F","G","H","I","J","K","L"], "description": "WorldCupTeams.GroupLetter / WorldCupMatches.GroupLetter (STRING(1))." },
+        "hostLabel": { "type": "string", "description": "Venue region label.", "examples": ["Mexico","Can / USA","USA","USA / Mex","USA / Can"] },
+        "standings": { "type": "array", "items": { "$ref": "#/$defs/TeamStanding" }, "minItems": 4, "maxItems": 4, "description": "Sorted: Pts DESC, GD DESC, GF DESC, FifaRanking ASC." },
+        "matches":   { "type": "array", "items": { "$ref": "#/$defs/Match" }, "minItems": 1, "maxItems": 6 },
+        "matchesPlayed": { "type": "integer", "minimum": 0, "maximum": 6, "description": "COUNT matches WHERE Status='completed'." },
+        "totalMatches":  { "type": "integer", "const": 6 },
+        "dateRange": {
+          "type": "object",
+          "required": ["start","end"],
+          "additionalProperties": false,
+          "properties": {
+            "start": { "type": "string", "format": "date" },
+            "end":   { "type": "string", "format": "date" }
+          }
+        }
+      }
+    },
+
+    "TeamStanding": {
+      "type": "object",
+      "description": "Team metadata (WorldCupTeams) + W/D/L/GD/Pts computed from completed WorldCupMatches rows.",
+      "required": ["teamCode","name","groupLetter","played","won","drawn","lost","goalsFor","goalsAgainst","goalDifference","points","qualificationZone"],
+      "additionalProperties": false,
+      "properties": {
+        "teamCode":    { "type": "string", "pattern": "^[A-Z0-9]{2,10}$", "description": "WorldCupTeams.TeamCode (STRING(10)).", "examples": ["MEX","USA","BRA"] },
+        "name":        { "type": "string", "description": "WorldCupTeams.Name (STRING(256))." },
+        "groupLetter": { "type": "string", "enum": ["A","B","C","D","E","F","G","H","I","J","K","L"], "description": "WorldCupTeams.GroupLetter." },
+        "fifaRanking": { "type": ["integer","null"], "minimum": 1, "maximum": 250, "description": "WorldCupTeams.FifaRanking (INT64, NULLABLE)." },
+        "confederation": { "type": ["string","null"], "description": "WorldCupTeams.Confederation (nullable)." },
+        "flagEmoji":   { "type": ["string","null"], "description": "WorldCupTeams.FlagEmoji (nullable)." },
+        "flagUrl":     { "type": ["string","null"], "format": "uri", "description": "WorldCupTeams.TeamLogoCdnUrl (preferred) or LogoUrl. Both nullable." },
+        "nickname":    { "type": ["string","null"], "description": "WorldCupTeams.Nickname (nullable)." },
+        "isPlaceholder": { "type": ["boolean","null"], "description": "WorldCupTeams.IsPlaceholder (BOOL, nullable)." },
+        "played":        { "type": "integer", "minimum": 0, "maximum": 3 },
+        "won":           { "type": "integer", "minimum": 0, "maximum": 3 },
+        "drawn":         { "type": "integer", "minimum": 0, "maximum": 3 },
+        "lost":          { "type": "integer", "minimum": 0, "maximum": 3 },
+        "goalsFor":      { "type": "integer", "minimum": 0 },
+        "goalsAgainst":  { "type": "integer", "minimum": 0 },
+        "goalDifference":{ "type": "integer", "description": "goalsFor − goalsAgainst." },
+        "points":        { "type": "integer", "minimum": 0, "maximum": 9, "description": "won×3 + drawn." },
+        "qualificationZone": { "type": "boolean", "description": "true if currently top 2 of group." }
+      }
+    },
+
+    "Match": {
+      "type": "object",
+      "description": "One match from WorldCupMatches, optional venue join on VenueId.",
+      "required": ["matchId","groupLetter","homeTeamCode","awayTeamCode","kickoff"],
+      "additionalProperties": false,
+      "properties": {
+        "matchId":     { "type": "string", "minLength": 1, "maxLength": 36, "description": "WorldCupMatches.MatchId (PK, STRING(36))." },
+        "groupLetter": { "type": "string", "enum": ["A","B","C","D","E","F","G","H","I","J","K","L"], "description": "WorldCupMatches.GroupLetter." },
+        "matchNumber": { "type": ["integer","null"], "minimum": 1, "maximum": 104, "description": "WorldCupMatches.MatchNumber (INT64, nullable)." },
+        "homeTeamCode":{ "type": "string", "pattern": "^[A-Z0-9]{2,10}$", "description": "WorldCupMatches.HomeTeamCode (STRING(10))." },
+        "awayTeamCode":{ "type": "string", "pattern": "^[A-Z0-9]{2,10}$", "description": "WorldCupMatches.AwayTeamCode (STRING(10))." },
+        "kickoff":     { "type": "string", "format": "date-time", "description": "WorldCupMatches.Kickoff (TIMESTAMP, NOT NULL)." },
+        "stage":       { "type": ["string","null"], "description": "WorldCupMatches.Stage (STRING(64), nullable). Group-stage rows use 'group'.", "examples": ["group","round-of-32","round-of-16","quarter-final","semi-final","third-place","final"] },
+        "status":      { "type": ["string","null"], "description": "WorldCupMatches.Status (STRING(64), nullable).", "examples": ["scheduled","in_progress","halftime","completed","postponed","cancelled"] },
+        "homeScore":   { "type": ["integer","null"], "minimum": 0, "description": "WorldCupMatches.HomeScore (nullable until played)." },
+        "awayScore":   { "type": ["integer","null"], "minimum": 0, "description": "WorldCupMatches.AwayScore (nullable until played)." },
+        "venueId":     { "type": ["string","null"], "maxLength": 36, "description": "WorldCupMatches.VenueId (nullable FK)." },
+        "venue":       { "oneOf": [ { "$ref": "#/$defs/Venue" }, { "type": "null" } ], "description": "Joined WorldCupVenues row." },
+        "espnEventId": { "type": ["string","null"], "description": "WorldCupMatches.EspnEventId (STRING(64), nullable)." },
+        "liveMinute":  { "type": ["integer","null"], "minimum": 0, "maximum": 130, "description": "WorldCupMatches.LiveMinute (nullable)." },
+        "livePeriod":  { "type": ["string","null"], "maxLength": 8, "description": "WorldCupMatches.LivePeriod (STRING(8), nullable)." },
+        "liveStoppage":{ "type": ["integer","null"], "minimum": 0, "description": "WorldCupMatches.LiveStoppage (nullable)." }
+      }
+    },
+
+    "Venue": {
+      "type": "object",
+      "description": "WorldCupVenues row.",
+      "required": ["venueId","name","city","country"],
+      "additionalProperties": false,
+      "properties": {
+        "venueId":  { "type": "string", "maxLength": 36, "description": "WorldCupVenues.VenueId (PK)." },
+        "name":     { "type": "string", "description": "WorldCupVenues.Name (STRING(256))." },
+        "city":     { "type": "string", "description": "WorldCupVenues.City (STRING(256))." },
+        "state":    { "type": ["string","null"], "description": "WorldCupVenues.State (nullable)." },
+        "country":  { "type": "string", "description": "WorldCupVenues.Country (STRING(256))." },
+        "capacity": { "type": ["integer","null"], "minimum": 0, "description": "WorldCupVenues.Capacity (nullable)." },
+        "elevationMeters": { "type": ["integer","null"], "minimum": 0, "description": "WorldCupVenues.ElevationMeters (nullable)." },
+        "roofType": { "type": ["string","null"], "maxLength": 64, "description": "WorldCupVenues.RoofType (STRING(64), nullable; free text — typical: open/retractable/fixed)." },
+        "surfaceType": { "type": ["string","null"], "maxLength": 64, "description": "WorldCupVenues.SurfaceType (STRING(64), nullable; typical: natural_grass/hybrid_grass/artificial_turf)." },
+        "timezone": { "type": ["string","null"], "description": "WorldCupVenues.Timezone (STRING(128), nullable)." },
+        "latitude": { "type": ["number","null"], "description": "WorldCupVenues.Latitude (NUMERIC, nullable)." },
+        "longitude":{ "type": ["number","null"], "description": "WorldCupVenues.Longitude (NUMERIC, nullable)." }
+      }
+    },
+
+    "Meta": {
+      "type": "object",
+      "description": "Artifact provenance/freshness.",
+      "required": ["dataSource","fetchedAt","matchdayLabel","groupMatchesPlayed","groupMatchesTotal"],
+      "additionalProperties": false,
+      "properties": {
+        "dataSource":  { "type": "string", "examples": ["clearspace/sports-worldcup-db"] },
+        "fetchedAt":   { "type": "string", "description": "Date or date-time the artifact was sourced.", "examples": ["2026-06-18"] },
+        "matchdayLabel": { "type": "string", "examples": ["Matchday 2 underway"] },
+        "groupMatchesPlayed": { "type": "integer", "minimum": 0, "maximum": 72, "description": "Artifact shows 24." },
+        "groupMatchesTotal":  { "type": "integer", "const": 72 }
+      }
+    }
+  }
+}

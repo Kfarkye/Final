@@ -1,6 +1,8 @@
 import { logger } from "../utils/logger";
 import { PmResolver } from "../services/pm-resolver";
 import { RawMarketPayload } from "../types/pm.types";
+import { recordFeedHeartbeat } from "../utils/feed-heartbeat";
+import { fetchKalshi } from "../utils/kalshi-auth";
 
 export interface KalshiIngestionResult {
   totalMarketsFetched: number;
@@ -30,7 +32,7 @@ export async function runKalshiIngestion(): Promise<KalshiIngestionResult> {
       const url = `https://api.elections.kalshi.com/trade-api/v2/events?limit=50&series_ticker=${series}&with_nested_markets=true`;
       logger.info({ msg: `Fetching active events from Kalshi API for series ${series}`, url });
       
-      const response = await fetch(url, {
+      const response = await fetchKalshi(url, {
         signal: AbortSignal.timeout(15_000)
       });
 
@@ -106,8 +108,23 @@ export async function runKalshiIngestion(): Promise<KalshiIngestionResult> {
     }
 
     logger.info({ msg: "Kalshi Ingestion Worker completed", result });
+
+    await recordFeedHeartbeat({
+      feedId: "pm_kalshi",
+      success: true,
+      rowsWritten: result.resolvedCount,
+      runId: `pm-kalshi-${new Date().toISOString()}`,
+    });
   } catch (err: any) {
     logger.error({ msg: "Kalshi Ingestion Worker failed", error: err.message });
+
+    await recordFeedHeartbeat({
+      feedId: "pm_kalshi",
+      success: false,
+      rowsWritten: 0,
+      runId: `pm-kalshi-${new Date().toISOString()}`,
+      errorMessage: err.message,
+    });
     throw err;
   }
 

@@ -3,7 +3,6 @@
 
 node_modules/
 dist/
-.git/
 .github/
 .env
 .env.local
@@ -14,3 +13,9 @@ dist/
 aura/
 scripts/test-*.ts
 scripts/check-*.ts
+
+dataflow/
+venv/
+mcp-servers/*/node_modules/
+
+!.git/

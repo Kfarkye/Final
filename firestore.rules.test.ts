@@ -1,34 +1,36 @@
 import { assertFails, assertSucceeds, initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import { readFileSync } from "fs";
-import { describe, it, before, after, beforeEach } from "node:test";
-import * as assert from "node:assert";
+import { describe, it, beforeAll as before, afterAll as after, beforeEach, assert } from "vitest";
 
-let testEnv;
+const runFirestoreTests = process.env.FIRESTORE_EMULATOR_HOST !== undefined || process.env.CI !== undefined;
 
-before(async () => {
-  testEnv = await initializeTestEnvironment({
-    projectId: "demo-project-test",
-    firestore: {
-      rules: readFileSync("DRAFT_firestore.rules", "utf8"),
-      host: "localhost",
-      port: 8080
-    },
+describe.skipIf(!runFirestoreTests)("Reverie Security Rules", () => {
+  let testEnv;
+
+  before(async () => {
+    // Only initialize if we are actually running the tests
+    if (!runFirestoreTests) return;
+    testEnv = await initializeTestEnvironment({
+      projectId: "demo-project-test",
+      firestore: {
+        rules: readFileSync("firestore.rules", "utf8"),
+        host: "localhost",
+        port: 8080
+      },
+    });
   });
-});
 
-beforeEach(async () => {
-  await testEnv.clearFirestore();
-});
+  beforeEach(async () => {
+    if (testEnv) await testEnv.clearFirestore();
+  });
 
-after(async () => {
-  await testEnv.cleanup();
-});
+  after(async () => {
+    if (testEnv) await testEnv.cleanup();
+  });
 
-describe("Reverie Security Rules", () => {
   it("P1 (Shadow Tier Update) should fail", async () => {
     const db = testEnv.authenticatedContext("user1", { email_verified: true }).firestore();
     const ref = db.collection("users").doc("user1");
-    // Ensure read might work if we created it but here update is false.
     await assertFails(ref.update({ tier: "annual_plus" }));
   });
 
@@ -37,6 +39,4 @@ describe("Reverie Security Rules", () => {
     const ref2 = db1.collection("users").doc("user2");
     await assertFails(ref2.get());
   });
-
-  // More tests would be formulated if time permitted...
 });

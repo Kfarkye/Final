@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -22,6 +22,28 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // Handle redirect result for mobile
+  getRedirectResult(auth).then((result) => {
+    if (result) {
+      const workspaceDomain = localStorage.getItem('auth_workspace_domain');
+      if (workspaceDomain) {
+        const userEmail = result.user.email;
+        if (!userEmail || !userEmail.endsWith(`@${workspaceDomain}`)) {
+          auth.signOut();
+          cachedAccessToken = null;
+          console.error(`SSO Failed: Email must belong to the workspace domain @${workspaceDomain}`);
+          return;
+        }
+      }
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+      }
+    }
+  }).catch((error) => {
+    console.error('Redirect sign in error:', error);
+  });
+
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       if (cachedAccessToken) {
@@ -72,6 +94,28 @@ export const googleSignIn = async (workspaceDomain?: string): Promise<{ user: Us
     throw error;
   } finally {
     isSigningIn = false;
+  }
+};
+
+// For mobile, we must use redirect instead of popup
+export const googleSignInRedirect = async (workspaceDomain?: string): Promise<void> => {
+  try {
+    isSigningIn = true;
+    
+    if (workspaceDomain) {
+      provider.setCustomParameters({ hd: workspaceDomain });
+      localStorage.setItem('auth_workspace_domain', workspaceDomain);
+    } else {
+      provider.setCustomParameters({});
+      localStorage.removeItem('auth_workspace_domain');
+    }
+
+    await signInWithRedirect(auth, provider);
+    // Page will reload, execution stops here.
+  } catch (error: any) {
+    console.error('Sign in redirect error:', error);
+    isSigningIn = false;
+    throw error;
   }
 };
 

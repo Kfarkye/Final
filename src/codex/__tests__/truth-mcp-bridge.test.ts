@@ -42,15 +42,15 @@ describe('Truth MCP Bridge', () => {
     vi.clearAllMocks();
     // Re-mock getSchemas to fresh return value
     vi.mocked(toolRegistry.getSchemas).mockReturnValue({
-      get_odds: { description: 'Get live odds', properties: { team: { type: 'string' } }, required: ['team'] },
-      get_scores: { description: 'Get live scores', properties: {}, required: [] },
-      deploy_staged_mcp: { description: 'Deploy to staging', properties: {} },
-      trigger_deploy: { description: 'Trigger deploy', properties: {} },
-      rotate_odds_key: { description: 'Rotate API key', properties: {} },
-      run_odds_ingestor_once: { description: 'Run ingestor', properties: {} },
-      github_write_file: { description: 'Write file to GitHub', properties: {} },
-      github_create_pr: { description: 'Create PR', properties: {} },
-      spanner_admin_execute: { description: 'Admin Spanner', properties: {} },
+      get_odds: { name: 'get_odds', description: 'Get live odds', parameters: { type: 'object', properties: { team: { type: 'string' } }, required: ['team'] }, properties: { team: { type: 'string' } }, required: ['team'] },
+      get_scores: { name: 'get_scores', description: 'Get live scores', parameters: { type: 'object', properties: {}, required: [] }, properties: {}, required: [] },
+      deploy_staged_mcp: { name: 'deploy_staged_mcp', description: 'Deploy to staging', parameters: { type: 'object', properties: {} }, properties: {} },
+      trigger_deploy: { name: 'trigger_deploy', description: 'Trigger deploy', parameters: { type: 'object', properties: {} }, properties: {} },
+      rotate_odds_key: { name: 'rotate_odds_key', description: 'Rotate API key', parameters: { type: 'object', properties: {} }, properties: {} },
+      run_odds_ingestor_once: { name: 'run_odds_ingestor_once', description: 'Run ingestor', parameters: { type: 'object', properties: {} }, properties: {} },
+      github_write_file: { name: 'github_write_file', description: 'Write file to GitHub', parameters: { type: 'object', properties: {} }, properties: {} },
+      github_create_pr: { name: 'github_create_pr', description: 'Create PR', parameters: { type: 'object', properties: {} }, properties: {} },
+      spanner_admin_execute: { name: 'spanner_admin_execute', description: 'Admin Spanner', parameters: { type: 'object', properties: {} }, properties: {} },
     });
   });
 

@@ -7,8 +7,8 @@ import { EdgeEngine } from "../services/edge-engine";
 export const gameStateTools: RegisteredTool<any>[] = [
   {
     definition: {
-      name: "get_mlb_odds",
-      description: "Single source for all MLB game data. Returns array of GameStateResponse objects. Conditional blocks are rendered based on the 'state' field.",
+      name: "get_mlb_game_state",
+      description: "Single source for all MLB game state data. Returns array of GameStateResponse objects. Conditional blocks are rendered based on the 'state' field. For actual betting odds, use get_mlb_odds instead.",
       schema: z.object({
         date: z.string().optional().describe("Optional date to fetch games for (e.g., 'YYYYMMDD', 'today'). Defaults to today.")
       })
@@ -90,6 +90,9 @@ export const gameStateTools: RegisteredTool<any>[] = [
       }));
 
       return responses;
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'MLB game state (pregame/live/recap). Respect the state field. Never state a score when state is PREGAME.',
   }
 ];

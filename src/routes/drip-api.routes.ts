@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { edgeDb } from "../db/spanner";
+import { runMlbArbitrageScout } from "../workers/mlb-kalshi-arbitrage-scout";
 
 const router = Router();
 
@@ -325,6 +326,65 @@ router.get("/api/truth/live-game-dashboard/:eventId", async (req: Request, res: 
   } catch (err: any) {
     logger.error({ msg: "Failed to fetch live dashboard data", err: err.message });
     res.status(500).json({ status: "error", message: "Internal Server Error" });
+  }
+});
+
+// GET /api/scout/mlb/arbitrage
+router.get("/api/scout/mlb/arbitrage", async (req: Request, res: Response) => {
+  try {
+    const homeTeam = req.query.homeTeam as string;
+    const awayTeam = req.query.awayTeam as string;
+    if (!homeTeam || !awayTeam) {
+      return res.status(400).json({ status: "error", message: "Missing homeTeam or awayTeam query parameters" });
+    }
+    logger.info({ msg: `Running MLB Arbitrage Scout manually via API for ${awayTeam} @ ${homeTeam}` });
+    const data = await runMlbArbitrageScout(homeTeam, awayTeam);
+    res.json({ status: "ok", data });
+  } catch (err: any) {
+    logger.error({ msg: "Failed to run MLB Arbitrage Scout", err: err.message });
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+
+// GET /api/mlb/scores
+// Proxy to statsapi.mlb.com with guaranteed fields for the live dashboard
+router.get("/api/mlb/scores", async (req: Request, res: Response) => {
+  try {
+    const date = req.query.date as string || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=linescore,decisions,probablePitcher,team`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`MLB API returned ${response.status}`);
+    
+    const data = await response.json();
+    let games = data.dates?.[0]?.games || [];
+
+    // Harden the payload to ensure status and player IDs exist in a flat games[] array
+    games = games.map((g: any) => {
+      return {
+        ...g,
+        status: g.status?.detailedState || g.status?.abstractGameState || "Preview",
+        // Force player IDs up to the top level of pitcher/batter if nested weirdly
+        currentPlay: {
+           ...g.currentPlay,
+           pitcher: {
+              ...g.linescore?.defense?.pitcher,
+              ...g.currentPlay?.pitcher,
+              id: g.linescore?.defense?.pitcher?.id || g.currentPlay?.pitcher?.id
+           },
+           batter: {
+              ...g.linescore?.offense?.batter,
+              ...g.currentPlay?.batter,
+              id: g.linescore?.offense?.batter?.id || g.currentPlay?.batter?.id
+           }
+        }
+      };
+    });
+
+    res.json({ games });
+  } catch (err: any) {
+    logger.error({ msg: "Failed to proxy mlb scores", err: err.message });
+    res.status(500).json({ status: "error", message: err.message });
   }
 });
 

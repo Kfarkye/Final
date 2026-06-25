@@ -25,7 +25,7 @@ export const spannerTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "list_instances",
-      description: "Lists all Cloud Spanner instances in the active project.",
+      description: "Lists all Cloud Spanner instances in the active project. Known instances: 'clearspace' (sports data). Start here if you don't know which instance to target.",
       schema: z.object({})
     },
     handler: async () => {
@@ -42,7 +42,7 @@ export const spannerTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "list_databases",
-      description: "Lists all databases inside a specific Spanner instance.",
+      description: "Lists all databases inside a specific Spanner instance. For sports data, use instanceId='clearspace'. Known databases: 'sports-mlb-db' (MLB entities, governance contracts, odds).",
       schema: z.object({
         instanceId: z.string().min(1, "Instance ID is required")
       })
@@ -61,7 +61,7 @@ export const spannerTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "get_database_ddl",
-      description: "Retrieves the DDL (Data Definition Language) structure for a database.",
+      description: "Retrieves the full DDL (schema) for a database. WARNING: returns ALL tables — prefer describe_spanner_table for a single table. Use this only when you need the complete schema overview.",
       schema: z.object({
         instanceId: z.string().min(1, "Instance ID is required"),
         databaseId: z.string().min(1, "Database ID is required")
@@ -76,11 +76,13 @@ export const spannerTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "execute_sql",
-      description: "Executes a SQL query (SELECT) or a DML statement (INSERT/UPDATE/DELETE). DML statements require human UX approval. CANNOT run DDL (CREATE/ALTER/DROP TABLE) — use execute_ddl for schema changes.",
+      description: "Executes a SQL query (SELECT) or DML (INSERT/UPDATE/DELETE) against Spanner. DML requires user approval. CANNOT run DDL — use execute_ddl instead. WORKFLOW: Always call describe_spanner_table FIRST to get exact column names before writing queries — this prevents hallucinated column references. Default: instanceId='clearspace', databaseId='sports-mlb-db'. For large DML operations (mass UPDATE/DELETE), increase timeoutMs up to 120000 (2 min).",
       schema: z.object({
         instanceId: z.string().min(1, "Instance ID is required"),
         databaseId: z.string().min(1, "Database ID is required"),
-        sql: z.string().min(1, "SQL statement is required")
+        sql: z.string().min(1, "SQL statement is required"),
+        timeoutMs: z.number().int().min(1000).max(120000).optional()
+          .describe("Timeout in ms. Defaults to 10000 for SELECT, 30000 for DML. Set up to 120000 for large maintenance DML.")
       })
     },
     handler: async (args, context) => {
@@ -109,15 +111,17 @@ export const spannerTools: RegisteredTool<any>[] = [
       const database = spanner.instance(args.instanceId).database(args.databaseId);
 
       if (isWriteDML) {
+        const dmlTimeout = args.timeoutMs || 30000; // 30s default for DML
         let rowCount = 0;
         await withTimeout(database.runTransactionAsync(async (transaction) => {
           const [count] = await transaction.runUpdate({ sql });
           await transaction.commit();
           rowCount = count;
-        }));
-        return { success: true, statement: "DML Executed successfully", rowCount };
+        }), dmlTimeout);
+        return { success: true, statement: "DML Executed successfully", rowCount, timeoutMs: dmlTimeout };
       } else {
-        const [rows] = await withTimeout(database.run({ sql }));
+        const readTimeout = args.timeoutMs || 10000; // 10s default for reads
+        const [rows] = await withTimeout(database.run({ sql }), readTimeout);
         const plainRows = rows.map((row: any) => row.toJSON ? row.toJSON() : row);
         return { instanceId: args.instanceId, databaseId: args.databaseId, sql, rows: plainRows };
       }
@@ -130,9 +134,10 @@ export const spannerTools: RegisteredTool<any>[] = [
       name: "describe_spanner_table",
       description:
         "Get the schema for a SINGLE Spanner table: columns (name, type, nullable), " +
-        "primary key, and indexes. Far more efficient than get_database_ddl (which dumps " +
-        "the entire DB). Use this BEFORE writing any SQL query to ensure you reference " +
-        "real column names — this eliminates hallucinated column references.",
+        "primary key, and indexes. ALWAYS call this BEFORE execute_sql to learn the real column names — " +
+        "this eliminates hallucinated column references. Far more efficient than get_database_ddl. " +
+        "Default: instanceId='clearspace', databaseId='sports-mlb-db'. " +
+        "Key tables: SportsGovernanceContracts, SportsGovernanceContractVersions, Entities, OddsSnapshots.",
       schema: z.object({
         instanceId: z.string().min(1, "Instance ID is required"),
         databaseId: z.string().min(1, "Database ID is required"),

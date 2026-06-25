@@ -91,7 +91,12 @@ export function devigPower(probs: number[]): number[] {
     else hi = mid;
   }
   const k = (lo + hi) / 2;
-  return probs.map(p => Math.pow(p, k));
+  const result = probs.map(p => Math.pow(p, k));
+  const newTotal = result.reduce((a, b) => a + b, 0);
+  if (isNaN(newTotal) || Math.abs(newTotal - 1.0) > 0.001) {
+    return devigMultiplicative(probs);
+  }
+  return result;
 }
 
 // Shin method: solve for insider trading parameter z
@@ -111,9 +116,15 @@ export function devigShin(probs: number[]): number[] {
     else hi = z;
   }
   const z = (lo + hi) / 2;
-  return probs.map(p => {
+  const result = probs.map(p => {
     return (Math.sqrt(z * z + 4 * (1 - z) * p * p / total) - z) / (2 * (1 - z));
   });
+  
+  const newTotal = result.reduce((a, b) => a + b, 0);
+  if (isNaN(newTotal) || Math.abs(newTotal - 1.0) > 0.001) {
+    return devigMultiplicative(probs);
+  }
+  return result;
 }
 
 // Master devig dispatcher

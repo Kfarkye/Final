@@ -1,6 +1,6 @@
 // src/tools/gcp-infra.tools.ts
 // Drop-in GCP infrastructure toolkit — Tier 0-4 + IaC.
-// Closes: Cloud Run deploy, Scheduler cron, Pub/Sub, service enablement, Terraform.
+// Closes: Cloud Run deploy, Scheduler cron, Pub/Sub, service enablement.
 // Spanner DDL is handled by forge.tools.ts (execute_ddl) — not duplicated here.
 
 import { z } from 'zod';
@@ -8,24 +8,14 @@ import { RegisteredTool } from './types';
 import { sseManager } from '../../lib/sse/sse-manager';
 import { waitForApproval } from '../utils/approval';
 import { env } from '../config/env';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { PubSub } from '@google-cloud/pubsub';
 import { CloudSchedulerClient } from '@google-cloud/scheduler';
+import { ServicesClient, RevisionsClient } from '@google-cloud/run';
+import { Logging } from '@google-cloud/logging';
+import { ServiceUsageClient } from '@google-cloud/service-usage';
 
-const execFileAsync = promisify(execFile);
 const PROJECT = env.GCP_PROJECT;
 const REGION = process.env.GCP_REGION || 'us-central1';
-
-// ── helper: gcloud wrapper with timeout ──
-async function gcloud(args: string[], timeoutMs: number = 60000): Promise<string> {
-  const { stdout } = await execFileAsync('gcloud', args, {
-    timeout: timeoutMs,
-    maxBuffer: 10 * 1024 * 1024,
-    env: { ...process.env, CLOUDSDK_CORE_PROJECT: PROJECT },
-  });
-  return stdout;
-}
 
 export const gcpInfraTools: RegisteredTool<any>[] = [
 
@@ -42,10 +32,107 @@ export const gcpInfraTools: RegisteredTool<any>[] = [
     },
     handler: async (args) => {
       try {
-        const stdout = await gcloud(['services', 'enable', args.service, `--project=${PROJECT}`]);
-        return { enabled: args.service, project: PROJECT, stdout: stdout.trim() };
+        const client = new ServiceUsageClient();
+        const request = { name: `projects/${PROJECT}/services/${args.service}` };
+        const [operation] = await client.enableService(request);
+        await operation.promise();
+        return { enabled: args.service, project: PROJECT, status: "success" };
       } catch (err: any) {
         return { error: `Failed to enable ${args.service}: ${err.message}` };
+      }
+    },
+  },
+
+  // ════════════════════════════════════════════════════════════════════
+  // TIER 1 — CLOUD RUN INSPECTION (read-only)
+  // ════════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "list_cloud_run_services_detail",
+      description: "List all Cloud Run services in a region with full detail.",
+      schema: z.object({
+        region: z.string().default(REGION).describe("GCP region (default: us-central1)"),
+      }),
+    },
+    handler: async (args) => {
+      try {
+        const client = new ServicesClient();
+        const [services] = await client.listServices({ parent: `projects/${PROJECT}/locations/${args.region}` });
+        return {
+          region: args.region,
+          count: services.length,
+          services: services.map(s => ({
+            name: s.name?.split('/').pop(),
+            url: s.uri || null,
+            latestRevision: s.latestReadyRevision?.split('/').pop() || null,
+            createdAt: s.createTime ? new Date(s.createTime.seconds as number * 1000).toISOString() : null,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to list services: ${err.message}` };
+      }
+    },
+  },
+  {
+    definition: {
+      name: "describe_cloud_run_service",
+      description: "Get full details for a Cloud Run service.",
+      schema: z.object({
+        service: z.string().min(1).describe("Cloud Run service name"),
+        region: z.string().default(REGION).describe("GCP region"),
+      }),
+    },
+    handler: async (args) => {
+      try {
+        const client = new ServicesClient();
+        const [svc] = await client.getService({ name: `projects/${PROJECT}/locations/${args.region}/services/${args.service}` });
+        const container = svc.template?.containers?.[0] || {};
+        const envVars = (container.env || []).map((e: any) => ({
+          name: e.name,
+          value: e.value ? `${e.value.slice(0, 8)}...` : e.valueSource ? '[SECRET]' : null,
+        }));
+        return {
+          name: svc.name?.split('/').pop(),
+          url: svc.uri,
+          region: args.region,
+          latestRevision: svc.latestReadyRevision?.split('/').pop(),
+          latestCreatedRevision: svc.latestCreatedRevision?.split('/').pop(),
+          image: container.image,
+          envVarCount: envVars.length,
+          envVars,
+          createdAt: svc.createTime ? new Date(svc.createTime.seconds as number * 1000).toISOString() : null,
+        };
+      } catch (err: any) {
+        return { error: `Failed to describe service: ${err.message}` };
+      }
+    },
+  },
+  {
+    definition: {
+      name: "list_cloud_run_revisions",
+      description: "List recent revisions for a Cloud Run service.",
+      schema: z.object({
+        service: z.string().min(1).describe("Cloud Run service name"),
+        region: z.string().default(REGION).describe("GCP region"),
+        limit: z.number().int().positive().default(10).describe("Max revisions to return"),
+      }),
+    },
+    handler: async (args) => {
+      try {
+        const client = new RevisionsClient();
+        const [revisions] = await client.listRevisions({ parent: `projects/${PROJECT}/locations/${args.region}/services/${args.service}` });
+        return {
+          service: args.service,
+          region: args.region,
+          count: revisions.length,
+          revisions: revisions.slice(0, args.limit).map((r: any) => ({
+            name: r.name?.split('/').pop(),
+            createdAt: r.createTime ? new Date(r.createTime.seconds as number * 1000).toISOString() : null,
+            image: r.containers?.[0]?.image,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to list revisions: ${err.message}` };
       }
     },
   },
@@ -56,26 +143,20 @@ export const gcpInfraTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "deploy_cloud_run_service",
-      description: "Build + deploy source to Cloud Run from a local directory. Returns public URL. Requires human approval.",
+      description: "Update a Cloud Run service with a new container image tag. Use trigger_build to build the image first. (Does not support deploying from source dir directly anymore).",
       schema: z.object({
         service: z.string().min(1).describe("Cloud Run service name"),
-        sourceDir: z.string().min(1).describe("Absolute path to source directory"),
-        envVars: z.record(z.string()).optional().describe("Environment variables to set (key-value pairs)"),
-        allowUnauthenticated: z.boolean().default(true).describe("Allow public access"),
+        imageTag: z.string().min(1).describe("The Docker image tag to deploy (e.g. gcr.io/my-project/reverie:latest)"),
         region: z.string().default(REGION).describe("GCP region"),
-        memory: z.string().default("2Gi").describe("Memory allocation"),
-        cpu: z.string().default("2").describe("CPU allocation"),
-        timeout: z.string().default("600").describe("Request timeout seconds"),
       })
     },
     handler: async (args, context) => {
-      // Gate behind approval — this deploys to production
       if (context.connectionId) {
         const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
         sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
           approvalId,
           tool: "deploy_cloud_run_service",
-          args: { service: args.service, region: args.region, sourceDir: args.sourceDir }
+          args: { service: args.service, region: args.region, imageTag: args.imageTag }
         });
         const approved = await waitForApproval(approvalId, "deploy_cloud_run_service", args);
         if (!approved) {
@@ -84,27 +165,23 @@ export const gcpInfraTools: RegisteredTool<any>[] = [
       }
 
       try {
-        const gcloudArgs = [
-          'run', 'deploy', args.service,
-          `--source=${args.sourceDir}`,
-          `--region=${args.region}`,
-          `--project=${PROJECT}`,
-          `--memory=${args.memory}`,
-          `--cpu=${args.cpu}`,
-          `--timeout=${args.timeout}`,
-          '--quiet',
-        ];
-
-        if (args.envVars && Object.keys(args.envVars).length > 0) {
-          const envStr = Object.entries(args.envVars).map(([k, v]) => `${k}=${v}`).join(',');
-          gcloudArgs.push(`--set-env-vars=${envStr}`);
+        const client = new ServicesClient();
+        const serviceName = `projects/${PROJECT}/locations/${args.region}/services/${args.service}`;
+        
+        let service;
+        try {
+          const [existing] = await client.getService({ name: serviceName });
+          service = existing;
+          if (service.template && service.template.containers && service.template.containers.length > 0) {
+            service.template.containers[0].image = args.imageTag;
+          }
+          const [operation] = await client.updateService({ service });
+          await operation.promise();
+        } catch(e: any) {
+          return { error: `Failed to deploy/update service: ${e.message}. Note: Service must already exist or be created via UI/Terraform first.` };
         }
-
-        gcloudArgs.push(args.allowUnauthenticated ? '--allow-unauthenticated' : '--no-allow-unauthenticated');
-
-        const stdout = await gcloud(gcloudArgs, 600000); // 10min timeout for builds
-        const url = (stdout.match(/https:\/\/\S+run\.app/) || [])[0] || null;
-        return { service: args.service, url, region: args.region, stdout: stdout.slice(-2000) };
+        
+        return { service: args.service, region: args.region, image: args.imageTag, status: "updated" };
       } catch (err: any) {
         return { error: `Cloud Run deploy failed: ${err.message}` };
       }
@@ -122,16 +199,17 @@ export const gcpInfraTools: RegisteredTool<any>[] = [
     },
     handler: async (args) => {
       try {
-        let filter = `resource.labels.service_name=${args.service}`;
+        const logging = new Logging({ projectId: PROJECT });
+        let filter = `resource.type="cloud_run_revision" AND resource.labels.service_name="${args.service}"`;
         if (args.severity) filter += ` AND severity>=${args.severity}`;
 
-        const stdout = await gcloud([
-          'logging', 'read', filter,
-          `--limit=${args.limit}`,
-          `--project=${PROJECT}`,
-          '--format=json',
-        ], 30000);
-        return { logs: JSON.parse(stdout || '[]') };
+        const [entries] = await logging.getEntries({
+          filter,
+          pageSize: args.limit,
+          orderBy: 'timestamp desc'
+        });
+        
+        return { logs: entries.map((e: any) => e.toJSON()) };
       } catch (err: any) {
         return { error: `Failed to fetch logs: ${err.message}` };
       }
@@ -263,55 +341,38 @@ export const gcpInfraTools: RegisteredTool<any>[] = [
     },
   },
 
-  // ════════════════════════════════════════════════════════════════════
-  // CROSS-CUTTING — TERRAFORM (IaC for all tiers)
-  // ════════════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════════
+  // query_cloud_run_logs — Allows the model to inspect its own logs
+  // ═══════════════════════════════════════════════════════════════════
   {
     definition: {
-      name: "terraform_apply",
-      description: "Run terraform init + apply in a directory. Provisions infrastructure as code. Requires human approval. DESTRUCTIVE — can modify or destroy resources.",
+      name: "query_cloud_run_logs",
+      description: "Query recent logs for a Cloud Run service to debug errors or find raw tool payloads.",
       schema: z.object({
-        dir: z.string().min(1).describe("Absolute path to Terraform directory"),
-        autoApprove: z.boolean().default(true).describe("Auto-approve without interactive prompt"),
-        vars: z.record(z.string()).optional().describe("Terraform variable overrides"),
+        serviceName: z.string().default("reverie").describe("Cloud Run service name"),
+        textPayload: z.string().optional().describe("String to search for in log payloads"),
+        severity: z.enum(["INFO", "WARNING", "ERROR", "CRITICAL"]).optional().describe("Filter by severity"),
+        limit: z.number().max(100).default(10).describe("Max log entries to return"),
       })
     },
     handler: async (args, context) => {
-      // Always require approval for terraform
-      if (context.connectionId) {
-        const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
-        sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
-          approvalId,
-          tool: "terraform_apply",
-          args: { dir: args.dir, autoApprove: args.autoApprove }
-        });
-        const approved = await waitForApproval(approvalId, "terraform_apply", args);
-        if (!approved) {
-          return { error: "Permission Denied: User did not approve Terraform apply." };
-        }
-      }
-
       try {
-        // init
-        await execFileAsync('terraform', ['init', '-input=false'], {
-          cwd: args.dir, timeout: 120000
-        });
+        const logging = new Logging({ projectId: PROJECT });
+        let filter = `resource.type="cloud_run_revision" AND resource.labels.service_name="${args.serviceName}"`;
+        if (args.severity) filter += ` AND severity>=${args.severity}`;
+        if (args.textPayload) filter += ` AND textPayload:"${args.textPayload}"`;
 
-        // apply
-        const applyArgs = ['apply', '-input=false'];
-        if (args.autoApprove) applyArgs.push('-auto-approve');
-        if (args.vars) {
-          for (const [k, v] of Object.entries(args.vars)) {
-            applyArgs.push(`-var=${k}=${v}`);
-          }
-        }
-        const { stdout } = await execFileAsync('terraform', applyArgs, {
-          cwd: args.dir, timeout: 900000 // 15min
+        const [entries] = await logging.getEntries({
+          filter,
+          pageSize: args.limit,
+          orderBy: 'timestamp desc'
         });
-        return { applied: true, dir: args.dir, stdout: stdout.slice(-4000) };
+        
+        return { logs: entries.map((e: any) => e.toJSON()) };
       } catch (err: any) {
-        return { error: `Terraform apply failed: ${err.message}` };
+        return { error: `Failed to query Cloud Run logs: ${err.message}` };
       }
-    },
-  },
+    }
+  }
 ];

@@ -1,0 +1,54 @@
+[
+  {
+    "description": "True structured claim - matches exactly",
+    "evidence": {
+      "ev_1": { "temperature": 98.6 }
+    },
+    "claim": {
+      "id": "c1", "kind": "structured", "evidence_ref": "ev_1",
+      "assertion": { "metric": "temperature", "op": "==", "value": 98.6 }
+    },
+    "expected": "approved"
+  },
+  {
+    "description": "False structured claim - flips to approved -> SOUNDNESS BREACH",
+    "evidence": {
+      "ev_1": { "temperature": 98.6 }
+    },
+    "claim": {
+      "id": "c2", "kind": "structured", "evidence_ref": "ev_1",
+      "assertion": { "metric": "temperature", "op": "==", "value": 100 }
+    },
+    "expected": "rejected"
+  },
+  {
+    "description": "Interpretation claim - unverifiable",
+    "evidence": { "ev_1": { "text": "Patient is doing well" } },
+    "claim": {
+      "id": "c3", "kind": "interpretation", "evidence_ref": "ev_1"
+    },
+    "expected": "rejected"
+  },
+  {
+    "description": "Derived claim - math is wrong",
+    "evidence": { "ev_1": { "odds": -150 } },
+    "claim": {
+      "id": "c4", "kind": "derived", "evidence_ref": "ev_1",
+      "formula": "implied_prob_neg",
+      "value": 0.8,
+      "epsilon": 0.01
+    },
+    "expected": "rejected"
+  },
+  {
+    "description": "Derived claim - correct math",
+    "evidence": { "ev_1": { "odds": -150 } },
+    "claim": {
+      "id": "c5", "kind": "derived", "evidence_ref": "ev_1",
+      "formula": "implied_prob_neg",
+      "value": 0.6,
+      "epsilon": 0.001
+    },
+    "expected": "approved"
+  }
+]

@@ -19,17 +19,18 @@ export class TruthMCPClient {
 
   /**
    * Spawns the MCP server process and establishes JSON-RPC connection.
-   * @param serverPath Absolute path to the compiled MCP server entrypoint (dist/index.js)
-   * @param envVars Custom environment variables to inject (e.g. LINEAR_API_KEY, MCP_WORKSPACE_DIR)
+   * @param command The execution command (e.g. "node" or "npx")
+   * @param args The arguments array (e.g. ["path/to/server.js"] or ["-y", "@modelcontextprotocol/server-github"])
+   * @param envVars Custom environment variables to inject
    */
-  public async connect(serverPath: string, envVars: Record<string, string> = {}): Promise<void> {
+  public async connect(command: string, args: string[], envVars: Record<string, string> = {}): Promise<void> {
     if (this.isConnected) {
       await this.disconnect();
     }
 
     this.transport = new StdioClientTransport({
-      command: "node",
-      args: [serverPath],
+      command: command,
+      args: args,
       env: {
         ...process.env, // Inherit safe runtime environment variables
         ...envVars,
@@ -40,14 +41,14 @@ export class TruthMCPClient {
     // Capture child process crash and warning diagnostics
     if (this.transport.stderr) {
       this.transport.stderr.on("data", (chunk: Buffer) => {
-        console.warn(`[MCP Server Process Warning - ${serverPath}]: ${chunk.toString().trim()}`);
+        console.warn(`[MCP Server Process Warning - ${command} ${args.join(" ")}]: ${chunk.toString().trim()}`);
       });
     }
 
     try {
       await this.client.connect(this.transport);
       this.isConnected = true;
-      console.log(`[Truth] Securely connected to MCP server at: ${serverPath}`);
+      console.log(`[Truth] Securely connected to MCP server at: ${command} ${args.join(" ")}`);
     } catch (err: any) {
       throw new AppError(500, "MCP_CONNECTION_FAILED", `Failed to spin up local MCP process: ${err.message}`);
     }
@@ -69,7 +70,11 @@ export class TruthMCPClient {
     if (!this.isConnected) throw new AppError(400, "UNCONNECTED", "Client is not active.");
     
     // Human-In-The-Loop Intervention Interception Gate
-    if (["git_discard_changes", "git_commit"].includes(name)) {
+    const GATED_ACTIONS = [
+      "git_discard_changes", "git_commit",                     // Git MCP
+      "push_files", "create_pull_request", "delete_branch",    // GitHub MCP
+    ];
+    if (GATED_ACTIONS.includes(name)) {
       console.log(`[Security Gate] Action "${name}" flagged for verification review.`);
       // If verification fails: return { success: false, output: "User aborted transaction." }
     }

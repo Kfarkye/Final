@@ -1,0 +1,39 @@
+{
+  "$schema": "./workspace.manifest.schema (informal)",
+  "version": 1,
+  "name": "reverie",
+  "description": "Declares the canonical shape of the reverie monorepo. Any runtime can verify completeness with: node scripts/verify-workspace.mjs",
+  "buildEntry": "server.ts",
+  "components": {
+    "app": {
+      "description": "Vite React client + Express server",
+      "requiredPaths": [
+        { "path": "server.ts", "type": "file", "minBytes": 1 },
+        { "path": "index.html", "type": "file", "minBytes": 1 },
+        { "path": "vite.config.ts", "type": "file", "minBytes": 1 },
+        { "path": "src", "type": "dir", "minEntries": 1 },
+        { "path": "src/db/drizzle.config.ts", "type": "file", "minBytes": 1 },
+        { "path": "src/hub/__tests__/verify-contracts.ts", "type": "file", "minBytes": 1 }
+      ]
+    },
+    "mcpServers": {
+      "description": "MCP server subprojects",
+      "requiredPaths": [
+        { "path": "mcp-servers", "type": "dir", "minEntries": 1 }
+      ]
+    },
+    "configData": {
+      "description": "Sport config/contracts and seed data",
+      "requiredPaths": [
+        { "path": "config", "type": "dir", "minEntries": 1 },
+        { "path": "data", "type": "dir", "minEntries": 1 }
+      ]
+    },
+    "frontendStatic": {
+      "description": "Static HTML frontend",
+      "requiredPaths": [
+        { "path": "thedrip", "type": "dir", "minEntries": 1 }
+      ]
+    }
+  }
+}

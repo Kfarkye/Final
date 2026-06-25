@@ -98,19 +98,92 @@ async function fetchOddsApiSoccer(): Promise<any[]> {
     logger.warn({ msg: "ODDS_API_KEY is not configured. Skipping Odds API soccer fetch." });
     return [];
   }
+  
   try {
-    const url = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      logger.warn({ msg: "Odds API soccer fetch failed", status: res.status });
+    // 1. Fetch event IDs
+    const eventsUrl = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/events?apiKey=${apiKey}`;
+    const eventsRes = await fetch(eventsUrl);
+    if (!eventsRes.ok) {
+      logger.warn({ msg: "Odds API soccer events fetch failed", status: eventsRes.status });
       return [];
     }
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    const eventsData = await eventsRes.json();
+    if (!Array.isArray(eventsData) || eventsData.length === 0) return [];
+
+    // 2. Iterate over events in batches using Promise.all
+    const batchSize = 15;
+    const allOdds: any[] = [];
+    const markets = "btts,player_goal_scorer_anytime,h2h_half_time,alternate_spreads,h2h";
+    const regions = "eu,uk,us";
+
+    for (let i = 0; i < eventsData.length; i += batchSize) {
+      const batch = eventsData.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (event: any) => {
+        try {
+          const oddsUrl = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/events/${event.id}/odds?apiKey=${apiKey}&regions=${regions}&markets=${markets}&oddsFormat=american`;
+          const res = await fetch(oddsUrl);
+          if (!res.ok) {
+             logger.warn({ msg: `Failed to fetch odds for event ${event.id}`, status: res.status });
+             return null;
+          }
+          return await res.json();
+        } catch (err: any) {
+          logger.error({ msg: `Error fetching odds for event ${event.id}`, error: err.message });
+          return null;
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      for (const result of batchResults) {
+        if (result) allOdds.push(result);
+      }
+    }
+    
+    return allOdds;
   } catch (err: any) {
     logger.error({ msg: "Failed to fetch Odds API soccer", error: err.message });
     return [];
   }
+}
+
+function toAmerican(decimal: number): number {
+  if (decimal >= 2.0) {
+    return Math.round((decimal - 1) * 100);
+  } else if (decimal > 1.0) {
+    return Math.round(-100 / (decimal - 1));
+  }
+  return 0;
+}
+
+function addMinutes(dateStr: string, mins: number): string {
+  const d = new Date(dateStr);
+  d.setMinutes(d.getMinutes() + mins);
+  return d.toISOString();
+}
+
+function normalizeSel(outcome: any): string {
+  return outcome.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+}
+
+function classifyOutcome(ev: any, market: any, outcome: any): string {
+  const name = outcome.name.toLowerCase();
+  const home = (ev.home_team || "").toLowerCase();
+  const away = (ev.away_team || "").toLowerCase();
+  
+  if (market.key.includes('h2h') || market.key === 'alternate_spreads') {
+    if (name === 'draw') return 'draw';
+    if (name === home) return 'home';
+    if (name === away) return 'away';
+    return 'team';
+  }
+  if (market.key === 'btts') {
+    if (name === 'yes') return 'yes';
+    if (name === 'no') return 'no';
+  }
+  if (market.key === 'player_goal_scorer_anytime') {
+    return 'player';
+  }
+  return 'unknown';
 }
 
 export async function runSoccerIngest(): Promise<{ gamesIngested: number; oddsSnapshotsIngested: number }> {
@@ -129,7 +202,7 @@ export async function runSoccerIngest(): Promise<{ gamesIngested: number; oddsSn
   
   try {
     await edgeDb.runTransactionAsync(async (transaction) => {
-      // 1. Write games to SoccerGames
+      // Write games to SoccerGames
       for (const game of espnGames) {
         await transaction.runUpdate({
           sql: `
@@ -146,7 +219,7 @@ export async function runSoccerIngest(): Promise<{ gamesIngested: number; oddsSn
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
             status: game.status,
-            clock: game.clock,
+            clock: game.clock ? game.clock.substring(0, 16) : null,
             homeScore: game.homeScore !== null ? game.homeScore : null,
             awayScore: game.awayScore !== null ? game.awayScore : null,
             redCardsHome: game.redCardsHome !== null ? game.redCardsHome : null,
@@ -168,73 +241,101 @@ export async function runSoccerIngest(): Promise<{ gamesIngested: number; oddsSn
         });
         gamesIngested++;
       }
+      await transaction.commit();
+    });
+  } catch (err: any) {
+    logger.error({ msg: "Failed soccer games transaction", error: err.message });
+  }
+
+  if (oddsEvents.length === 0) {
+    return { gamesIngested, oddsSnapshotsIngested: 0 };
+  }
+
+  const runId = `soccer-wc-${Date.now()}`;
+  const now = new Date().toISOString();
+  
+  try {
+    await edgeDb.runTransactionAsync(async (transaction) => {
+      // Phase 1: Open the run
+      await transaction.runUpdate({
+        sql: `
+          INSERT INTO OddsIngestionRuns (
+            RunId, Provider, SportKey, Markets, Regions, ScheduledBucket, RequestedAt, 
+            AdapterVersion, NormalizerVersion, Status, CommittedAt
+          ) VALUES (
+            @runId, 'the-odds-api', 'soccer_fifa_world_cup', 'btts,player_goal_scorer_anytime,h2h_half_time,alternate_spreads,h2h',
+            'eu,uk,us', 'live', @requestedAt, '1.0.0', '1.0.0', 'RUNNING', PENDING_COMMIT_TIMESTAMP()
+          )
+        `,
+        params: {
+          runId,
+          requestedAt: now
+        }
+      });
       
-      // 2. Map Odds API and write to SoccerOddsHistory
-      const capturedAt = new Date().toISOString();
-      
-      for (const oddsEvent of oddsEvents) {
-        const matchedGame = espnGames.find((g) => {
-          const timeDiff = Math.abs(new Date(g.commenceTime).getTime() - new Date(oddsEvent.commence_time).getTime());
-          if (timeDiff > 24 * 60 * 60 * 1000) return false;
-          
-          const normalMatch = soccerTeamsMatch(g.homeTeam, oddsEvent.home_team) && soccerTeamsMatch(g.awayTeam, oddsEvent.away_team);
-          const reverseMatch = soccerTeamsMatch(g.homeTeam, oddsEvent.away_team) && soccerTeamsMatch(g.awayTeam, oddsEvent.home_team);
-          return normalMatch || reverseMatch;
-        });
-        
-        if (!matchedGame) continue;
-        
-        for (const bookmaker of oddsEvent.bookmakers || []) {
-          const h2hMarket = bookmaker.markets?.find((m: any) => m.key === "h2h");
-          if (!h2hMarket?.outcomes || h2hMarket.outcomes.length < 3) continue;
-          
-          let homePrice: number | null = null;
-          let drawPrice: number | null = null;
-          let awayPrice: number | null = null;
-          
-          for (const outcome of h2hMarket.outcomes) {
-            const outcomeName = outcome.name.toLowerCase();
-            if (outcomeName === "draw") {
-              drawPrice = outcome.price;
-            } else if (soccerTeamsMatch(outcome.name, oddsEvent.home_team)) {
-              homePrice = outcome.price;
-            } else if (soccerTeamsMatch(outcome.name, oddsEvent.away_team)) {
-              awayPrice = outcome.price;
+      // Phase 2: Normalize every bookmaker x market x outcome into CurrentOdds
+      const currentOddsRows: any[] = [];
+      for (const ev of oddsEvents) {
+        for (const book of ev.bookmakers || []) {
+          for (const market of book.markets || []) {
+            for (const outcome of market.outcomes || []) {
+              const period = market.key === 'h2h_half_time' ? '1H' : 'FT';
+              const lineKey = outcome.point != null ? String(outcome.point) : 'NONE';
+              
+              currentOddsRows.push({
+                ProviderEventId: ev.id,
+                Sportsbook: book.key,
+                MarketType: market.key,
+                Period: period,
+                SelectionKey: normalizeSel(outcome),
+                LineKey: lineKey,
+                SportKey: 'soccer_fifa_world_cup',
+                CommenceTime: ev.commence_time,
+                HomeTeam: ev.home_team,
+                AwayTeam: ev.away_team,
+                Selection: outcome.name,
+                OutcomeType: classifyOutcome(ev, market, outcome),
+                LineValue: outcome.point ?? null,
+                AmericanPrice: toAmerican(outcome.price),
+                DecimalPrice: outcome.price,
+                IsActive: true,
+                ValidUntil: addMinutes(now, 15),
+                LastSeenAt: now,
+                BookmakerUpdatedAt: book.last_update ?? null,
+                MarketUpdatedAt: market.last_update ?? null,
+                SourceFetchedAt: now,
+                LastRunId: runId,
+                UpdatedAt: 'spanner.commit_timestamp()' // string sentinel required by the Spanner library for allow_commit_timestamp, or we import Spanner
+              });
+              oddsSnapshotsIngested++;
             }
-          }
-          
-          if (homePrice !== null && drawPrice !== null && awayPrice !== null) {
-            await transaction.runUpdate({
-              sql: `
-                INSERT OR UPDATE INTO SoccerOddsHistory (
-                  EventId, CapturedAt, Bookmaker, Market, HomePrice, DrawPrice, AwayPrice
-                ) VALUES (
-                  @eventId, @capturedAt, @bookmaker, @market, @homePrice, @drawPrice, @awayPrice
-                )
-              `,
-              params: {
-                eventId: matchedGame.eventId,
-                capturedAt: capturedAt,
-                bookmaker: bookmaker.key,
-                market: "h2h_3_way",
-                homePrice: homePrice,
-                drawPrice: drawPrice,
-                awayPrice: awayPrice
-              },
-              types: {
-                eventId: "string",
-                capturedAt: "timestamp",
-                bookmaker: "string",
-                market: "string",
-                homePrice: "int64",
-                drawPrice: "int64",
-                awayPrice: "int64"
-              }
-            });
-            oddsSnapshotsIngested++;
           }
         }
       }
+      
+      if (currentOddsRows.length > 0) {
+        // Upsert normalized rows
+        transaction.upsert('CurrentOdds', currentOddsRows);
+      }
+      
+      // Phase 3: Close the run
+      await transaction.runUpdate({
+        sql: `
+          UPDATE OddsIngestionRuns SET
+            EventCount = @eventCount,
+            SnapshotCount = @snapshotCount,
+            ReceivedAt = @receivedAt,
+            CompletedAt = PENDING_COMMIT_TIMESTAMP(),
+            Status = 'SUCCESS'
+          WHERE RunId = @runId
+        `,
+        params: {
+          runId,
+          eventCount: oddsEvents.length,
+          snapshotCount: oddsSnapshotsIngested,
+          receivedAt: now
+        }
+      });
       
       await transaction.commit();
     });
@@ -242,6 +343,18 @@ export async function runSoccerIngest(): Promise<{ gamesIngested: number; oddsSn
     logger.info({ msg: "World Cup Ingest complete", gamesIngested, oddsSnapshotsIngested });
   } catch (err: any) {
     logger.error({ msg: "Failed soccer ingest transaction", error: err.message });
+    // Attempt to mark the run as failed
+    try {
+      await edgeDb.runTransactionAsync(async (t) => {
+        await t.runUpdate({
+          sql: `UPDATE OddsIngestionRuns SET Status = 'FAILED', CompletedAt = PENDING_COMMIT_TIMESTAMP() WHERE RunId = @runId`,
+          params: { runId }
+        });
+        await t.commit();
+      });
+    } catch (e) {
+      logger.error({ msg: "Failed to mark run as failed", error: (e as any).message });
+    }
   }
   
   return { gamesIngested, oddsSnapshotsIngested };

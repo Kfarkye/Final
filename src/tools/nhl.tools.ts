@@ -306,6 +306,9 @@ export const nhlTools: RegisteredTool<any>[] = [
         games,
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'NHL schedule. Respect game status. Never state a score for an upcoming game.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -554,6 +557,9 @@ export const nhlTools: RegisteredTool<any>[] = [
         games: allGameGoalies,
       };
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'NHL starting goalies. Confirmation status is critical — clearly distinguish Confirmed vs Unconfirmed starters. Report SV% and GAA exactly.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -688,6 +694,9 @@ export const nhlTools: RegisteredTool<any>[] = [
           : null,
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'NHL boxscore. Report only stats present. Do not invent player statlines or scoring plays.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -765,6 +774,9 @@ export const nhlTools: RegisteredTool<any>[] = [
         },
       };
     },
+    entityType: 'team',
+    renderType: 'team-card',
+    promptHint: 'NHL roster/lines. Report position codes and player info as listed. Do not fabricate line combinations.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -854,6 +866,9 @@ export const nhlTools: RegisteredTool<any>[] = [
         standings_by_division: byDivision,
       };
     },
+    entityType: 'standings',
+    renderType: 'standings-table',
+    promptHint: 'NHL standings. Report records, points, and streaks exactly. Do not compute playoff probabilities not in the data.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -902,6 +917,9 @@ export const nhlTools: RegisteredTool<any>[] = [
         })),
       };
     },
+    entityType: 'player',
+    renderType: 'player-card',
+    promptHint: 'NHL player search results. Use returned player IDs for follow-up stat queries.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1028,6 +1046,9 @@ export const nhlTools: RegisteredTool<any>[] = [
 
       return result;
     },
+    entityType: 'player',
+    renderType: 'player-card',
+    promptHint: 'NHL player stats. Report only stats present. For goalies report GAA and SV% exactly. For skaters report points, +/-, and TOI exactly.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1072,5 +1093,8 @@ export const nhlTools: RegisteredTool<any>[] = [
         teams_by_conference: formatted,
       };
     },
+    entityType: 'team',
+    renderType: 'team-card',
+    promptHint: 'NHL team directory. Report team info as listed.',
   },
 ];

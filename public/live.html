@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Truth · Live Slate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://midfield.mlbstatic.com">
+<link rel="preconnect" href="https://www.mlbstatic.com">
+<style>
+:root{
+  --t-surface-0:#0a0a0b; --t-surface-1:#101012; --t-surface-2:#141417;
+  --t-white:#ededee; --t-white-dim:rgba(237,237,238,.80);
+  --t-grey:#7a7a86; --t-grey-fade:#34343d; --t-grey-dim:#50505a;
+  --t-blue:#4b9cd3; --t-blue-soft:rgba(75,156,211,.70);
+  --t-border:rgba(255,255,255,.07); --t-border-subtle:rgba(255,255,255,.045);
+  --t-glow:rgba(75,156,211,.04); --tap-min:44px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+body{font-family:'Inter',-apple-system,sans-serif;color:var(--t-white);line-height:1.5;
+  background:radial-gradient(1200px 600px at 80% -10%, var(--t-glow), transparent 60%), var(--t-surface-0);
+  min-height:100vh;max-width:480px;margin:0 auto;padding:24px 18px calc(64px + env(safe-area-inset-bottom));}
+.serif{font-family:'Newsreader',Georgia,serif;font-weight:400;}
+.tnum{font-variant-numeric:tabular-nums;}
+.masthead{padding-bottom:16px;border-bottom:1px solid var(--t-border);}
+.topbar{display:flex;align-items:center;justify-content:space-between;}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:2.6px;text-transform:uppercase;color:var(--t-grey);}
+.hero{font-family:'Newsreader',serif;font-size:clamp(32px,8.5vw,42px);letter-spacing:-0.8px;line-height:1.04;margin-top:6px;}
+.refresh{display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t-grey-dim);text-transform:uppercase;letter-spacing:.06em;background:none;border:1px solid var(--t-border);border-radius:999px;padding:7px 11px;min-height:var(--tap-min);cursor:pointer;}
+.refresh .rdot{width:6px;height:6px;border-radius:50%;background:var(--t-grey-dim);}
+.refresh.fresh .rdot{background:var(--t-blue);}
+.refresh.loading .rdot{background:var(--t-blue);animation:blink 1s ease-in-out infinite;}
+@keyframes blink{50%{opacity:.25;}}
+.banner{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t-grey);padding:14px 0 2px;line-height:1.45;}
+.banner b{color:var(--t-white-dim);font-weight:500;}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--t-blue);flex:none;}
+.chapter{display:flex;align-items:baseline;gap:10px;margin:28px 0 13px;}
+.chapter h2{font-family:'Newsreader',serif;font-size:23px;letter-spacing:-0.3px;}
+.chapter .tag{font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--t-grey-dim);}
+.chapter .count{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--t-grey-dim);text-transform:uppercase;}
+.card{background:var(--t-surface-1);border:1px solid var(--t-border);border-radius:14px;overflow:hidden;margin-bottom:11px;transition:transform .25s cubic-bezier(.16,1,.3,1),border-color .25s;}
+@media (hover:hover){.card:hover{transform:translateY(-1px);border-color:var(--t-grey-fade);}}
+.axis{display:grid;grid-template-columns:1fr 38px 1fr;align-items:center;padding:15px 16px 13px;min-height:var(--tap-min);}
+.side{display:flex;align-items:center;gap:10px;min-width:0;}
+.side.home{flex-direction:row-reverse;text-align:right;}
+.tlogo{width:36px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.tlogo img{width:32px;height:32px;object-fit:contain;}
+.tlogo .ab{font-family:'Newsreader',serif;font-size:12px;color:var(--t-grey-dim);}
+.tinfo{min-width:0;}
+.tinfo .city{font-size:11px;font-weight:500;letter-spacing:.8px;text-transform:uppercase;color:var(--t-grey);line-height:1.3;}
+.tinfo .name{font-family:'Newsreader',serif;font-size:19px;line-height:1.12;letter-spacing:-0.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tinfo .rec{font-size:11px;color:var(--t-grey-fade);font-variant-numeric:tabular-nums;margin-top:2px;}
+.runs{font-family:'Newsreader',serif;font-size:28px;line-height:1;letter-spacing:-1px;flex:none;font-variant-numeric:tabular-nums;}
+.win{color:var(--t-white);} .lose{color:var(--t-grey-dim);}
+.atmark{font-family:'Newsreader',serif;font-style:italic;font-size:13px;color:var(--t-grey-fade);text-align:center;}
+.rhe{display:flex;justify-content:flex-end;padding:0 16px 12px;}
+.rhe .grid{display:grid;grid-template-columns:auto 28px 28px 28px;gap:3px 6px;text-align:right;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;}
+.rhe .hdr{color:var(--t-grey-dim);font-size:10px;text-transform:uppercase;letter-spacing:.1em;}
+.rhe .tm{color:var(--t-grey);text-align:left;padding-right:6px;font-weight:500;}
+.rhe .v{color:var(--t-white-dim);font-weight:500;}
+.rhe .v.dimv{color:var(--t-grey);}
+.state{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 16px;border-top:1px solid var(--t-border-subtle);min-height:var(--tap-min);}
+.state-l{display:flex;align-items:center;gap:13px;min-width:0;}
+.chip{font-family:'JetBrains Mono',monospace;font-weight:500;letter-spacing:.04em;font-size:12px;text-transform:uppercase;white-space:nowrap;}
+.chip.live{color:var(--t-blue-soft);}
+.chip.final{color:var(--t-grey);}
+.count-state{display:flex;align-items:center;gap:9px;}
+.bs{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--t-grey);font-variant-numeric:tabular-nums;}
+.outs{display:flex;gap:4px;}
+.out{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--t-grey-dim);}
+.out.on{background:var(--t-white-dim);border-color:var(--t-white-dim);}
+.diamond{position:relative;width:26px;height:26px;flex:none;}
+.base{position:absolute;width:9px;height:9px;background:transparent;border:1.5px solid var(--t-grey-dim);border-radius:1.5px;transform:rotate(45deg);transition:background .2s ease,border-color .2s ease;}
+.base.b2{top:0;left:8.5px;} .base.b3{top:8.5px;left:0;} .base.b1{top:8.5px;left:17px;}
+.base.on{background:var(--t-white-dim);border-color:var(--t-white-dim);}
+.base.on.scoring{background:var(--t-blue);border-color:var(--t-blue);}
+.venue{font-size:11px;color:var(--t-grey-fade);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;}
+.deco{display:flex;flex-wrap:wrap;gap:7px 18px;padding:13px 16px;border-top:1px solid var(--t-border-subtle);background:var(--t-surface-0);min-height:var(--tap-min);align-items:center;}
+.deco .d{display:flex;align-items:baseline;gap:6px;font-size:13px;}
+.deco .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t-grey-dim);text-transform:uppercase;letter-spacing:.08em;}
+.deco .nm{color:var(--t-white-dim);font-weight:500;}
+.deco .ln{color:var(--t-grey);font-variant-numeric:tabular-nums;}
+.deco .ln.sv{color:var(--t-blue);}
+.matchup-live{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--t-border-subtle);background:var(--t-surface-0);}
+.headshot{width:40px;height:40px;border-radius:8px;flex:none;overflow:hidden;background:var(--t-surface-2);display:flex;align-items:center;justify-content:center;}
+.headshot img{width:100%;height:100%;object-fit:cover;object-position:top center;}
+.headshot .ab{font-family:'Newsreader',serif;font-size:13px;color:var(--t-grey-dim);}
+.mu-txt{font-size:13px;color:var(--t-grey);line-height:1.45;}
+.mu-txt .role{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t-grey-dim);text-transform:uppercase;letter-spacing:.08em;}
+.mu-txt b{color:var(--t-white-dim);font-weight:500;}
+.empty{padding:40px 16px;text-align:center;font-size:13px;color:var(--t-grey-dim);}
+.skel{height:120px;background:linear-gradient(100deg,var(--t-surface-1) 30%,var(--t-surface-2) 50%,var(--t-surface-1) 70%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:14px;margin-bottom:11px;border:1px solid var(--t-border);}
+@keyframes shimmer{to{background-position:-200% 0;}}
+.colophon{margin-top:30px;padding-top:15px;border-top:1px solid var(--t-border-subtle);font-size:11px;color:var(--t-grey-fade);line-height:1.6;}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
+</head>
+<body>
+  <div class="masthead">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow" id="dateLabel">Major League Baseball</div>
+        <div class="hero serif">Live Slate</div>
+      </div>
+      <button class="refresh" id="refreshBtn" aria-label="Refresh"><span class="rdot"></span><span id="refreshTxt">Live</span></button>
+    </div>
+    <div class="banner"><span class="live-dot"></span>
+      <span id="bannerTxt">Connecting to MLB StatsAPI…</span>
+    </div>
+  </div>
+  <div class="chapter"><h2 class="serif">Live Now</h2><span class="tag">In Progress</span><span class="count" id="liveCount"></span></div>
+  <div id="live"><div class="skel"></div><div class="skel"></div></div>
+  <div class="chapter"><h2 class="serif">Finals</h2><span class="tag">Confirmed</span><span class="count" id="finalCount"></span></div>
+  <div id="finals"><div class="skel"></div></div>
+  <div class="colophon" id="colophon">Player & team imagery from MLB CDN · scores from same-origin /api/mlb/scores proxy → statsapi.mlb.com.</div>
+
+<script>
+/* ═══════════ CONFIG ═══════════ */
+const ENDPOINT='/api/mlb/scores';   // same-origin proxy (routes.ts → mlbScoresHandler)
+const POLL_MS=30000;
+/* abbreviation → MLBAM teamId for logo CDN */
+const TEAMID={CWS:145,CHW:145,DET:116,CIN:113,NYY:147,TOR:141,CHC:112,SD:135,SDP:135,TEX:140,WSH:120,WSN:120,TB:139,TBR:139,SF:137,SFG:137,MIA:146,MIL:158,ATL:144,CLE:114,HOU:117,NYM:121,PHI:143,PIT:134,COL:115,LAA:108,ATH:133,OAK:133,BAL:110,LAD:119,BOS:111,SEA:136,MIN:142,AZ:109,ARI:109,KC:118,KCR:118,STL:138};
+const logoUrl=id=>`https://www.mlbstatic.com/team-logos/${id}.svg`;
+const headUrl=id=>`https://midfield.mlbstatic.com/v1/people/${id}/spots/120`;
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fb=t=>`this.replaceWith(Object.assign(document.createElement('span'),{className:'ab',textContent:'${esc(t).replace(/&#39;/g,'')}'}))`;
+
+/* ═══ field accessors — tolerant of normalizer shape ═══ */
+const g=(o,...p)=>{for(const path of p){let v=o;let ok=true;for(const k of path.split('.')){if(v==null){ok=false;break;}v=v[k];}if(ok&&v!=null)return v;}return undefined;};
+function team(side){
+  const ab=(g(side,'abbreviation','abbrev','triCode')||'').toUpperCase();
+  return{
+    ab, id:TEAMID[ab],
+    city:g(side,'locationName','location','shortName')||'',
+    nm:g(side,'teamName','name','clubName')||ab,
+    rec:g(side,'record','leagueRecord')? (g(side,'record.summary')||`${g(side,'record.wins','leagueRecord.wins')||''}-${g(side,'record.losses','leagueRecord.losses')||''}`):'',
+    r:num(g(side,'runs','score','lineScore.runs','r')),
+    h:num(g(side,'hits','lineScore.hits','h')),
+    e:num(g(side,'errors','lineScore.errors','e')),
+  };
+}
+const num=v=>v==null?'':v;
+
+function side(t,win,home){
+  const logo=t.id
+    ?`<span class="tlogo"><img src="${logoUrl(t.id)}" alt="${esc(t.ab)}" onerror="${fb(t.ab)}"></span>`
+    :`<span class="tlogo"><span class="ab">${esc(t.ab)}</span></span>`;
+  const info=`<div class="tinfo">${t.city?`<div class="city">${esc(t.city)}</div>`:''}<div class="name serif">${esc(t.nm)}</div>${t.rec?`<div class="rec tnum">${esc(t.rec)}</div>`:''}</div>`;
+  const score=t.r!==''?`<span class="runs ${win?'win':'lose'}">${esc(t.r)}</span>`:'';
+  return `<div class="side ${home?'home':''}">${logo}${info}${score}</div>`;
+}
+function rhe(a,h){
+  if(a.h===''&&a.e==='') return '';
+  const wA=a.r>h.r;
+  const row=(t,win)=>`<span class="tm">${esc(t.ab)}</span><span class="v ${win?'':'dimv'}">${esc(t.r)}</span><span class="v ${win?'':'dimv'}">${esc(t.h)}</span><span class="v ${win?'':'dimv'}">${esc(t.e)}</span>`;
+  return `<div class="rhe"><div class="grid"><span class="tm"></span><span class="hdr">R</span><span class="hdr">H</span><span class="hdr">E</span>${row(a,wA)}${row(h,!wA)}</div></div>`;
+}
+function diamond(s){
+  const on1=!!s.onFirst,on2=!!s.onSecond,on3=!!s.onThird;
+  const lab=[on1&&'1st',on2&&'2nd',on3&&'3rd'].filter(Boolean).join(', ')||'empty';
+  return `<span class="diamond" role="img" aria-label="Bases: ${lab}">
+    <span class="base b2 ${on2?'on scoring':''}"></span>
+    <span class="base b3 ${on3?'on scoring':''}"></span>
+    <span class="base b1 ${on1?'on':''}"></span></span>`;
+}
+function outs(n){n=+n||0;let s='';for(let i=0;i<3;i++)s+=`<span class="out ${i<n?'on':''}"></span>`;return `<span class="outs" aria-label="${n} out">${s}</span>`;}
+
+function liveCard(ev){
+  const a=team(g(ev,'awayTeam','teams.away.team','away')||{}),h=team(g(ev,'homeTeam','teams.home.team','home')||{});
+  const wA=a.r>h.r,wH=h.r>a.r;
+  const s=g(ev,'situation','linescore')||{};
+  const st=(g(s,'inningState')||'').toLowerCase();
+  const ord=g(s,'currentInningOrdinal','currentInning','inningOrdinal')||'';
+  const between=st==='end'||st==='middle';
+  const venue=g(ev,'venue.name','venueName','venue')||'';
+  const pit=g(ev,'currentPlay.pitcher','situation.pitcher','defense.pitcher')||{};
+  const bat=g(ev,'currentPlay.batter','situation.batter','offense.batter')||{};
+  const half=st?st.charAt(0).toUpperCase()+st.slice(1):'';
+  const stateLine=between
+    ? `<span class="chip live">● ${esc(half||'Mid')} ${esc(ord)}</span>`
+    : `<span class="chip live">● ${esc(half||g(s,'inningHalf')||'')} ${esc(ord)}</span><span class="count-state">${diamond(s)}<span class="bs tnum">${esc(num(g(s,'balls'))||0)}-${esc(num(g(s,'strikes'))||0)}</span>${outs(g(s,'outs'))}</span>`;
+  const pn=g(pit,'fullName','name'),bn=g(bat,'fullName','name'),pid=g(pit,'id');
+  const mu=(pn||bn)?`<div class="matchup-live">
+      <span class="headshot">${pid?`<img src="${headUrl(pid)}" alt="" onerror="${fb(h.ab)}">`:`<span class="ab">${esc(h.ab)}</span>`}</span>
+      <div class="mu-txt">${pn?`<span class="role">Pitching</span> <b>${esc(pn)}</b>`:''}${pn&&bn?' &nbsp;·&nbsp; ':''}${bn?`<span class="role">${between?'Due Up':'At Bat'}</span> <b>${esc(bn)}</b>`:''}</div></div>`:'';
+  return `<div class="card">
+    <div class="axis">${side(a,wA,false)}<span class="atmark serif">at</span>${side(h,wH,true)}</div>
+    ${rhe(a,h)}
+    <div class="state"><div class="state-l">${stateLine}</div><span class="venue">${esc(venue)}</span></div>
+    ${mu}</div>`;
+}
+function finalCard(ev){
+  const a=team(g(ev,'awayTeam','teams.away.team','away')||{}),h=team(g(ev,'homeTeam','teams.home.team','home')||{});
+  const wA=a.r>h.r,wH=h.r>a.r;
+  const venue=g(ev,'venue.name','venueName','venue')||'';
+  const d=g(ev,'decisions')||{};
+  const inn=+g(ev,'situation.currentInning','linescore.currentInning')||0;
+  const extra=inn>9?'/'+inn:'';
+  const note=g(ev,'note','linescore.note')||'';
+  const dec=(role,p,cls)=>{const nm=g(p,'fullName','name');if(!nm)return'';const ln=g(p,'summary','line','record');return `<div class="d"><span class="lbl">${role}</span><span class="nm">${esc(nm)}</span>${ln?`<span class="ln ${cls||''} tnum">${esc(ln)}</span>`:''}</div>`;};
+  const deco=(d.winner||d.loser||d.save)?`<div class="deco">${dec('W',d.winner)}${dec('L',d.loser)}${dec('SV',d.save,'sv')}</div>`:'';
+  return `<div class="card">
+    <div class="axis">${side(a,wA,false)}<span class="atmark serif">at</span>${side(h,wH,true)}</div>
+    ${rhe(a,h)}
+    <div class="state"><div class="state-l"><span class="chip final">Final${extra}</span>${note?`<span class="venue" style="text-align:left">${esc(note)}</span>`:''}</div><span class="venue">${esc(venue)}</span></div>
+    ${deco}</div>`;
+}
+
+/* ═══════════ FETCH + RENDER LOOP ═══════════ */
+const $=id=>document.getElementById(id);
+function statusOf(ev){return (g(ev,'status','state','gameStatus','status.detailedState','status.abstractGameState')||'').toString().toLowerCase();}
+let timer=null;
+
+async function load(){
+  const btn=$('refreshBtn'); btn.className='refresh loading'; $('refreshTxt').textContent='Sync';
+  try{
+    const today=new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+    const res=await fetch(`${ENDPOINT}?date=${today}`,{headers:{'accept':'application/json'}});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const json=await res.json();
+    const games=json.games||json.events||json.data||json.dates?.[0]?.games||[];
+    render(games);
+    const tt=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    btn.className='refresh fresh'; $('refreshTxt').textContent=tt;
+  }catch(err){
+    btn.className='refresh'; $('refreshTxt').textContent='Retry';
+    if(!document.querySelector('.card')){
+      $('live').innerHTML=`<div class="empty">Couldn't reach the scores feed.<br>${esc(err.message)} — retrying in 30s.</div>`;
+      $('finals').innerHTML='';
+    }
+  }
+}
+function render(games){
+  const live=games.filter(e=>{const s=statusOf(e);return s.includes('live')||s.includes('progress')||s==='in';});
+  const finals=games.filter(e=>{const s=statusOf(e);return s.includes('final')||s.includes('complete')||s==='f';});
+  $('live').innerHTML = live.length?live.map(liveCard).join(''):`<div class="empty">No games in progress.</div>`;
+  $('finals').innerHTML = finals.length?finals.map(finalCard).join(''):`<div class="empty">No finals yet.</div>`;
+  $('liveCount').textContent=live.length+' games';
+  $('finalCount').textContent=finals.length+' final';
+  const dl=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+  $('dateLabel').textContent='Major League Baseball · '+dl;
+  $('bannerTxt').innerHTML=`<b>${live.length}</b> live, <b>${finals.length}</b> final, <b>${games.length}</b> total — auto-refresh every 30s.`;
+  const tt=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+' ET';
+  $('colophon').textContent=`Live from MLB StatsAPI via same-origin proxy. R/H/E, decisions, base state & count bound live. Imagery from MLB CDN. Diamond: filled = runner, blue = scoring position. Last sync ${tt}.`;
+}
+function startPolling(){ if(timer)clearInterval(timer); timer=setInterval(()=>{if(!document.hidden)load();},POLL_MS); }
+$('refreshBtn').addEventListener('click',load);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();}); // refresh on focus
+load(); startPolling();
+</script>
+</body>
+</html>

@@ -1,9 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-
-import { db } from '../../src/db/index';
-import { sql } from 'drizzle-orm';
-
-// Fallback in-memory rate limiting in case DB is unavailable
+import { edgeDb } from '../../src/db/spanner';
+import { logger } from '../../src/utils/logger';
 const memoryCounts = new Map<string, { count: number, resetTime: number }>();
 
 const memoryRateLimit = (identifier: string, limit: number, windowMs: number, now: number): boolean => {
@@ -19,23 +16,7 @@ const memoryRateLimit = (identifier: string, limit: number, windowMs: number, no
   return true;
 };
 
-let isTableInitialized = false;
 
-const initializeRateLimitTable = async () => {
-  if (isTableInitialized) return;
-  try {
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS rate_limits (
-        key TEXT PRIMARY KEY,
-        count INTEGER NOT NULL,
-        reset_time TIMESTAMP NOT NULL
-      );
-    `);
-    isTableInitialized = true;
-  } catch (err) {
-    console.error("Failed to initialize rate limits table:", err);
-  }
-};
 
 export const chatRateLimiter = async (req: Request, res: Response, next: NextFunction) => {
   const identifier = req.ip || 'anonymous';
@@ -44,23 +25,52 @@ export const chatRateLimiter = async (req: Request, res: Response, next: NextFun
   const now = Date.now();
 
   try {
-    await initializeRateLimitTable();
-    const result: any = await db.execute(sql`
-      INSERT INTO rate_limits (key, count, reset_time)
-      VALUES (${identifier}, 1, ${new Date(now + windowMs)})
-      ON CONFLICT (key) DO UPDATE
-      SET count = CASE WHEN NOW() > rate_limits.reset_time THEN 1 ELSE rate_limits.count + 1 END,
-          reset_time = CASE WHEN NOW() > rate_limits.reset_time THEN ${new Date(now + windowMs)} ELSE rate_limits.reset_time END
-      RETURNING count, reset_time
-    `);
+    const timestamp = new Date(now + windowMs).toISOString();
+    
+    // Spanner DML UPSERT equivalent
+    await edgeDb.runTransactionAsync(async (transaction) => {
+      const [rows] = await transaction.run({
+        sql: `SELECT Count, ResetTime FROM RateLimits WHERE Key = @Key`,
+        params: { Key: identifier }
+      });
+      
+      let currentCount = 0;
+      let resetTimeStr = timestamp;
+      
+      if (rows.length > 0) {
+        const row = rows[0] as any;
+        const resetTime = new Date(row.ResetTime).getTime();
+        if (now <= resetTime) {
+          currentCount = Number(row.Count);
+          resetTimeStr = row.ResetTime;
+        }
+      }
+      
+      const newCount = currentCount + 1;
+      
+      await transaction.run({
+        sql: `INSERT OR UPDATE RateLimits (Key, Count, ResetTime) VALUES (@Key, @Count, CAST(@ResetTime AS TIMESTAMP))`,
+        params: {
+          Key: identifier,
+          Count: newCount,
+          ResetTime: resetTimeStr
+        }
+      });
+      
+      await transaction.commit();
+      
+      if (newCount > limit) {
+        throw new Error("Rate limit exceeded");
+      }
+    });
 
-    const row = result.rows?.[0];
-    if (row && row.count > limit) {
-      return res.status(429).json({ error: 'Too many requests, please try again later.' });
-    }
     next();
-  } catch (dbError) {
-    console.warn("DB rate limiting failed, falling back to memory:", dbError);
+  } catch (err: any) {
+    logger.warn({ msg: "Spanner rate limit exceeded or error, falling back to memory", ip: identifier, error: err.message });
+    if (err.message === "Rate limit exceeded") {
+      res.status(429).json({ error: 'Too many requests, please try again later.' });
+      return;
+    }
     const allowed = memoryRateLimit(identifier, limit, windowMs, now);
     if (!allowed) {
       return res.status(429).json({ error: 'Too many requests, please try again later.' });

@@ -18,8 +18,15 @@ export const GEMINI_SCHEMAS: Record<SchemaName, Schema> = {
         }
       },
       tool_results: {
-        type: Type.OBJECT,
-        description: "Map of tool names to 'validated' | 'failed' | 'skipped'"
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            tool_name: { type: Type.STRING },
+            status: { type: Type.STRING, enum: ['validated', 'failed', 'skipped'] }
+          },
+          required: ['tool_name', 'status']
+        }
       },
       conflicts: { type: Type.ARRAY, items: { type: Type.STRING } },
       freshness: {

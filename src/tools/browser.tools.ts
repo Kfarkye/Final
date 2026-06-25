@@ -440,7 +440,7 @@ const browserScreenshotTool: RegisteredTool<any> = {
         return { success: false, error: "Screenshot exceeds 10MB limit." };
       }
 
-      const base64 = screenshotBuffer.toString("base64");
+      const base64 = Buffer.from(screenshotBuffer).toString("base64");
 
       return {
         success: true,

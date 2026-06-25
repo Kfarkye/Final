@@ -301,9 +301,9 @@ export class PmResolver {
         try {
           const [rows] = await db.run({
             sql: `
-              SELECT EventId, HomeTeamName, AwayTeamName, GameDate, StartTime, 'SOCCER' as League
+              SELECT EventId, HomeTeam as HomeTeamName, AwayTeam as AwayTeamName, CommenceTime as GameDate, CommenceTime as StartTime, 'SOCCER' as League
               FROM SoccerGames
-              WHERE GameDate >= @dateStart AND GameDate <= @dateEnd
+              WHERE CommenceTime >= @dateStart AND CommenceTime <= @dateEnd
             `,
             params: { dateStart, dateEnd }
           });

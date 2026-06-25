@@ -392,6 +392,9 @@ export const nbaTools: RegisteredTool<any>[] = [
         games,
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'NBA schedule. Respect game status (upcoming/live/final). Never state a score for an upcoming game.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -481,6 +484,9 @@ export const nbaTools: RegisteredTool<any>[] = [
         away_team: mapTeam(bs.awayTeam),
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'NBA boxscore. Report only stats present. Do not invent player statlines.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -574,6 +580,9 @@ export const nbaTools: RegisteredTool<any>[] = [
               : { East: east, West: west },
       };
     },
+    entityType: 'standings',
+    renderType: 'standings-table',
+    promptHint: 'NBA standings. Report records as shown. Do not compute clinch scenarios or playoff projections not in the data.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -671,6 +680,9 @@ export const nbaTools: RegisteredTool<any>[] = [
         all_seasons: allSeasons,
       };
     },
+    entityType: 'player',
+    renderType: 'player-card',
+    promptHint: 'NBA player career/season stats. Use only stats present. Do not compute per-36 or advanced stats not in the payload.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -809,6 +821,9 @@ export const nbaTools: RegisteredTool<any>[] = [
         teams_by_conference: formatted,
       };
     },
+    entityType: 'team',
+    renderType: 'team-card',
+    promptHint: 'NBA team directory. Report team info as listed. Do not fabricate roster data.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -889,6 +904,9 @@ export const nbaTools: RegisteredTool<any>[] = [
         leaders,
       };
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'NBA daily game leaders. Report stats exactly. Do not rank players across games unless data supports it.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1081,5 +1099,8 @@ export const nbaTools: RegisteredTool<any>[] = [
         bracket,
       };
     },
+    entityType: 'standings',
+    renderType: 'standings-table',
+    promptHint: 'NBA playoff bracket. Report series status exactly as shown. Do not predict unplayed series.',
   },
 ];

@@ -84,7 +84,7 @@ export const SettleWagerViewModel = z.object({
   details: z.array(z.object({
     indicator: z.string(),
     edgeSide: z.string(),
-    result: z.enum(['win', 'loss', 'push'])
+    result: z.enum(['win', 'loss', 'push', 'half-win', 'half-loss'])
   }))
 });
 

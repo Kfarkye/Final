@@ -128,7 +128,125 @@ export const bettingTools: RegisteredTool<any>[] = [
       }
 
       return { odds: data, _quota: quota };
-    }
+    },
+    entityType: 'odds',
+    renderType: 'odds-board',
+    promptHint: 'Live odds. Report every price EXACTLY as written — these are American odds, do not round or convert. Pinnacle is flagged as sharp anchor.',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  GET MLB ODDS — Single-game odds, flat book/side/price rows
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_mlb_odds",
+      description: "Get betting odds for a single MLB game. Returns a flat array of { book, side, price, line } rows ready for the odds-board render contract. Finds the game by team name/abbreviation and date. Supports h2h (moneyline), spreads, and totals markets.",
+      schema: z.object({
+        team: z.string().describe("Team name or abbreviation to find (e.g., 'CHW', 'White Sox', 'Yankees')"),
+        date: z.string().optional().describe("Date in YYYY-MM-DD. Not used for filtering (API returns upcoming), but documents intent."),
+        market: z.string().optional().describe("Market type: 'moneyline' (default), 'h2h', 'spreads', or 'totals'"),
+        gamePk: z.string().optional().describe("Direct Odds API event ID if known (skips team search)"),
+      }),
+    },
+    handler: async (args) => {
+      const apiKey = getApiKey();
+      const marketKey = (args.market === 'moneyline' || !args.market) ? 'h2h' : args.market;
+      const teamSearch = args.team.toLowerCase().trim();
+
+      // MLB abbreviation → Odds API team name
+      const MLB_ABBREVS: Record<string, string> = {
+        ari: 'diamondbacks', atl: 'braves', bal: 'orioles', bos: 'red sox',
+        chc: 'cubs', chw: 'white sox', cin: 'reds', cle: 'guardians',
+        col: 'rockies', det: 'tigers', hou: 'astros', kc: 'royals',
+        laa: 'angels', lad: 'dodgers', mia: 'marlins', mil: 'brewers',
+        min: 'twins', nym: 'mets', nyy: 'yankees', oak: 'athletics',
+        phi: 'phillies', pit: 'pirates', sd: 'padres', sf: 'giants',
+        sea: 'mariners', stl: 'cardinals', tb: 'rays', tex: 'rangers',
+        tor: 'blue jays', wsh: 'nationals', was: 'nationals',
+        // Common alternates
+        chi: 'chicago', cws: 'white sox', la: 'los angeles',
+      };
+
+      // Resolve abbreviation to a searchable substring
+      const resolvedSearch = MLB_ABBREVS[teamSearch] || teamSearch;
+
+      // Step 1: Find the event by team name
+      let eventId = args.gamePk || null;
+      let awayTeam = '';
+      let homeTeam = '';
+
+      if (!eventId) {
+        const eventsUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/?apiKey=${apiKey}`;
+        const { data: events } = await oddsApiFetch(eventsUrl);
+
+        const match = (events || []).find((e: any) => {
+          const home = (e.home_team || '').toLowerCase();
+          const away = (e.away_team || '').toLowerCase();
+          return (
+            home.includes(resolvedSearch) || away.includes(resolvedSearch) ||
+            home.includes(teamSearch) || away.includes(teamSearch)
+          );
+        });
+
+        if (!match) {
+          return { error: `No upcoming MLB event found matching "${args.team}"` };
+        }
+        eventId = match.id;
+        awayTeam = match.away_team;
+        homeTeam = match.home_team;
+      }
+
+      // Step 2: Fetch odds for this event
+      const oddsUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${eventId}/odds/?apiKey=${apiKey}&regions=us,us2,eu&markets=${marketKey}&bookmakers=${DEFAULT_BOOKMAKERS}&oddsFormat=american`;
+      const { data: eventData, quota } = await oddsApiFetch(oddsUrl);
+
+      if (!awayTeam) awayTeam = eventData?.away_team || '?';
+      if (!homeTeam) homeTeam = eventData?.home_team || '?';
+
+      // Step 3: Flatten bookmakers → flat book/side/price rows
+      const books: { book: string; sportsbook: string; side: string; price: number; line: number | null; is_sharp: boolean }[] = [];
+      let sharpPrice: number | null = null;
+
+      for (const bm of eventData?.bookmakers || []) {
+        const bookName = bm.title || bm.key;
+        const isSharp = bm.key === 'pinnacle';
+
+        for (const mkt of bm.markets || []) {
+          for (const outcome of mkt.outcomes || []) {
+            const row = {
+              book: bookName,
+              sportsbook: bm.key,
+              side: outcome.name,
+              price: outcome.price,
+              line: outcome.point ?? null,
+              is_sharp: isSharp,
+            };
+            books.push(row);
+
+            // Capture Pinnacle h2h as sharp anchor
+            if (isSharp && marketKey === 'h2h') {
+              sharpPrice = outcome.price;
+            }
+          }
+        }
+      }
+
+      return {
+        event_id: eventId,
+        market: marketKey === 'h2h' ? 'moneyline' : marketKey,
+        market_label: marketKey === 'h2h' ? 'Moneyline' : marketKey === 'spreads' ? 'Run Line' : marketKey === 'totals' ? 'Total' : marketKey,
+        event_label: `${awayTeam} @ ${homeTeam}`,
+        away_team: awayTeam,
+        home_team: homeTeam,
+        sharp_price: sharpPrice,
+        books,
+        book_count: books.length,
+        _quota: quota,
+      };
+    },
+    entityType: 'odds',
+    renderType: 'odds-board',
+    promptHint: 'Single-game MLB odds. Report every price EXACTLY as written. Never invent a book or price not in the payload.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -151,7 +269,10 @@ export const bettingTools: RegisteredTool<any>[] = [
       const url = `https://api.the-odds-api.com/v4/sports/${sport}/scores/?apiKey=${apiKey}&daysFrom=${daysFrom}`;
       const { data, quota } = await oddsApiFetch(url);
       return { scores: data, _quota: quota };
-    }
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'Live/recent scores. Report only scores present. Do not predict outcomes of in-progress games.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -220,7 +341,10 @@ export const bettingTools: RegisteredTool<any>[] = [
       const { data, quota } = await oddsApiFetch(url);
       if (data && Array.isArray(data.bookmakers)) flagPinnacle(data.bookmakers);
       return { event: data, _quota: quota };
-    }
+    },
+    entityType: 'odds',
+    renderType: 'odds-board',
+    promptHint: 'Single-event deep odds. Report prices exactly. Identify best available per side. Pinnacle is sharp anchor.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -559,7 +683,10 @@ export const bettingTools: RegisteredTool<any>[] = [
         edges: resultObj.edges || [],
         sourceMeta: resultObj.sourceMeta || []
       };
-    }
+    },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'Edge readout. Report composite edge, confidence, and indicators exactly. Do not invent edge signals not in the payload.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -610,7 +737,10 @@ export const bettingTools: RegisteredTool<any>[] = [
         },
         quota: board.quota,
       };
-    }
+    },
+    entityType: 'odds',
+    renderType: 'odds-board',
+    promptHint: 'Truth edge cards. Each card passed evidence gates. Report receipts and risk flags exactly. Do not present filtered-out cards.',
   },
   {
     definition: {

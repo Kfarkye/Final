@@ -56,6 +56,9 @@ export const statsTools: RegisteredTool<any>[] = [
         return { success: false, error: err.message };
       }
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'MLB player splits. Report the exact split type and stats returned. Do not conflate splits from different time ranges.',
   },
 
   // ── Batter vs Pitcher ──────────────────────────────────────────────────────
@@ -80,6 +83,9 @@ export const statsTools: RegisteredTool<any>[] = [
         return { success: false, error: err.message };
       }
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'Batter vs pitcher matchup. Report exact sample size (AB). Small samples may be unreliable — flag this.',
   },
 
   // ── Game Environment ───────────────────────────────────────────────────────
@@ -103,6 +109,9 @@ export const statsTools: RegisteredTool<any>[] = [
         return { success: false, error: err.message };
       }
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'Game environment data. Report venue dimensions and weather exactly. Critical for totals and HR prop analysis.',
   },
 
   // ── Starting Lineups ───────────────────────────────────────────────────────
@@ -126,6 +135,9 @@ export const statsTools: RegisteredTool<any>[] = [
         return { success: false, error: err.message };
       }
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'MLB starting lineups. Only available once posted. Report batting order and handedness exactly.',
   },
 
   // ── Player Search ──────────────────────────────────────────────────────────
@@ -147,6 +159,9 @@ export const statsTools: RegisteredTool<any>[] = [
       }
       return { success: true, players: results };
     },
+    entityType: 'player',
+    renderType: 'player-card',
+    promptHint: 'MLB player search. Use returned IDs for follow-up stat queries.',
   },
 
   // ── FanGraphs Projections (bulk) ──────────────────────────────────────────
@@ -208,6 +223,9 @@ export const statsTools: RegisteredTool<any>[] = [
         return { success: false, error: msg };
       }
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'FanGraphs ROS projections. These are FORWARD-LOOKING projections, not actual stats. Clearly label as projections.',
   },
 
   // ── FanGraphs Player Projection (single) ──────────────────────────────────
@@ -255,5 +273,8 @@ export const statsTools: RegisteredTool<any>[] = [
         return { success: false, error: msg };
       }
     },
+    entityType: 'stat',
+    renderType: 'stat-card',
+    promptHint: 'FanGraphs single-player projection. This is a FORWARD-LOOKING projection, not actual stats. Clearly label as projected.',
   },
 ];

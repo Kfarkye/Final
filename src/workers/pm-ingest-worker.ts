@@ -1,6 +1,7 @@
 import { logger } from "../utils/logger";
 import { PmResolver } from "../services/pm-resolver";
 import { RawMarketPayload } from "../types/pm.types";
+import { recordFeedHeartbeat } from "../utils/feed-heartbeat";
 
 export interface IngestionResult {
   totalEventsFetched: number;
@@ -118,8 +119,23 @@ export async function runPmIngestion(): Promise<IngestionResult> {
     }
 
     logger.info({ msg: "Polymarket Ingestion Worker completed", result });
+
+    await recordFeedHeartbeat({
+      feedId: "pm_polymarket",
+      success: true,
+      rowsWritten: result.resolvedCount,
+      runId: `pm-polymarket-${new Date().toISOString()}`,
+    });
   } catch (err: any) {
     logger.error({ msg: "Polymarket Ingestion Worker failed", error: err.message });
+
+    await recordFeedHeartbeat({
+      feedId: "pm_polymarket",
+      success: false,
+      rowsWritten: 0,
+      runId: `pm-polymarket-${new Date().toISOString()}`,
+      errorMessage: err.message,
+    });
     throw err;
   }
 

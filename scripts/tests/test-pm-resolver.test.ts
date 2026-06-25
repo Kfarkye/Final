@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert";
+import { describe, it, beforeEach, assert } from "vitest";
 import { PmResolver } from "../../src/services/pm-resolver";
 
 class MockRow {
@@ -80,7 +79,7 @@ describe("PmResolver Tests", () => {
       platform: "polymarket" as const,
       marketId: "soc-market-1",
       title: "Spain vs England",
-      outcomesJson: [{ name: "Spain", price: "0.4" }, { name: "England", price: "0.3" }, { name: "Draw", price: "0.3" }],
+      outcomesJson: [{ name: "Spain", price: "0.6" }, { name: "England", price: "0.4" }],
       closeTimeUtc: new Date().toISOString(),
       rawJson: {}
     };

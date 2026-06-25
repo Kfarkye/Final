@@ -136,6 +136,19 @@ export const workspaceDecls: FunctionDeclaration[] = [
       },
       required: ["query"]
     }
+  },
+  {
+    name: "createDriveFile",
+    description: "Creates a file in Google Drive with the specified name, content, and optional MIME type. Returns a webViewLink.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING },
+        content: { type: Type.STRING },
+        mimeType: { type: Type.STRING }
+      },
+      required: ["name", "content"]
+    }
   }
 ];
 
@@ -482,6 +495,42 @@ export async function executeWorkspaceTool(call: any, token: string) {
       }));
 
       return { messages: detailedEmails };
+    }
+
+    // --- createDriveFile / create_drive_file ---
+    if (name === "createDriveFile" || name === "create_drive_file") {
+      const fileName = requireString(args?.name, 'name');
+      const content = requireString(args?.content, 'content');
+      const mime = typeof args?.mimeType === 'string' ? args.mimeType : 'text/plain';
+
+      const boundary = '-------DriveUpload' + Date.now();
+      const delimiter = '\r\n--' + boundary + '\r\n';
+      const closeDelim = '\r\n--' + boundary + '--';
+
+      const metadata = { name: fileName, mimeType: mime };
+      const multipartBody =
+        delimiter +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter +
+        'Content-Type: ' + mime + '\r\n\r\n' +
+        content +
+        closeDelim;
+
+      const res = await fetchWithTimeout(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink,webContentLink',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': `multipart/related; boundary=${boundary}`
+          },
+          body: multipartBody
+        }
+      );
+      const data = await parseResponse(res);
+      if (data?.error) return data;
+      return { success: true, file: data, webViewLink: data.webViewLink || null };
     }
 
     return { error: `Unknown tool: ${String(name)}` };

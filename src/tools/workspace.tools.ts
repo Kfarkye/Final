@@ -92,7 +92,8 @@ export const workspaceTools: RegisteredTool<any>[] = [
       description: "Creates a clean document, file, or folder in Google Drive with the specified name and content.",
       schema: z.object({
         name: z.string().min(1, "Name is required"),
-        content: z.string()
+        content: z.string(),
+        mimeType: z.string().optional()
       })
     },
     handler: async (args, context) => {
@@ -100,29 +101,40 @@ export const workspaceTools: RegisteredTool<any>[] = [
       if (!googleAccessToken) {
         return { error: "Google Workspace token is missing. Please authorize Workspace first." };
       }
-      const metadata = { name: args.name, mimeType: 'text/plain' };
-      const res = await fetchWithTrace('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: { 
-          Authorization: `Bearer ${googleAccessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(metadata)
-      });
-      const fileData: any = await res.json();
-      const parsedFile = DriveFileSchema.parse(fileData);
-      
-      if (parsedFile.id && args.content) {
-        await fetchWithTrace(`https://www.googleapis.com/upload/drive/v3/files/${parsedFile.id}?uploadType=media`, {
-          method: 'PATCH',
-          headers: { 
+      const mime = args.mimeType || 'text/plain';
+      const metadata = { name: args.name, mimeType: mime };
+
+      // Use multipart upload to send metadata + content in a single request
+      const boundary = '-------DriveUpload' + Date.now();
+      const delimiter = '\r\n--' + boundary + '\r\n';
+      const closeDelim = '\r\n--' + boundary + '--';
+
+      const multipartBody =
+        delimiter +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter +
+        'Content-Type: ' + mime + '\r\n\r\n' +
+        args.content +
+        closeDelim;
+
+      const res = await fetchWithTrace(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink,webContentLink',
+        {
+          method: 'POST',
+          headers: {
             Authorization: `Bearer ${googleAccessToken}`,
-            'Content-Type': 'text/plain'
+            'Content-Type': `multipart/related; boundary=${boundary}`
           },
-          body: args.content
-        });
+          body: multipartBody
+        }
+      );
+      const fileData: any = await res.json();
+      if (fileData.error) {
+        return { error: `Drive upload failed: ${fileData.error.message || JSON.stringify(fileData.error)}` };
       }
-      return { success: true, file: parsedFile };
+      const parsedFile = DriveFileSchema.parse(fileData);
+      return { success: true, file: parsedFile, webViewLink: fileData.webViewLink || null };
     }
   },
   {

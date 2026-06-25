@@ -46,6 +46,12 @@ export const soccerTools: RegisteredTool<any>[] = [
           .describe("Filter by team name (e.g., 'Colombia', 'Argentina', 'USA')"),
       }),
     },
+    prompt: "Summarize the World Cup schedule. Mention live games first with scores, then upcoming with times. Group by league if multiple.",
+    render: {
+      renderType: 'schedule' as const,
+      title: 'World Cup Schedule',
+      dataKey: 'games',
+    },
     handler: async (args) => {
       const allGames: any[] = [];
 
@@ -131,6 +137,9 @@ export const soccerTools: RegisteredTool<any>[] = [
         games: filtered,
       };
     },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'World Cup / FIFA qualifier schedule. Respect game status. Never state a score for an upcoming game.',
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -150,6 +159,20 @@ export const soccerTools: RegisteredTool<any>[] = [
           .optional()
           .describe("Filter by team name (e.g., 'Colombia', 'Argentina')"),
       }),
+    },
+    prompt: "Present the World Cup odds. Highlight the best value lines and any significant price differences between bookmakers.",
+    render: {
+      renderType: 'table' as const,
+      title: 'World Cup Odds',
+      dataKey: 'events',
+      columns: [
+        { key: 'homeTeam', label: 'Home', align: 'left' as const },
+        { key: 'awayTeam', label: 'Away', align: 'left' as const },
+        { key: 'commenceTime', label: 'Kickoff', align: 'center' as const, format: 'date' as const },
+        { key: 'odds.0.home', label: 'Home', align: 'right' as const, format: 'odds' as const },
+        { key: 'odds.0.draw', label: 'Draw', align: 'right' as const, format: 'odds' as const },
+        { key: 'odds.0.away', label: 'Away', align: 'right' as const, format: 'odds' as const },
+      ],
     },
     handler: async (args) => {
       try {
@@ -232,5 +255,8 @@ export const soccerTools: RegisteredTool<any>[] = [
         return { error: `Database query failed: ${err.message}` };
       }
     },
+    entityType: 'odds',
+    renderType: 'odds-board',
+    promptHint: 'World Cup odds. Report bookmaker lines exactly. Do not fabricate odds or imply consensus that does not exist.',
   },
 ];

@@ -1,5 +1,5 @@
 import * as RadixDropdown from "@radix-ui/react-dropdown-menu";
-import { type ReactNode, forwardRef } from "react";
+import React, { type ReactNode, forwardRef } from "react";
 import { Check, ChevronRight } from "lucide-react";
 
 /* ────────────────────────────────────────────────────────────────────────

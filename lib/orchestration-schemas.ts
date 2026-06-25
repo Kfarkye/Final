@@ -145,7 +145,10 @@ export interface ResearchEvidence {
     evidence_ids: string[]; // traceable to evidence_registry
     confidence: 'high' | 'medium' | 'low';
   }[];
-  tool_results: Record<string, 'validated' | 'failed' | 'skipped'>;
+  tool_results: {
+    tool_name: string;
+    status: 'validated' | 'failed' | 'skipped';
+  }[];
   conflicts: string[];
   freshness: {
     checked_at: string;

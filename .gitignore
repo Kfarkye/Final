@@ -6,3 +6,15 @@ coverage/
 *.log
 .env*
 !.env.example
+venv/
+.venv*/
+scratch/
+scratch_*.ts
+scratch-*.txt
+test_out.ts
+test_schema*.ts
+test-*.mjs
+test-spanner.js
+fix.cjs
+patch*.cjs
+patch_*.js

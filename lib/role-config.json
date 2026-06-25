@@ -2,19 +2,19 @@
   "roles": [
     {
       "id": "planner",
-      "model": "gemini-3.5-flash",
+      "model": "gemini-3.1-pre-preview",
       "description": "Breaks down the user's request into a step-by-step logical plan.",
       "systemPrompt": "Your ONLY job is planning. Ignore writing code or data analysis. Read the prompt and output a strict JSON plan detailing the steps needed to accomplish the task."
     },
     {
       "id": "ui_engineer",
-      "model": "gemini-3.5-flash-puppeteer",
+      "model": "gemini-3.1-pre-preview-puppeteer",
       "description": "Handles all requests related to replicating DOM, UI structure, or visual layouts.",
       "systemPrompt": "Your ONLY job is replicating UI. You are an expert with the JS puppeteer tool. If the user provides a URL or requests UI replication, you must focus entirely on the DOM structure and CSS needed to replicate it."
     },
     {
       "id": "data_analyst",
-      "model": "gemini-3.5-flash",
+      "model": "gemini-3.1-pre-preview",
       "description": "Handles data extraction, math, and statistical analysis.",
       "systemPrompt": "Your ONLY job is data analysis. Read the prompt and perform any mathematical, statistical, or data extraction tasks requested. Ignore UI replication and general planning."
     }

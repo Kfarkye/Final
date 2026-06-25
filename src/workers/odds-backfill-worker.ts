@@ -18,6 +18,8 @@
 import { Spanner } from '@google-cloud/spanner';
 import { env } from '../config/env.js';
 import { getTeamNickname } from '../utils/mlb-teams.js';
+import { publishRawOdds } from '../services/pubsub.js';
+import { recordFeedHeartbeat } from '../utils/feed-heartbeat.js';
 
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 const DEFAULT_BOOKMAKERS = 'draftkings,fanduel,betmgm,caesars,circasports,pinnacle,betonlineag,betus,bovada';
@@ -246,6 +248,14 @@ async function runBackfillLoop(config: BackfillConfig, apiKey: string, signal: A
 
       console.log(`[OddsBackfill] ${dateStr} → ${events.length} events, ${written} written, ${skipped} skipped | quota: ${workerState.progress.quotaRemaining}`);
 
+      // Heartbeat after each successful snapshot
+      await recordFeedHeartbeat({
+        feedId: "odds_live",
+        success: true,
+        rowsWritten: written,
+        runId: `odds-backfill-${dateStr}`,
+      });
+
     } catch (err: any) {
       if (signal.aborted) break;
       workerState.progress.errors.push(`${dateStr}: ${err.message?.substring(0, 100)}`);
@@ -267,6 +277,13 @@ async function runBackfillLoop(config: BackfillConfig, apiKey: string, signal: A
   if (!signal.aborted) {
     workerState.status = 'completed';
     console.log(`[OddsBackfill] Completed. ${workerState.progress.snapshotsFetched} snapshots, ${workerState.progress.rowsWritten} rows written.`);
+
+    await recordFeedHeartbeat({
+      feedId: "odds_live",
+      success: true,
+      rowsWritten: workerState.progress.rowsWritten,
+      runId: `odds-backfill-complete-${new Date().toISOString()}`,
+    });
   }
 }
 
@@ -333,6 +350,15 @@ async function ingestSnapshot(
       if (homeML === null && ou === null && spread === null) continue;
 
       const snapshotId = `${bookmaker.key}_${snapshotType}_${snapshotTimestamp}`;
+
+      if (homeML !== null && awayML !== null) {
+        publishRawOdds({
+          market_id: snapshotId,
+          prices: [homeML, awayML],
+          market: "h2h"
+        }).catch((err: any) => console.error("[OddsBackfill] PubSub error:", err.message));
+      }
+
       rowsToUpsert.push({
         EventId: resolvedEventId,
         SnapshotId: snapshotId,

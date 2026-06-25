@@ -10,6 +10,7 @@ import { exportLedgerForDate } from "../services/ledger-exporter";
 import { getUnifiedMlbSlate } from "../services/mlb-slate-aggregator";
 import { runTeamIntelligenceIngest } from "../workers/team-intelligence-worker";
 import { runTeamIntelligenceCompute } from "../workers/team-intelligence-compute";
+import { runFeedWatchdog } from "../workers/feed-watchdog-worker";
 
 const router = Router();
 
@@ -532,6 +533,19 @@ router.post("/workers/team-intelligence-compute", async (req: Request, res: Resp
   } catch (err: any) {
     logger.error({ msg: "Team intelligence compute failed", error: err.message });
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Feed Watchdog (Backup Odds Ingestor + Dead Feed Reconciler) ──
+
+router.post("/workers/feed-watchdog", async (_req: Request, res: Response) => {
+  logger.info({ msg: "Feed watchdog triggered" });
+  try {
+    const result = await runFeedWatchdog();
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    logger.error({ msg: "Feed watchdog failed", error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -7,6 +7,8 @@ interface IframeAction {
 }
 
 interface SecureIframeProps extends IframeHTMLAttributes<HTMLIFrameElement> {
+  src?: string;
+  className?: string;
   title: string;
   sandboxOptions?: string[];
   actions?: IframeAction[];
@@ -50,7 +52,7 @@ export function SecureIframe({
       // from the parent context (same-origin) and send the result back.
       if (e.data?.type === 'fetch_proxy' && e.data?.requestId && iframeRef.current?.contentWindow) {
         const { requestId, url, method, headers, body } = e.data;
-        fetch(url, { method, headers, body: body || undefined })
+        window.fetch(url, { method, headers, body: body || undefined })
           .then(async (res) => {
             const responseBody = await res.json().catch(() => ({}));
             iframeRef.current?.contentWindow?.postMessage({

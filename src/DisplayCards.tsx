@@ -86,9 +86,8 @@ function StatusPill({ status, inning }: { status: string; inning?: string }) {
   const label = isLive ? (inning || 'Live') : isFinal ? 'Final' : status;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-[0.12em] ${
-      isLive ? 'bg-emerald-500/15 text-emerald-400' : isFinal ? 'bg-white/5 text-white/30' : 'bg-blue-500/10 text-blue-400/70'
-    }`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-[0.12em] ${isLive ? 'bg-emerald-500/15 text-emerald-400' : isFinal ? 'bg-white/5 text-white/30' : 'bg-blue-500/10 text-blue-400/70'
+      }`}>
       {isLive && (
         <motion.span
           className="size-1 rounded-full bg-emerald-400"
@@ -132,9 +131,8 @@ const GameCard = memo(({ game }: { game: EspnGameResult }) => {
           )}
         </div>
         {hasScores && (
-          <span className={`text-lg font-bold font-mono tabular-nums ml-3 flex-shrink-0 ${
-            awayScore! > homeScore! ? 'text-white' : 'text-white/30'
-          }`}>
+          <span className={`text-lg font-bold font-mono tabular-nums ml-3 flex-shrink-0 ${awayScore! > homeScore! ? 'text-white' : 'text-white/30'
+            }`}>
             {awayScore}
           </span>
         )}
@@ -151,9 +149,8 @@ const GameCard = memo(({ game }: { game: EspnGameResult }) => {
           )}
         </div>
         {hasScores && (
-          <span className={`text-lg font-bold font-mono tabular-nums ml-3 flex-shrink-0 ${
-            homeScore! > awayScore! ? 'text-white' : 'text-white/30'
-          }`}>
+          <span className={`text-lg font-bold font-mono tabular-nums ml-3 flex-shrink-0 ${homeScore! > awayScore! ? 'text-white' : 'text-white/30'
+            }`}>
             {homeScore}
           </span>
         )}
@@ -460,26 +457,42 @@ const SlateCard = memo(({ data }: DisplayCardProps) => {
 // Keys match EXACTLY to the tool names in DISPLAY_CARD_TOOLS (backend)
 // and espn.tools.ts definitions.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 export const CARD_REGISTRY: Record<string, ComponentType<DisplayCardProps>> = {
   // Multi-game views (ESPN)
-  get_espn_scoreboard:   ScoreboardCard,
-  get_espn_live_games:   ScoreboardCard,
+  get_espn_scoreboard: ScoreboardCard,
+  get_espn_live_games: ScoreboardCard,
   get_espn_final_scores: ScoreboardCard,
   // Single-game views (ESPN)
-  find_espn_game:        SingleGameCard,
-  get_espn_game:         SingleGameCard,
+  find_espn_game: SingleGameCard,
+  get_espn_game: SingleGameCard,
   // Slate views (MLB contract — UnifiedGame[])
   get_mlb_slate_overview: SlateCard,
-  get_mlb_schedule:       SlateCard,
+  get_mlb_schedule: SlateCard,
 };
+
+// ── Render Contract: Generic Renderers ──────────────────────────────
+// New tools declare `render: { renderType }` at registration time.
+// The frontend routes to the matching generic component here.
+import { GENERIC_RENDERERS } from './GenericCards';
 
 /**
  * Renders a display card by tool name. Returns null if no matching renderer.
+ *
+ * Resolution order:
+ *   1. Legacy CARD_REGISTRY (exact tool name match → custom component)
+ *   2. Render contract (render.renderType → generic component)
+ *   3. null (no card)
  */
-export function renderCard(cardType: string, data: any, context?: string): React.ReactNode {
-  const Card = CARD_REGISTRY[cardType];
-  if (!Card) return null;
-  return <Card data={data} toolName={cardType} context={context} />;
-}
+export function renderCard(cardType: string, data: any, context?: string, render?: any): React.ReactNode {
+  // Legacy path: exact tool name → custom component
+  const LegacyCard = CARD_REGISTRY[cardType];
+  if (LegacyCard) return <LegacyCard data={data} toolName={cardType} context={context} />;
 
+  // Render contract path: renderType → generic component
+  if (render?.renderType) {
+    const GenericCard = GENERIC_RENDERERS[render.renderType];
+    if (GenericCard) return <GenericCard data={data} render={render} />;
+  }
+
+  return null;
+}
