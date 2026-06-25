@@ -22,6 +22,7 @@ import SuggestedPrompts from './components/SuggestedPrompts';
 import { useFileAttachment } from './components/attachments/useFileAttachment';
 import { FileChip } from './components/attachments/FileChip';
 import { FileAttachmentError } from './components/attachments/types';
+import { formatCodexStreamError } from './lib/codexStreamError';
 
 interface Responses {
   gemini: string | null;
@@ -76,6 +77,15 @@ interface Conversation {
   topic: string;
   updatedAt: any;
 }
+
+const createEmptyResponses = (): Responses => ({
+  gemini: null,
+  chatgpt: null,
+  claude: null,
+  grok: null,
+  deepseek: null,
+  codex: null,
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Approval Notification Utilities (v3)
@@ -550,6 +560,29 @@ export default function ChatClient() {
       // Detect if Codex is among the targeted models
       const hasCodex = targetModels.includes('codex');
       const codexOnly = hasCodex && targetModels.length === 1;
+      let finalResponses = createEmptyResponses();
+      targetModels.forEach(m => {
+        finalResponses[m] = '';
+      });
+      let hasFinalResponses = false;
+
+      const appendResponseText = (model: string, text: string) => {
+        if (!text) return;
+        finalResponses = {
+          ...finalResponses,
+          [model]: `${finalResponses[model] || ''}${text}`,
+        };
+        hasFinalResponses = true;
+
+        const nextResponses = finalResponses;
+        setTurns(prev => prev.map(t =>
+          t.id === turnId ? { ...t, responses: nextResponses } : t
+        ));
+      };
+
+      const appendCodexStreamError = (payload: unknown) => {
+        appendResponseText('codex', formatCodexStreamError(payload));
+      };
 
       // If Codex is the only target, route to the Codex handler.
       // If mixed (codex + other models), send to default handler AND codex handler.
@@ -599,7 +632,10 @@ export default function ChatClient() {
             ...(codexResponseId ? { previousResponseId: codexResponseId } : {}),
           }),
         }).then(async (codexRes) => {
-          if (!codexRes.ok || !codexRes.body) return;
+          if (!codexRes.ok || !codexRes.body) {
+            appendCodexStreamError({ message: `Codex stream failed with HTTP ${codexRes.status}` });
+            return;
+          }
           const codexReader = codexRes.body.getReader();
           const codexDecoder = new TextDecoder('utf-8');
           let codexBuf = '';
@@ -616,26 +652,19 @@ export default function ChatClient() {
               if (!evtLine || !datLine) continue;
               const evtName = evtLine.substring(7).trim();
               const datStr = datLine.substring(6).trim();
+              if (evtName === 'error') {
+                appendCodexStreamError(datStr);
+                continue;
+              }
+
               try {
                 const d = JSON.parse(datStr);
                 if (evtName === 'delta' && d.text) {
-                  setTurns(prev => prev.map(t => {
-                    if (t.id === turnId) {
-                      const cur = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null, codex: null };
-                      return { ...t, responses: { ...cur, codex: (cur['codex'] || '') + d.text } };
-                    }
-                    return t;
-                  }));
+                  appendResponseText('codex', d.text);
                 } else if (evtName === 'citations' && d.annotations?.length > 0) {
                   const footnotes = '\n\n---\n**Sources:**\n' +
                     d.annotations.map((a: any, i: number) => `${i + 1}. [${a.title || a.url}](${a.url})`).join('\n');
-                  setTurns(prev => prev.map(t => {
-                    if (t.id === turnId) {
-                      const cur = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null, codex: null };
-                      return { ...t, responses: { ...cur, codex: (cur['codex'] || '') + footnotes } };
-                    }
-                    return t;
-                  }));
+                  appendResponseText('codex', footnotes);
                 } else if (evtName === 'codex_response_id' && d.responseId) {
                   setCodexResponseId(d.responseId);
                 } else if (evtName === 'tool_call_started') {
@@ -671,7 +700,11 @@ export default function ChatClient() {
               } catch {}
             }
           }
-        }).catch(() => {});
+        }).catch((err) => {
+          appendCodexStreamError({
+            message: err instanceof Error ? err.message : 'Codex stream failed to start.',
+          });
+        });
       }
 
       if (!res.ok || !res.body) {
@@ -691,7 +724,6 @@ export default function ChatClient() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
-      let finalResponses: any = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -716,18 +748,7 @@ export default function ChatClient() {
             try {
               const data = JSON.parse(dataStr);
               if (data.model === 'codex' && data.text) {
-                setTurns(prev => prev.map(t => {
-                  if (t.id === turnId) {
-                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
-                    const newResponses = {
-                      ...currentResponses,
-                      codex: (currentResponses['codex'] || '') + data.text
-                    };
-                    finalResponses = newResponses;
-                    return { ...t, responses: newResponses };
-                  }
-                  return t;
-                }));
+                appendResponseText('codex', data.text);
               }
             } catch (e) { }
           } else if (eventName === 'citations') {
@@ -737,13 +758,7 @@ export default function ChatClient() {
               if (data.annotations?.length > 0) {
                 const footnotes = '\n\n---\n**Sources:**\n' +
                   data.annotations.map((a: any, i: number) => `${i + 1}. [${a.title || a.url}](${a.url})`).join('\n');
-                setTurns(prev => prev.map(t => {
-                  if (t.id === turnId) {
-                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
-                    return { ...t, responses: { ...currentResponses, codex: (currentResponses['codex'] || '') + footnotes } };
-                  }
-                  return t;
-                }));
+                appendResponseText('codex', footnotes);
               }
             } catch (e) { }
           } else if (eventName === 'tool_call_started') {
@@ -841,22 +856,15 @@ export default function ChatClient() {
             try {
               const data = JSON.parse(dataStr);
               if (data.model && data.chunk) {
-                setTurns(prev => prev.map(t => {
-                  if (t.id === turnId) {
-                    const currentResponses = t.responses || { gemini: null, chatgpt: null, claude: null, grok: null, deepseek: null };
-                    const newResponses = {
-                      ...currentResponses,
-                      [data.model]: (currentResponses[data.model as keyof Responses] || '') + data.chunk
-                    };
-                    finalResponses = newResponses;
-                    return { ...t, responses: newResponses };
-                  }
-                  return t;
-                }));
+                appendResponseText(data.model, data.chunk);
               }
             } catch (e) { }
           } else if (eventName === 'error') {
-            console.error("SSE Error:", dataStr);
+            if (codexOnly) {
+              appendCodexStreamError(dataStr);
+            } else {
+              console.error("SSE Error:", dataStr);
+            }
           } else if (eventName === 'tool_approval_required') {
             try {
               const data = JSON.parse(dataStr);
@@ -979,7 +987,7 @@ export default function ChatClient() {
       }
 
       // Wait for React state to settle or just use tracked finalResponses
-      if (activeConvId && finalResponses) {
+      if (activeConvId && hasFinalResponses) {
         try {
           const turnRef = doc(collection(db, 'users', currentUser.uid, 'conversations', activeConvId, 'turns'));
           await setDoc(turnRef, {
@@ -994,7 +1002,7 @@ export default function ChatClient() {
       }
 
       // ── Generate Suggested Follow-ups (fire-and-forget) ──
-      if (finalResponses) {
+      if (hasFinalResponses) {
         const firstResponse = (Object.values(finalResponses) as string[]).find(v => v && v.length > 0) || '';
         fetch('/api/truth/suggest', {
           method: 'POST',
@@ -1018,16 +1026,14 @@ export default function ChatClient() {
 
     } catch (err) {
       console.error(err);
+      const errorResponses = createEmptyResponses();
+      currentTarget.forEach(model => {
+        errorResponses[model] = 'Error fetching.';
+      });
       setTurns(prev => prev.map(t =>
         t.id === turnId ? {
           ...t,
-          responses: {
-            gemini: "Error fetching.",
-            chatgpt: "Error fetching.",
-            claude: "Error fetching.",
-            grok: "Error fetching.",
-            deepseek: "Error fetching."
-          }
+          responses: errorResponses,
         } : t
       ));
     } finally {
