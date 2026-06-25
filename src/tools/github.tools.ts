@@ -199,5 +199,113 @@ export const githubTools: RegisteredTool<any>[] = [
         return { error: `Failed to commit to GitHub: ${err.message}` };
       }
     }
-  }
+  },
+
+  // ═════════════════════════════════════════════════════════════════════
+  // github_create_pr — Create a pull request via GitHub API
+  // ═════════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_create_pr",
+      description: "Create a pull request on GitHub. Requires human approval. Uses the GitHub PAT from Secret Manager.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        title: z.string().describe("PR title"),
+        body: z.string().optional().describe("PR description/body"),
+        head: z.string().describe("The branch to merge FROM (e.g., 'feature-branch')"),
+        base: z.string().default("main").describe("The branch to merge INTO (default: 'main')"),
+        autoMerge: z.boolean().default(false).describe("If true, automatically merge after creation"),
+      }),
+    },
+    handler: async (args, context) => {
+      const pat = await getGithubPat();
+      if (!pat) return { error: "No GitHub PAT configured. Set GITHUB_PAT in Secret Manager." };
+
+      // Require approval
+      const approvalId = `github_create_pr_${Date.now()}`;
+      sseManager.sendEvent(context?.connectionId || '', 'approval_required', {
+        id: approvalId,
+        tool: 'github_create_pr',
+        operation: `Create PR: ${args.head} → ${args.base}`,
+        args: { title: args.title, head: args.head, base: args.base },
+        reason: args.body || 'Create pull request',
+        riskLevel: 'high',
+        impact: `Create PR merging ${args.head} into ${args.base}`,
+      });
+
+      const decision = await waitForApproval(approvalId, 'github_create_pr', args);
+      if (decision.decision !== 'approved') {
+        return { success: false, error: `PR creation ${decision.decision}: ${(decision as any).reason || 'Not approved'}` };
+      }
+
+      const headers = {
+        Authorization: `Bearer ${pat}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      };
+
+      try {
+        // Create PR
+        const createRes = await fetch(`https://api.github.com/repos/${args.repoFullName}/pulls`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            title: args.title,
+            body: args.body || "",
+            head: args.head,
+            base: args.base,
+          }),
+        });
+
+        if (!createRes.ok) {
+          const errData = await createRes.json().catch(() => ({}));
+          return { error: `Failed to create PR: ${createRes.status} ${JSON.stringify(errData)}` };
+        }
+
+        const prData = await createRes.json();
+        logger.info({ msg: "PR created", number: prData.number, url: prData.html_url });
+
+        // Auto-merge if requested
+        if (args.autoMerge && prData.number) {
+          const mergeRes = await fetch(`https://api.github.com/repos/${args.repoFullName}/pulls/${prData.number}/merge`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({
+              merge_method: "squash",
+              commit_title: args.title,
+            }),
+          });
+
+          if (mergeRes.ok) {
+            return {
+              success: true,
+              prNumber: prData.number,
+              prUrl: prData.html_url,
+              merged: true,
+              message: `PR #${prData.number} created and merged.`,
+            };
+          } else {
+            const mergeErr = await mergeRes.json().catch(() => ({}));
+            return {
+              success: true,
+              prNumber: prData.number,
+              prUrl: prData.html_url,
+              merged: false,
+              mergeError: `Auto-merge failed: ${mergeRes.status} ${JSON.stringify(mergeErr)}`,
+            };
+          }
+        }
+
+        return {
+          success: true,
+          prNumber: prData.number,
+          prUrl: prData.html_url,
+          merged: false,
+          message: `PR #${prData.number} created: ${prData.html_url}`,
+        };
+      } catch (err: any) {
+        return { error: `GitHub API error: ${err.message}` };
+      }
+    },
+  },
 ];
