@@ -31,6 +31,14 @@ async function getGithubPat(): Promise<string | null> {
       });
       return version.payload?.data?.toString() || null;
     } catch(e) {
+      // Fallback to GITHUB_TOKEN, then GITHUB_PAT
+    }
+    try {
+      const [version] = await client.accessSecretVersion({
+        name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_TOKEN/versions/latest`,
+      });
+      return version.payload?.data?.toString() || null;
+    } catch(e) {
       // Fallback to GITHUB_PAT
     }
     const [version] = await client.accessSecretVersion({
@@ -73,14 +81,14 @@ export const githubTools: RegisteredTool<any>[] = [
           contentPreview: args.content.substring(0, 200) + (args.content.length > 200 ? '...' : '')
         }
       });
-      const decision = await waitForApproval(approvalId, "github_commit_file", args);
-      if (!decision) {
+      const decision: any = await waitForApproval(approvalId, "github_commit_file", args);
+      if (!decision || decision.decision !== "approved") {
         return { error: "Permission Denied: User did not approve GitHub commit." };
       }
 
       const pat = await getGithubPat();
       if (!pat) {
-        return { error: "GITHUB_PAT environment variable or secret is not configured." };
+        return { error: "GitHub token is not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN, GITHUB_TOKEN, or GITHUB_PAT in env or Secret Manager." };
       }
 
       try {

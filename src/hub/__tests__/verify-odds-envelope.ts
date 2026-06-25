@@ -41,10 +41,12 @@ async function run() {
   // same handler invocation.
   let env: any;
   try {
+    // Use today's date for odds (past dates have no active odds)
+    const today = new Date().toISOString().slice(0, 10);
     env = await toolRegistry.execute('get_mlb_odds', {
       gamePk: process.env.TEST_GAME_PK || undefined,
-      team: 'CHW',
-      date: '2026-06-20',
+      team: process.env.TEST_TEAM || 'NYY',
+      date: process.env.TEST_DATE || today,
       market: 'moneyline',
     });
   } catch (e: any) {
