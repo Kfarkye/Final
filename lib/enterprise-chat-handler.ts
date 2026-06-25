@@ -444,8 +444,8 @@ async function executeToolForModel({
 export const enterpriseChatHandler = async (req: Request, res: Response, deps: any) => {
   const connectionId = `conn_${Math.random().toString(36).substring(2, 15)}`;
 
-  // Register SSE Connection
-  sseManager.addClient(connectionId, res);
+  // Register SSE Connection (pass req so socket timeouts are disabled for SSE)
+  sseManager.addClient(connectionId, res, req);
 
   // ── Master AbortController ──────────────────────────────────────────
   // One controller per request — its signal is threaded through every

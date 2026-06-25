@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 interface Client {
   id: string;
@@ -14,13 +14,24 @@ export class SSEManager {
     this.heartbeatInterval = setInterval(() => this.sendHeartbeatToAll(), heartbeatMs);
   }
 
-  public addClient(id: string, res: Response) {
+  public addClient(id: string, res: Response, req?: Request) {
+    // Disable socket-level timeouts — SSE streams are long-lived.
+    // Without this, Node.js default 2-minute socket timeout kills the
+    // connection during agentic tool loops on GKE.
+    if (req?.socket) {
+      req.socket.setTimeout(0);
+      req.socket.setNoDelay(true);    // Disable Nagle for low-latency SSE
+      req.socket.setKeepAlive(true, 30_000);
+    }
+    res.setTimeout(0);
+
     // Standard headers for SSE
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no' // Prevent Nginx/ALB buffering
+      'X-Accel-Buffering': 'no',       // Prevent Nginx/ALB buffering
+      'X-Content-Type-Options': 'nosniff',
     });
     
     // Write immediate initial comment to flush headers and bypass proxies

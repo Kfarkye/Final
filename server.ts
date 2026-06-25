@@ -121,6 +121,18 @@ async function startServer() {
   // 1. Create the native HTTP server explicitly
   const server = http.createServer(app);
 
+  // ── SSE / Long-Running Request Timeouts ──────────────────────────────
+  // GKE load balancers enforce backend service timeoutSec (default 30s).
+  // Our SSE streams (chat, codex) run 60-300s+ during agentic tool loops.
+  // These server-side timeouts must exceed the LB timeout to prevent the
+  // server from closing first. The LB timeout should be set via:
+  //   kubectl annotate backendconfig ... --timeout=600
+  // or via BackendConfig CRD spec.timeoutSec: 600
+  server.keepAliveTimeout = 620_000;    // 620s — must exceed LB timeout
+  server.headersTimeout = 625_000;      // 625s — must exceed keepAliveTimeout
+  server.requestTimeout = 0;            // No request timeout (SSE streams are indefinite)
+  server.timeout = 0;                   // No socket idle timeout (heartbeats keep SSE alive)
+
   // 2. Initialize the HTTP Terminator
   const httpTerminator = createHttpTerminator({
     server,

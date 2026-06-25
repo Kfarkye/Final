@@ -1025,10 +1025,13 @@ export default function ChatClient() {
       }
 
     } catch (err) {
-      console.error(err);
+      console.error('[ChatClient] Stream error:', err);
+      const errorMessage = err instanceof Error
+        ? `Connection error: ${err.message}`
+        : 'Connection error: unknown failure';
       const errorResponses = createEmptyResponses();
       currentTarget.forEach(model => {
-        errorResponses[model] = 'Error fetching.';
+        errorResponses[model] = errorMessage;
       });
       setTurns(prev => prev.map(t =>
         t.id === turnId ? {
