@@ -4,6 +4,8 @@ metadata:
   name: reverie
   labels:
     app: reverie
+  annotations:
+    cloud.google.com/backend-config: '{"default": "reverie-backend"}'
 spec:
   type: ClusterIP
   ports:

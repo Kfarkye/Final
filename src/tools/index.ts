@@ -40,6 +40,7 @@ import { conversationalTools } from './conversational.tools';
 import { sourceTools } from './source.tools';
 import { githubTools } from './github.tools';
 import { oddsAdminTools } from './odds_admin.tools.js';
+import { gkeTools } from './gke.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -84,6 +85,7 @@ toolRegistry.registerMany([
   ...sourceTools,
   ...githubTools,
   ...oddsAdminTools,
+  ...gkeTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.
