@@ -471,7 +471,16 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     req.removeListener('close', onDisconnect);
     res.removeListener('close', onDisconnect);
     res.removeListener('error', onDisconnect);
+    clearInterval(heartbeatInterval);
   };
+
+  // Global SSE keepalive — prevents LB from killing idle connections during
+  // approval waits, long tool executions, and inter-turn gaps.
+  const heartbeatInterval = setInterval(() => {
+    if (!signal.aborted && !res.writableEnded) {
+      res.write(': keepalive\n\n');
+    }
+  }, 10_000);
 
   /** Safe SSE write — no-ops if the client already disconnected */
   const sendSse = (event: string, payload: any) => {
@@ -480,7 +489,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
   };
 
   const {
-    prompt,
+    prompt: rawPrompt,
     history,
     mode,
     targetModels = ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'],
@@ -491,6 +500,11 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     apiIntegrations = [],
     attachments = []
   } = req.body;
+
+  // If no text but attachments exist, use a sensible default prompt
+  const prompt = (rawPrompt && typeof rawPrompt === 'string' && rawPrompt.trim())
+    ? rawPrompt
+    : (Array.isArray(attachments) && attachments.length > 0 ? 'Describe this image.' : '');
 
   // ── Vision/File Attachment Helpers ─────────────────────────────────
   // Parse data URLs from the frontend useFileAttachment hook into

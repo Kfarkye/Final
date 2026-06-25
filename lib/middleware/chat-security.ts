@@ -81,8 +81,9 @@ export const chatRateLimiter = async (req: Request, res: Response, next: NextFun
 
 export const validateChatPayload = (req: Request, res: Response, next: NextFunction) => {
   const { prompt, attachments } = req.body;
-  if (!prompt || typeof prompt !== 'string') {
-    return res.status(400).json({ error: 'Invalid payload: "prompt" is required and must be a string.' });
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  if ((!prompt || typeof prompt !== 'string') && !hasAttachments) {
+    return res.status(400).json({ error: 'Invalid payload: "prompt" or attachments required.' });
   }
   if (prompt.length > 100000) {
     return res.status(413).json({ error: 'Payload too large.' });
