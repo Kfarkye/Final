@@ -55,7 +55,7 @@ export const ADVERSARIAL_EVAL_FIXTURES: AdversarialEvalFixture[] = [
     title: 'Tool-only loop never emits answer text',
     prompt: 'Deep dive the live market until you are confident.',
     expectedSignals: ['error'],
-    streamPlan: Array.from({ length: 30 }, (_, index) => makeFunctionCallStreamSpec({
+    streamPlan: Array.from({ length: 100 }, (_, index) => makeFunctionCallStreamSpec({
       responseId: `fixture_stuck_${index}`,
       itemId: `fixture_stuck_item_${index}`,
       callId: `fixture_stuck_call_${index}`,
@@ -63,7 +63,7 @@ export const ADVERSARIAL_EVAL_FIXTURES: AdversarialEvalFixture[] = [
       args: JSON.stringify({ turn: index }),
     })),
     notes: [
-      'The thirtieth consecutive tool-only turn should trip the stuck-loop guard.',
+      'The one hundredth consecutive tool-only turn should trip the stuck-loop guard.',
       'The final pending tool batch should not execute.',
     ],
   },
