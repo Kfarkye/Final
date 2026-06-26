@@ -130,10 +130,17 @@
   color: #fff;
 }
 
-.trace-turn .trace-verb {
-  color: var(--trace-text-dim);
-  font-weight: 400;
-  font-size: 12px;
+.trace-turn .trace-link {
+  color: var(--trace-accent);
+  font-size: 11px;
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.trace-turn .trace-link:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 .trace-turn .trace-chev {

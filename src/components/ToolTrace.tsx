@@ -53,9 +53,86 @@ function highlightJson(jsonString: string): React.ReactNode[] {
   });
 }
 
+/** Translates raw tool name + args into a human-readable label + optional link */
+function translateTool(tool: string, argsPreview?: string): { label: string; link?: string } {
+  let args: any = {};
+  try { if (argsPreview) args = JSON.parse(argsPreview); } catch {}
+
+  switch (tool) {
+    case 'execute_sql': {
+      const sql = (args.sql || '').trim();
+      const table = sql.match(/(?:FROM|UPDATE|INTO|JOIN)\s+(\w+)/i)?.[1];
+      if (table) {
+        if (/^\s*SELECT/i.test(sql)) return { label: `Querying ${table}` };
+        if (/^\s*UPDATE/i.test(sql)) return { label: `Updating ${table}` };
+        if (/^\s*INSERT/i.test(sql)) return { label: `Inserting into ${table}` };
+        if (/^\s*DELETE/i.test(sql)) return { label: `Deleting from ${table}` };
+      }
+      return { label: 'Running query' };
+    }
+    case 'describe_spanner_table':
+      return { label: `Inspecting ${args.tableName || 'table'} schema` };
+    case 'get_full_schema':
+      return { label: `Loading full schema` };
+    case 'get_database_ddl':
+      return { label: `Loading database schema` };
+    case 'search_web':
+      return { label: `Searching "${args.query || ''}"` };
+    case 'fetch_html':
+    case 'fetch_markdown':
+    case 'fetch_readable':
+    case 'fetch_text':
+    case 'extract_page': {
+      const url = args.url || args.urls?.[0] || '';
+      try {
+        const hostname = new URL(url).hostname.replace('www.', '');
+        return { label: `Reading ${hostname}`, link: url };
+      } catch {
+        return { label: 'Fetching page' };
+      }
+    }
+    case 'fetch_json':
+    case 'http_request': {
+      const url = args.url || '';
+      try {
+        const hostname = new URL(url).hostname.replace('www.', '');
+        return { label: `Calling ${hostname}`, link: url };
+      } catch {
+        return { label: 'Calling API' };
+      }
+    }
+    case 'write_file':
+    case 'edit_file':
+    case 'read_file': {
+      const name = (args.filePath || args.path || '').split('/').pop() || 'file';
+      const verb = tool === 'write_file' ? 'Writing' : tool === 'edit_file' ? 'Editing' : 'Reading';
+      return { label: `${verb} ${name}` };
+    }
+    case 'exec_command':
+    case 'run_script': {
+      const cmd = args.command || args.script || '';
+      const short = cmd.length > 40 ? cmd.slice(0, 37) + '…' : cmd;
+      return { label: `Running ${short || 'command'}` };
+    }
+    case 'get_mlb_odds':
+      return { label: 'Fetching live odds' };
+    case 'get_live_scores':
+      return { label: 'Checking live scores' };
+    case 'get_mlb_schedule':
+      return { label: 'Loading schedule' };
+    case 'delegate_task':
+      return { label: `Delegating: ${(args.objective || '').slice(0, 40)}` };
+    case 'request_human_secret':
+      return { label: `Requesting credential` };
+    default:
+      return { label: tool };
+  }
+}
+
 const ToolTraceItem: React.FC<{ entry: ToolTraceEntry }> = ({ entry }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { label, link } = translateTool(entry.tool, entry.argsPreview);
 
   const statusClass =
     entry.status === 'running'
@@ -84,8 +161,16 @@ const ToolTraceItem: React.FC<{ entry: ToolTraceEntry }> = ({ entry }) => {
         className="trace-tool"
         onClick={() => setIsOpen(!isOpen)}
       >
-        <span className="trace-verb">call</span>
-        {entry.tool}
+        {label}
+        {link && (
+          <a
+            className="trace-link"
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >↗</a>
+        )}
         {entry.elapsedMs != null && (
           <span className="trace-dur">{formatDuration(entry.elapsedMs)}</span>
         )}
