@@ -183,7 +183,7 @@ const WRITE_COMMAND_PATTERNS = [
   /^pnpm\s+(add|remove|install)\b/i,
   /^pip\d*\s+(install|uninstall)\b/i,  // SEC-9: pip, pip3, pip3.11
   /^mkdir\b/, /^cp\b/, /^mv\b/, /^touch\b/,
-  /^git\s+(push|commit|merge|rebase|reset|checkout\s+-b|tag)\b/i,
+  /^git\s+(push|commit|merge|rebase|reset|checkout\s+-b|tag|pull|sync)\b/i,
   /^make\b/i,                           // v2.1: all make targets
   /^cargo\s+(run|build|install)\b/i,    // v2.1: cargo code execution
   /^go\s+(run|build|install)\b/i,       // v2.1: go code execution
