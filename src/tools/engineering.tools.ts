@@ -32,7 +32,7 @@
 
 import { z } from "zod";
 import { RegisteredTool } from "./types";
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, exec } from "child_process";
 import { promisify } from "util";
 import { createHash } from "crypto";
 import { sseManager } from "../../lib/sse/sse-manager";
@@ -42,6 +42,7 @@ import fs from "fs";
 import path from "path";
 
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -96,21 +97,6 @@ function safePath(requestedPath: string): string {
     throw new Error(`Path resolution violation: ${requestedPath} resolved outside workspace.`);
   }
 
-  // SEC-8.1: Block dangerous files, but allow .d.ts files in node_modules
-  const isNodeModules = realPath.includes("node_modules");
-  const isDts = realPath.endsWith(".d.ts");
-  if (isNodeModules && !isDts) {
-    throw new Error(`Path violation: Access to node_modules/ is restricted to .d.ts files for type checking.`);
-  }
-
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(realPath)) {
-      throw new Error(
-        `Access denied: "${requestedPath}" matches blocked pattern ${pattern}`
-      );
-    }
-  }
-
   return realPath;
 }
 
@@ -125,14 +111,14 @@ const ALLOWED_BINARIES = new Set([
   "cat", "head", "tail", "wc", "find", "ls", "tree", "du", "df",
   "grep", "sort", "uniq", "diff", "echo", "date", "which", "sed",
   "mkdir", "cp", "mv", "touch",
-  "git", "kubectl",
+  "git", "kubectl", "gcloud", "sh", "bash",
   "make", "cargo", "go", "python", "python3", "pip", "pip3",
 ]);
 
 // SEC-7: npx restricted to known-safe packages
 const ALLOWED_NPX_PACKAGES = new Set([
   "vitest", "jest", "prettier", "eslint", "tsc", "tsx",
-  "biome", "mocha", "esbuild", "prisma", "drizzle-kit", "typecheck",
+  "biome", "mocha", "esbuild", "prisma", "drizzle-kit", "typecheck", "vite",
 ]);
 
 // SEC-3 v2.1: Runtime eval flags — handles both space-separated AND equals-form
@@ -156,6 +142,7 @@ function hasBlockedRuntimeFlag(binary: string, cmdArgs: string[]): string | null
   return null;
 }
 
+const TIER_3_COMMANDS = [
   /^rm\s+(-r|-rf|-f\s+-r|--recursive)/i,
   /^sudo\b/, /^su\b/, /^chmod\b/, /^chown\b/,
   /^curl\b/, /^wget\b/, /^ssh\b/, /^scp\b/,
@@ -166,10 +153,6 @@ function hasBlockedRuntimeFlag(binary: string, cmdArgs: string[]): string | null
   // v2.1: Git code-execution vectors
   /^git\s+filter-branch/i,
   /^git\s+.*--exec/i,
-];
-
-// Commands that require Tier 3 (Critical) human approval instead of being blocked
-const TIER_3_COMMANDS = [
   /^git\s+push\s+(--force|-f)\b/i,
   /^git\s+push\s+--delete/i,
   /^git\s+reset\s+--hard/i,
@@ -192,15 +175,14 @@ const WRITE_COMMAND_PATTERNS = [
 function isWriteCommand(cmd: string): boolean {
   return WRITE_COMMAND_PATTERNS.some(p => p.test(cmd.trim()));
 }
-function isBlockedCommand(cmd: string): boolean {
-  return BLOCKED_COMMANDS.some(p => p.test(cmd.trim()));
-}
 function isTier3Command(cmd: string): boolean {
   return TIER_3_COMMANDS.some(p => p.test(cmd.trim()));
 }
 
 // SEC-10: Files requiring elevated scrutiny
 const HIGH_RISK_FILE_PATTERNS = [
+  ...BLOCKED_PATTERNS,
+  /node_modules/,
   /package\.json$/, /package-lock\.json$/, /yarn\.lock$/, /pnpm-lock\.yaml$/,
   /\.npmrc$/, /tsconfig.*\.json$/, /Dockerfile$/i, /docker-compose/i,
   /\.github\//, /\.gitlab-ci/, /Makefile$/,
@@ -719,37 +701,37 @@ const execCommandTool: RegisteredTool<any> = {
       return { success: false, error: `Rate limit exceeded. Try again in 60s. Remaining: ${rate.remaining}` };
     }
 
-    if (isBlockedCommand(fullCommand)) {
-      return { success: false, error: `Blocked by security policy: "${fullCommand}"` };
-    }
+    let isTier3 = isTier3Command(fullCommand);
+    let riskContext = "High-risk command detected";
 
-    if (!ALLOWED_BINARIES.has(binary)) {
-      return { success: false, error: `"${binary}" not in allowlist. Allowed: ${[...ALLOWED_BINARIES].sort().join(", ")}` };
-    }
-
-    // SEC-3 v2.1: Catches -e, --eval, --eval="code"
-    const blockedFlag = hasBlockedRuntimeFlag(binary, cmdArgs);
-    if (blockedFlag) {
-      return { success: false, error: `"${blockedFlag}" blocked on "${binary}" — write a file and run it instead.` };
-    }
-
-    // SEC-7: npx package allowlist
-    if (binary === "npx" && cmdArgs.length > 0) {
-      const pkg = cmdArgs[0].replace(/^@[^/]+\//, "");
-      if (!ALLOWED_NPX_PACKAGES.has(pkg)) {
-        return { success: false, error: `npx package "${cmdArgs[0]}" not allowlisted. Allowed: ${[...ALLOWED_NPX_PACKAGES].sort().join(", ")}` };
+    if (!isTier3) {
+      if (!ALLOWED_BINARIES.has(binary)) {
+        isTier3 = true;
+        riskContext = `Binary "${binary}" is not in the standard allowlist`;
+      } else {
+        const blockedFlag = hasBlockedRuntimeFlag(binary, cmdArgs);
+        if (blockedFlag) {
+          isTier3 = true;
+          riskContext = `Uses high-risk runtime flag "${blockedFlag}"`;
+        } else if (binary === "npx" && cmdArgs.length > 0) {
+          const pkg = cmdArgs[0].replace(/^@[^/]+\//, "");
+          if (!ALLOWED_NPX_PACKAGES.has(pkg)) {
+            isTier3 = true;
+            riskContext = `npx package "${cmdArgs[0]}" is not in the standard allowlist`;
+          }
+        }
       }
     }
 
     // Approval for write commands
-    if (isWrite || isTier3Command(fullCommand)) {
-      const tier = isTier3Command(fullCommand) ? 3 : 2;
+    if (isWrite || isTier3) {
+      const tier = isTier3 ? 3 : 2;
       const risk = tier === 3 ? "critical" : "medium";
       const result = await tieredApproval(tier, {
         tool: "exec_command",
         operation: fullCommand,
         args: { command: fullCommand, cwd: args.cwd || "." },
-        reason: args.reason || "No reason provided",
+        reason: isTier3 ? `${riskContext}. Reason: ${args.reason || 'None'}` : (args.reason || "No reason provided"),
         riskLevel: risk,
         reversible: false,
         impact: `Execute: ${fullCommand}`,
@@ -772,12 +754,28 @@ const execCommandTool: RegisteredTool<any> = {
 
     const startMs = Date.now();
     try {
-      const { stdout, stderr } = await execFileAsync(binary, cmdArgs, {
-        ...BASE_EXEC_OPTS,
-        cwd,
-        timeout: args.timeoutMs || 30_000,
-        env: isWrite ? makeSafeEnv() : undefined, // Strip secrets from write commands only
-      });
+      let stdout: string, stderr: string;
+      const env = (isWrite && !isTier3) ? makeSafeEnv() : undefined;
+
+      if (isTier3) {
+        // Option C: Shell Enablement for Tier 3 commands
+        const result = await execAsync(fullCommand, {
+          cwd,
+          timeout: args.timeoutMs || 30_000,
+          env
+        });
+        stdout = result.stdout;
+        stderr = result.stderr;
+      } else {
+        const result = await execFileAsync(binary, cmdArgs, {
+          ...BASE_EXEC_OPTS,
+          cwd,
+          timeout: args.timeoutMs || 30_000,
+          env
+        });
+        stdout = result.stdout;
+        stderr = result.stderr;
+      }
 
       const opId = ledger.record({
         tool: "exec_command", operation: fullCommand,
@@ -1652,6 +1650,162 @@ const operationLedgerTool: RegisteredTool<any> = {
   },
 };
 
+// ═════════════════════════════════════════════════════════════════════════════
+// TOOL 8: git_sync (Automatic Add, Commit, Push)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const gitSyncTool: RegisteredTool<any> = {
+  definition: {
+    name: "git_sync",
+    description: "Automatically stages all changes, commits them with the provided message, and pushes to the current remote branch.",
+    schema: z.object({
+      message: z.string().min(1).describe("The commit message"),
+      cwd: z.string().optional().describe("Working directory relative to workspace root")
+    })
+  },
+  handler: async (args, context) => {
+    const rate = checkRate("git_sync", true);
+    if (!rate.allowed) {
+      return { success: false, error: `Rate limit exceeded.` };
+    }
+
+    const cwd = args.cwd ? safePath(args.cwd) : WORKSPACE_ROOT;
+
+    const result = await tieredApproval(2, {
+      tool: "git_sync",
+      operation: "sync",
+      args: { message: args.message, cwd: args.cwd },
+      reason: "Automated git sync workflow",
+      riskLevel: "medium",
+      reversible: false,
+      impact: `Commit and push changes with message: "${args.message}"`,
+      preview: `git add . && git commit -m "${args.message}" && git push`
+    }, context);
+
+    if (result.decision !== "approved") {
+      return handleNonApproval(result, "git_sync", args);
+    }
+
+    try {
+      // 1. Add
+      await execFileAsync("git", ["add", "."], { cwd });
+      
+      // 2. Commit
+      let commitStdout = "";
+      try {
+        const commitRes = await execFileAsync("git", ["commit", "-m", args.message], { cwd });
+        commitStdout = commitRes.stdout;
+      } catch (err: any) {
+        // If there are no changes, commit will fail with exit code 1. Check stdout.
+        if (err.stdout && err.stdout.includes("nothing to commit")) {
+          return { success: true, message: "Nothing to commit. Working tree clean." };
+        }
+        throw err; // Real error
+      }
+
+      // 3. Push
+      const pushArgs = ["push"];
+      if (process.env.TRUTH_GIT_PAT) {
+        // Unify Truth AI git operations by injecting a dedicated PAT as an extraheader
+        // This securely bypasses the osxkeychain credential helper without polluting .git/config
+        const b64Token = Buffer.from(`x-access-token:${process.env.TRUTH_GIT_PAT}`).toString('base64');
+        pushArgs.unshift("-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${b64Token}`);
+      }
+      const pushRes = await execFileAsync("git", pushArgs, { cwd });
+
+      return {
+        success: true,
+        message: "Successfully added, committed, and pushed changes.",
+        commitOutput: commitStdout,
+        pushOutput: pushRes.stderr // git push usually writes to stderr
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message,
+        stdout: err.stdout,
+        stderr: err.stderr
+      };
+    }
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TOOL 9: github_admin (Manage PRs and Secrets)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const githubAdminTool: RegisteredTool<any> = {
+  definition: {
+    name: "github_admin",
+    description: "Perform administrative GitHub operations such as managing PRs and repository secrets. Bypasses OS keyring and uses unified TRUTH_GIT_PAT if available.",
+    schema: z.object({
+      action: z.enum(["create_pr", "merge_pr", "set_secret"]),
+      title: z.string().optional().describe("PR title (for create_pr)"),
+      body: z.string().optional().describe("PR body (for create_pr)"),
+      base: z.string().optional().describe("Base branch (for create_pr, defaults to main)"),
+      pr_number: z.number().optional().describe("PR number (for merge_pr)"),
+      secret_name: z.string().optional().describe("Secret name (for set_secret)"),
+      secret_value: z.string().optional().describe("Secret value (for set_secret)"),
+      cwd: z.string().optional()
+    })
+  },
+  handler: async (args, context) => {
+    const rate = checkRate("github_admin", true);
+    if (!rate.allowed) return { success: false, error: "Rate limit exceeded." };
+
+    const cwd = args.cwd ? safePath(args.cwd) : WORKSPACE_ROOT;
+
+    // Must be Tier 3 due to secret management and PR overrides
+    const result = await tieredApproval(3, {
+      tool: "github_admin",
+      operation: args.action,
+      args: { ...args },
+      reason: "Administrative GitHub Operation",
+      riskLevel: "high",
+      reversible: args.action === "create_pr",
+      impact: `Execute GitHub admin action: ${args.action}`,
+      preview: `gh ${args.action}`
+    }, context);
+
+    if (result.decision !== "approved") return handleNonApproval(result, "github_admin", args);
+
+    const env = process.env.TRUTH_GIT_PAT ? { ...process.env, GITHUB_TOKEN: process.env.TRUTH_GIT_PAT } : process.env;
+
+    try {
+      if (args.action === "create_pr") {
+        if (!args.title) throw new Error("title is required for create_pr");
+        const ghArgs = ["pr", "create", "--title", args.title, "--body", args.body || ""];
+        if (args.base) ghArgs.push("--base", args.base);
+        const { stdout, stderr } = await execFileAsync("gh", ghArgs, { cwd, env });
+        return { success: true, message: stdout.trim(), stderr: (stderr || "").trim() };
+      } 
+      else if (args.action === "merge_pr") {
+        if (!args.pr_number) throw new Error("pr_number is required for merge_pr");
+        const { stdout, stderr } = await execFileAsync("gh", ["pr", "merge", args.pr_number.toString(), "--merge", "--admin"], { cwd, env });
+        return { success: true, message: stdout.trim(), stderr: (stderr || "").trim() };
+      }
+      else if (args.action === "set_secret") {
+        if (!args.secret_name || !args.secret_value) throw new Error("secret_name and secret_value are required for set_secret");
+        
+        // Spawn gh securely and pipe secret value to stdin
+        const child = require("child_process").spawn("gh", ["secret", "set", args.secret_name], { cwd, env });
+        child.stdin.write(args.secret_value);
+        child.stdin.end();
+        
+        await new Promise((resolve, reject) => {
+          child.on("close", (code: number) => code === 0 ? resolve(null) : reject(new Error(`gh secret set failed with code ${code}`)));
+          child.on("error", reject);
+        });
+        return { success: true, message: `Secret ${args.secret_name} set successfully.` };
+      }
+      
+      return { success: false, error: "Unknown action" };
+    } catch (err: any) {
+      return { success: false, error: err.message, stdout: err.stdout, stderr: err.stderr };
+    }
+  }
+};
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
 export const engineeringTools: RegisteredTool<any>[] = [
@@ -1662,4 +1816,6 @@ export const engineeringTools: RegisteredTool<any>[] = [
   runTestsTool,
   undoOperationTool,
   operationLedgerTool,
+  gitSyncTool,
+  githubAdminTool,
 ];

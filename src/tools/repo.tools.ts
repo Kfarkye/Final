@@ -30,29 +30,12 @@ const execFileAsync = promisify(execFile);
 
 const PROJECT_ROOT = process.cwd();
 
-const BLOCKED_PATTERNS = [
-  /\.env/i,
-  /node_modules\/(?!.*\.d\.ts$)/,  // Allow .d.ts type definitions
-  /\.git\//,
-  /\/\.git$/,
-  /dist\//,
-  /\.pem$/,
-  /\.key$/,
-  /secrets?\./i,
-];
-
 function safePath(requestedPath: string): string {
   // Resolve relative to project root, then verify it's within bounds
   const resolved = path.resolve(PROJECT_ROOT, requestedPath);
 
   if (!resolved.startsWith(PROJECT_ROOT)) {
     throw new Error(`Path traversal blocked: "${requestedPath}" resolves outside project root`);
-  }
-
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(resolved)) {
-      throw new Error(`Access denied: "${requestedPath}" matches blocked pattern ${pattern}`);
-    }
   }
 
   return resolved;
