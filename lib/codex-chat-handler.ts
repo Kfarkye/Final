@@ -30,13 +30,13 @@ import { env } from '../src/config/env.js';
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
 const MAX_CODEX_TOOLS = 80;
-const MAX_TOOL_TURNS = 30;
-const MAX_STREAM_RECONNECTS = 2;
+const MAX_TOOL_TURNS = 100;
+const MAX_STREAM_RECONNECTS = 3;
 const STREAM_IDLE_TIMEOUT_MS = 60_000;
 const MAX_CODEX_OUTPUT_TOKENS = 16_384;
 const MAX_TOTAL_RESPONSE_TOKENS = 200_000;
-const MAX_TOTAL_TOOL_CALLS = 80;
-const MAX_REPEATED_TOOL_CALLS = 3;
+const MAX_TOTAL_TOOL_CALLS = 100;
+const MAX_REPEATED_TOOL_CALLS = 10;
 const MAX_STUCK_TOOL_ONLY_TURNS = 6;
 const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 6;
 const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 24;
@@ -775,6 +775,10 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     if (!endedNaturally && !stoppedWithTerminalError) {
       sendSSE('error', {
         message: 'Codex stopped before producing a final answer.',
+      });
+      sendSSE('message', {
+        model: codexModel,
+        chunk: `\n\n[Reached tool-call limit of ${MAX_TOTAL_TOOL_CALLS}; stopping here.]`
       });
     }
 
