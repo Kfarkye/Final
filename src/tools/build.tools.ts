@@ -297,9 +297,6 @@ Returns: buildId, logUrl, status.`,
             logging: 'CLOUD_LOGGING_ONLY',
             machineType: 'E2_HIGHCPU_8',
           },
-          substitutions: {
-            _IMAGE_TAG: imageTag,
-          },
         },
       };
 
