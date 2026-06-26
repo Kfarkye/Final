@@ -145,6 +145,26 @@ function translateTool(tool: string, argsPreview?: string): { label: string; lin
       return { label: `Finding videos: "${(args.query || '').slice(0, 30)}"` };
     case 'get_youtube_video':
       return { label: 'Getting video details' };
+    case 'pubsub_list_topics':
+      return { label: 'Checking message topics' };
+    case 'pubsub_create_topic':
+      return { label: `Setting up topic: ${args.topicId || ''}` };
+    case 'pubsub_publish':
+      return { label: `Publishing to ${args.topicId || 'topic'}` };
+    case 'pubsub_list_subscriptions':
+      return { label: 'Checking subscriptions' };
+    case 'pubsub_create_subscription':
+      return { label: `Subscribing to ${args.topicId || 'topic'}` };
+    case 'analyze_image':
+      return { label: 'Reading the image' };
+    case 'google_search':
+      return { label: `Searching: "${(args.query || '').slice(0, 30)}"` };
+    case 'check_pagespeed':
+      return { label: `Testing speed: ${args.url || ''}` };
+    case 'eventarc_list_triggers':
+      return { label: 'Checking event triggers' };
+    case 'eventarc_create_trigger':
+      return { label: `Wiring trigger: ${args.triggerId || ''}` };
     default:
       return { label: tool.replace(/_/g, ' ') };
   }
