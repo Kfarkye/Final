@@ -141,6 +141,10 @@ function translateTool(tool: string, argsPreview?: string): { label: string; lin
       return { label: 'Checking build history' };
     case 'get_build_log':
       return { label: 'Pulling build details' };
+    case 'search_youtube':
+      return { label: `Finding videos: "${(args.query || '').slice(0, 30)}"` };
+    case 'get_youtube_video':
+      return { label: 'Getting video details' };
     default:
       return { label: tool.replace(/_/g, ' ') };
   }
