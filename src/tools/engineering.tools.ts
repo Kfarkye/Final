@@ -120,9 +120,9 @@ const ALLOWED_BINARIES = new Set([
   "prettier", "eslint", "biome",
   // SEC-6: "env" REMOVED — credential exfiltration vector
   "cat", "head", "tail", "wc", "find", "ls", "tree", "du", "df",
-  "grep", "sort", "uniq", "diff", "echo", "date", "which",
+  "grep", "sort", "uniq", "diff", "echo", "date", "which", "sed",
   "mkdir", "cp", "mv", "touch",
-  "git",
+  "git", "kubectl",
   "make", "cargo", "go", "python", "python3", "pip", "pip3",
 ]);
 
@@ -693,8 +693,8 @@ const execCommandTool: RegisteredTool<any> = {
       command: z.string().min(1).describe('The command to execute (e.g., "npm test", "ls -la src/")'),
       reason: z.string().optional().describe("Why — shown to human in approval UX"),
       cwd: z.string().optional().describe("Working directory relative to workspace root"),
-      timeoutMs: z.number().int().min(1000).max(60_000).default(30_000)
-        .describe("Timeout in ms (default: 30000, max: 60000)"),
+      timeoutMs: z.number().int().min(1000).max(120_000).default(30_000)
+        .describe("Timeout in ms (default: 30000, max: 120000)"),
     }),
   },
   handler: async (args, context) => {
@@ -1308,8 +1308,8 @@ const runTestsTool: RegisteredTool<any> = {
       runner: z.enum(["vitest", "jest", "mocha", "pytest", "npm_test", "auto"]).default("auto")
         .describe("Test runner to use. Auto-detects from package.json."),
       grep: z.string().optional().describe("Filter tests by name pattern"),
-      timeoutMs: z.number().int().min(5000).max(120_000).default(60_000)
-        .describe("Timeout in ms (default: 60000, max: 120000)"),
+      timeoutMs: z.number().int().min(5000).max(300_000).default(120_000)
+        .describe("Timeout in ms (default: 120000, max: 300000)"),
     }),
   },
   handler: async (args, context) => {

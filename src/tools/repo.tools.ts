@@ -32,7 +32,7 @@ const PROJECT_ROOT = process.cwd();
 
 const BLOCKED_PATTERNS = [
   /\.env/i,
-  /node_modules/,
+  /node_modules\/(?!.*\.d\.ts$)/,  // Allow .d.ts type definitions
   /\.git\//,
   /\/\.git$/,
   /dist\//,

@@ -73,6 +73,7 @@ COPY --from=builder /app/index.html ./index.html
 COPY --from=builder /app/vite.config.ts ./vite.config.ts
 COPY --from=builder /app/workspace.manifest.json ./workspace.manifest.json
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/k8s ./k8s
 COPY --from=builder /app/data ./data
 COPY --from=builder /app/Dockerfile ./Dockerfile
 COPY --from=builder /app/.git ./.git
