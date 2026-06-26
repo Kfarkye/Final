@@ -33,9 +33,9 @@ export const buildTools: RegisteredTool<any>[] = [
           tool: "trigger_build",
           args: { imageTag: args.imageTag }
         });
-        const approved = await waitForApproval(approvalId, "trigger_build", args);
-        if (!approved) {
-          return { error: "Permission Denied: User did not approve triggering the build." };
+        const decision = await waitForApproval(approvalId, "trigger_build", args);
+        if (decision.decision !== "approved") {
+          return { error: `Build denied: ${(decision as any).reason || decision.decision}` };
         }
       }
 
@@ -199,9 +199,9 @@ Returns: buildId, logUrl, status.`,
           tool: "deploy_truth_cloudbuild",
           args: { imageTag: args.imageTag, action: "Deploy to production GKE" }
         });
-        const approved = await waitForApproval(approvalId, "deploy_truth_cloudbuild", args);
-        if (!approved) {
-          return { error: "Permission Denied: User did not approve the deployment." };
+        const decision = await waitForApproval(approvalId, "deploy_truth_cloudbuild", args);
+        if (decision.decision !== "approved") {
+          return { error: `Deploy denied: ${(decision as any).reason || decision.decision}` };
         }
       }
 
@@ -251,11 +251,22 @@ Returns: buildId, logUrl, status.`,
       }
 
       // Step 3: Submit Cloud Build with storageSource
+      // ⚠️  SYNC: These steps mirror cloudbuild.yaml (+ flatten step for GitHub archives).
+      //    If you edit cloudbuild.yaml, update these steps to match.
       const buildConfig: any = {
         projectId,
         build: {
           steps: [
-            // Build with kaniko (cached)
+            // Step 0: Flatten GitHub archive (GitHub tarballs nest under Final-kfarkye-final/)
+            {
+              name: 'ubuntu',
+              entrypoint: 'bash',
+              args: [
+                '-c',
+                'if [ -d Final-kfarkye-final ]; then mv Final-kfarkye-final/* . && rm -rf Final-kfarkye-final; fi',
+              ],
+            },
+            // Step 1: Build with kaniko (cached)
             {
               name: 'gcr.io/kaniko-project/executor:latest',
               args: [
