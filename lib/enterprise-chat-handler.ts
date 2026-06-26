@@ -1684,8 +1684,8 @@ Flag any P0 issues prominently. Include row counts and timestamps.
             continueLoop = false;
           }
 
-          if (runCount >= 40 && continueLoop && !signal.aborted) {
-            sendSse('message', { model: targetId, chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
+          if (runCount >= 100 && continueLoop && !signal.aborted) {
+            sendSse('message', { model: targetId, chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
           }
         }
       })()));
@@ -1860,8 +1860,8 @@ CRITICAL CONSTRAINTS:
           currentMessages.push(...toolResults);
           runCount++;
 
-          if (runCount >= 40 && !signal.aborted) {
-            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
+          if (runCount >= 100 && !signal.aborted) {
+            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
           }
         }
       })()));
@@ -2023,8 +2023,8 @@ CRITICAL CONSTRAINTS:
           }
           runCount++;
 
-          if (runCount >= 40 && hasToolUse && !signal.aborted) {
-            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
+          if (runCount >= 100 && hasToolUse && !signal.aborted) {
+            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
           }
         }
       })()));
@@ -2163,8 +2163,8 @@ CRITICAL CONSTRAINTS:
             currentMessages.push(...toolResults);
             runCount++;
 
-            if (runCount >= 40 && !signal.aborted) {
-              sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
+            if (runCount >= 100 && !signal.aborted) {
+              sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
             }
           }
         })()));
@@ -2355,8 +2355,8 @@ CRITICAL CONSTRAINTS:
             currentMessages.push(...toolResults);
             runCount++;
 
-            if (runCount >= 40 && !signal.aborted) {
-              sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 40; stopping here.]' });
+            if (runCount >= 100 && !signal.aborted) {
+              sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
             }
           }
         })()));
