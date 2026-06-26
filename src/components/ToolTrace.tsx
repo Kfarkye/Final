@@ -53,7 +53,7 @@ function highlightJson(jsonString: string): React.ReactNode[] {
   });
 }
 
-/** Translates raw tool name + args into a human-readable label + optional link */
+/** Translates raw tool name + args into natural language + optional link */
 function translateTool(tool: string, argsPreview?: string): { label: string; link?: string } {
   let args: any = {};
   try { if (argsPreview) args = JSON.parse(argsPreview); } catch {}
@@ -63,21 +63,21 @@ function translateTool(tool: string, argsPreview?: string): { label: string; lin
       const sql = (args.sql || '').trim();
       const table = sql.match(/(?:FROM|UPDATE|INTO|JOIN)\s+(\w+)/i)?.[1];
       if (table) {
-        if (/^\s*SELECT/i.test(sql)) return { label: `Querying ${table}` };
+        if (/^\s*SELECT/i.test(sql)) return { label: `Pulling up ${table}` };
         if (/^\s*UPDATE/i.test(sql)) return { label: `Updating ${table}` };
-        if (/^\s*INSERT/i.test(sql)) return { label: `Inserting into ${table}` };
-        if (/^\s*DELETE/i.test(sql)) return { label: `Deleting from ${table}` };
+        if (/^\s*INSERT/i.test(sql)) return { label: `Adding to ${table}` };
+        if (/^\s*DELETE/i.test(sql)) return { label: `Cleaning up ${table}` };
       }
-      return { label: 'Running query' };
+      return { label: 'Looking something up' };
     }
     case 'describe_spanner_table':
-      return { label: `Inspecting ${args.tableName || 'table'} schema` };
+      return { label: `Checking ${args.tableName || 'table'} structure` };
     case 'get_full_schema':
-      return { label: `Loading full schema` };
+      return { label: 'Getting the lay of the land' };
     case 'get_database_ddl':
-      return { label: `Loading database schema` };
+      return { label: 'Mapping out the database' };
     case 'search_web':
-      return { label: `Searching "${args.query || ''}"` };
+      return { label: `Looking up "${args.query || ''}"` };
     case 'fetch_html':
     case 'fetch_markdown':
     case 'fetch_readable':
@@ -86,9 +86,9 @@ function translateTool(tool: string, argsPreview?: string): { label: string; lin
       const url = args.url || args.urls?.[0] || '';
       try {
         const hostname = new URL(url).hostname.replace('www.', '');
-        return { label: `Reading ${hostname}`, link: url };
+        return { label: `Checking ${hostname}`, link: url };
       } catch {
-        return { label: 'Fetching page' };
+        return { label: 'Reading a page' };
       }
     }
     case 'fetch_json':
@@ -96,36 +96,45 @@ function translateTool(tool: string, argsPreview?: string): { label: string; lin
       const url = args.url || '';
       try {
         const hostname = new URL(url).hostname.replace('www.', '');
-        return { label: `Calling ${hostname}`, link: url };
+        return { label: `Hitting ${hostname}`, link: url };
       } catch {
-        return { label: 'Calling API' };
+        return { label: 'Grabbing some data' };
       }
     }
-    case 'write_file':
-    case 'edit_file':
+    case 'write_file': {
+      const name = (args.filePath || args.path || '').split('/').pop() || 'a file';
+      return { label: `Writing ${name}` };
+    }
+    case 'edit_file': {
+      const name = (args.filePath || args.path || '').split('/').pop() || 'a file';
+      return { label: `Tweaking ${name}` };
+    }
     case 'read_file': {
-      const name = (args.filePath || args.path || '').split('/').pop() || 'file';
-      const verb = tool === 'write_file' ? 'Writing' : tool === 'edit_file' ? 'Editing' : 'Reading';
-      return { label: `${verb} ${name}` };
+      const name = (args.filePath || args.path || '').split('/').pop() || 'a file';
+      return { label: `Reading ${name}` };
     }
     case 'exec_command':
     case 'run_script': {
       const cmd = args.command || args.script || '';
       const short = cmd.length > 40 ? cmd.slice(0, 37) + '…' : cmd;
-      return { label: `Running ${short || 'command'}` };
+      return { label: short ? `Running ${short}` : 'Running something' };
     }
     case 'get_mlb_odds':
-      return { label: 'Fetching live odds' };
+      return { label: 'Grabbing the latest odds' };
     case 'get_live_scores':
-      return { label: 'Checking live scores' };
+      return { label: 'Checking the scores' };
     case 'get_mlb_schedule':
-      return { label: 'Loading schedule' };
+      return { label: 'Pulling up the schedule' };
     case 'delegate_task':
-      return { label: `Delegating: ${(args.objective || '').slice(0, 40)}` };
+      return { label: `Handing off: ${(args.objective || '').slice(0, 40)}` };
     case 'request_human_secret':
-      return { label: `Requesting credential` };
+      return { label: 'Need a credential from you' };
+    case 'list_instances':
+      return { label: 'Scanning cloud instances' };
+    case 'list_databases':
+      return { label: 'Checking available databases' };
     default:
-      return { label: tool };
+      return { label: tool.replace(/_/g, ' ') };
   }
 }
 
