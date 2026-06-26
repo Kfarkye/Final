@@ -156,21 +156,23 @@ function hasBlockedRuntimeFlag(binary: string, cmdArgs: string[]): string | null
   return null;
 }
 
-const BLOCKED_COMMANDS = [
   /^rm\s+(-r|-rf|-f\s+-r|--recursive)/i,
   /^sudo\b/, /^su\b/, /^chmod\b/, /^chown\b/,
   /^curl\b/, /^wget\b/, /^ssh\b/, /^scp\b/,
   /^kill\b/, /^pkill\b/, /^killall\b/,
   />\s*\/dev\//, /^eval\b/, /^exec\b/,
   /\|\s*sh\b/, /\|\s*bash\b/, /`.*`/, /\$\(/,
-  // SEC-5: Git destructive operations
-  /^git\s+push\s+(--force|-f)\b/i,
-  /^git\s+push\s+--delete/i,
   /^git\s+clean\s+-[a-z]*f/i,
-  /^git\s+reset\s+--hard/i,
   // v2.1: Git code-execution vectors
   /^git\s+filter-branch/i,
   /^git\s+.*--exec/i,
+];
+
+// Commands that require Tier 3 (Critical) human approval instead of being blocked
+const TIER_3_COMMANDS = [
+  /^git\s+push\s+(--force|-f)\b/i,
+  /^git\s+push\s+--delete/i,
+  /^git\s+reset\s+--hard/i,
 ];
 
 // v2.1: npm run treated as write (arbitrary scripts), all make targets, cargo/go run
@@ -192,6 +194,9 @@ function isWriteCommand(cmd: string): boolean {
 }
 function isBlockedCommand(cmd: string): boolean {
   return BLOCKED_COMMANDS.some(p => p.test(cmd.trim()));
+}
+function isTier3Command(cmd: string): boolean {
+  return TIER_3_COMMANDS.some(p => p.test(cmd.trim()));
 }
 
 // SEC-10: Files requiring elevated scrutiny
@@ -239,6 +244,10 @@ const SAFE_ENV_STRIP_PATTERNS = [
 function makeSafeEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
+    // Preserve GitHub tokens so `git push` works
+    if (key === 'GITHUB_TOKEN' || key === 'GITHUB_PAT' || key === 'GITHUB_PERSONAL_ACCESS_TOKEN') {
+      continue;
+    }
     if (SAFE_ENV_STRIP_PATTERNS.some(p => p.test(key))) {
       delete env[key];
     }
@@ -733,13 +742,15 @@ const execCommandTool: RegisteredTool<any> = {
     }
 
     // Approval for write commands
-    if (isWrite) {
-      const result = await tieredApproval(2, {
+    if (isWrite || isTier3Command(fullCommand)) {
+      const tier = isTier3Command(fullCommand) ? 3 : 2;
+      const risk = tier === 3 ? "critical" : "medium";
+      const result = await tieredApproval(tier, {
         tool: "exec_command",
         operation: fullCommand,
         args: { command: fullCommand, cwd: args.cwd || "." },
         reason: args.reason || "No reason provided",
-        riskLevel: "medium",
+        riskLevel: risk,
         reversible: false,
         impact: `Execute: ${fullCommand}`,
         preview: fullCommand,
