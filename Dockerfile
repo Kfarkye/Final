@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     ca-certificates \
     && curl -fsSL https://deno.land/x/install/install.sh | sh \
+    && npm install -g @openai/codex \
     && git config --global --add safe.directory /app \
     && apt-get purge -y --auto-remove curl unzip \
     && rm -rf /var/lib/apt/lists/*
