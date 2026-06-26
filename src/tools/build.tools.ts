@@ -171,4 +171,157 @@ export const buildTools: RegisteredTool<any>[] = [
       }
     }
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  DEPLOY TRUTH — Full Cloud Build deploy from the chat agent
+  //  Downloads source from GitHub, uploads to GCS, submits build.
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "deploy_truth_cloudbuild",
+      description: `Deploy Truth to GKE via Cloud Build. Replicates 'gcloud builds submit' without needing local gcloud or filesystem.
+
+Flow: Downloads repo tarball from GitHub → uploads to GCS → submits Cloud Build with the same kaniko + kubectl steps as cloudbuild.yaml.
+
+Requires: Changes committed and pushed to GitHub (kfarkye/final branch).
+Input: imageTag (git short SHA).
+Returns: buildId, logUrl, status.`,
+      schema: z.object({
+        imageTag: z.string().min(1).describe("Git short SHA or tag for the image (e.g. '1f25cb5')"),
+      })
+    },
+    handler: async (args, context) => {
+      // Require human approval — this is a production deploy
+      if (context.connectionId) {
+        const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
+        sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
+          approvalId,
+          tool: "deploy_truth_cloudbuild",
+          args: { imageTag: args.imageTag, action: "Deploy to production GKE" }
+        });
+        const approved = await waitForApproval(approvalId, "deploy_truth_cloudbuild", args);
+        if (!approved) {
+          return { error: "Permission Denied: User did not approve the deployment." };
+        }
+      }
+
+      const client = getBuildClient();
+      const projectId = env.GCP_PROJECT;
+      const imageTag = args.imageTag;
+      const registry = `us-central1-docker.pkg.dev/${projectId}/truth/reverie`;
+      const bucket = `${projectId}_cloudbuild`;
+      const objectName = `source/${Date.now()}-${imageTag}.tgz`;
+
+      // Step 1: Download source tarball from GitHub
+      // GitHub provides .tar.gz archives for any branch/commit
+      const githubUrl = `https://github.com/Kfarkye/Final/archive/refs/heads/kfarkye/final.tar.gz`;
+      let sourceBuffer: Buffer;
+      try {
+        const res = await fetch(githubUrl, { redirect: 'follow' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        sourceBuffer = Buffer.from(await res.arrayBuffer());
+      } catch (err: any) {
+        return { error: `Failed to download source from GitHub: ${err.message}` };
+      }
+
+      // Step 2: Upload to GCS
+      // Use the Google Cloud Storage JSON API (the pod has auth via Workload Identity)
+      try {
+        const { GoogleAuth } = await import('google-auth-library');
+        const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+        const authClient = await auth.getClient();
+        const tokenResponse = await authClient.getAccessToken();
+        const token = tokenResponse.token;
+
+        const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/gzip',
+          },
+          body: sourceBuffer,
+        });
+        if (!uploadRes.ok) {
+          const errText = await uploadRes.text();
+          throw new Error(`GCS upload failed (HTTP ${uploadRes.status}): ${errText}`);
+        }
+      } catch (err: any) {
+        return { error: `Failed to upload source to GCS: ${err.message}` };
+      }
+
+      // Step 3: Submit Cloud Build with storageSource
+      const buildConfig: any = {
+        projectId,
+        build: {
+          steps: [
+            // Build with kaniko (cached)
+            {
+              name: 'gcr.io/kaniko-project/executor:latest',
+              args: [
+                '--dockerfile=Dockerfile',
+                `--destination=${registry}:${imageTag}`,
+                `--destination=${registry}:latest`,
+                '--cache=true',
+                '--cache-ttl=168h',
+                '--compressed-caching=false',
+                '--snapshot-mode=redo',
+                '--context=.',
+              ],
+            },
+            // Deploy to GKE
+            {
+              name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
+              entrypoint: 'bash',
+              args: [
+                '-c',
+                [
+                  `gcloud container clusters get-credentials truth-cluster --region=us-central1 --project=${projectId}`,
+                  'kubectl apply -f k8s/backend-config.yaml',
+                  'kubectl apply -f k8s/service.yaml',
+                  'kubectl apply -f k8s/deployment.yaml',
+                  `kubectl set image deployment/reverie reverie=${registry}:${imageTag}`,
+                  'kubectl rollout status deployment/reverie --timeout=300s',
+                ].join('\n'),
+              ],
+            },
+          ],
+          source: {
+            storageSource: {
+              bucket,
+              object: objectName,
+            },
+          },
+          timeout: { seconds: 1800 },
+          options: {
+            logging: 'CLOUD_LOGGING_ONLY',
+            machineType: 'E2_HIGHCPU_8',
+          },
+          substitutions: {
+            _IMAGE_TAG: imageTag,
+          },
+        },
+      };
+
+      try {
+        const [operation] = await client.createBuild(buildConfig);
+        const buildId = (operation.metadata as any)?.build?.id;
+        const logUrl = (operation.metadata as any)?.build?.logUrl;
+
+        return {
+          success: true,
+          buildId,
+          logUrl,
+          operationName: operation.name,
+          imageTag,
+          image: `${registry}:${imageTag}`,
+          source: `gs://${bucket}/${objectName}`,
+          message: `Build submitted. Tag: ${imageTag}. Monitor at: ${logUrl}`,
+          nextStep: `Use get_build_log({ buildId: "${buildId}" }) to check progress.`,
+        };
+      } catch (err: any) {
+        return { error: `Cloud Build submit failed: ${err.message}` };
+      }
+    }
+  },
 ];

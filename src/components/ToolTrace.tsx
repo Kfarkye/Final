@@ -133,6 +133,14 @@ function translateTool(tool: string, argsPreview?: string): { label: string; lin
       return { label: 'Scanning cloud instances' };
     case 'list_databases':
       return { label: 'Checking available databases' };
+    case 'deploy_truth_cloudbuild':
+      return { label: `Deploying ${args.imageTag || 'build'}` };
+    case 'trigger_build':
+      return { label: 'Kicking off a build' };
+    case 'list_builds':
+      return { label: 'Checking build history' };
+    case 'get_build_log':
+      return { label: 'Pulling build details' };
     default:
       return { label: tool.replace(/_/g, ' ') };
   }
