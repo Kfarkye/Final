@@ -9,6 +9,23 @@ export const EnterpriseChatInput: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Initialize draft from localStorage on mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('chat_draft');
+    if (savedDraft) {
+      setText(savedDraft);
+    }
+  }, []);
+
+  // Save draft to localStorage on change
+  useEffect(() => {
+    if (text) {
+      localStorage.setItem('chat_draft', text);
+    } else {
+      localStorage.removeItem('chat_draft');
+    }
+  }, [text]);
+
   // Initialize custom hook with production configurations
   const {
     attachments,
@@ -39,7 +56,7 @@ export const EnterpriseChatInput: React.FC = () => {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 300)}px`;
     }
   }, [text]);
 
@@ -59,7 +76,13 @@ export const EnterpriseChatInput: React.FC = () => {
 
     // Reset Form States
     setText('');
+    localStorage.removeItem('chat_draft');
     clearAttachments();
+
+    // Refocus the textarea after clearing
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 10);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -131,7 +154,7 @@ export const EnterpriseChatInput: React.FC = () => {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Write a message, drop files, or paste screenshot here..."
-            className="flex-1 w-full text-sm resize-none bg-transparent border-0 outline-none p-1 focus:ring-0 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 leading-relaxed font-normal min-h-[28px] max-h-[200px]"
+            className="flex-1 w-full text-sm resize-none bg-transparent border-0 outline-none p-1 focus:ring-0 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 leading-relaxed font-normal min-h-[28px] max-h-[300px]"
             {...pasteProps}
           />
         </div>
