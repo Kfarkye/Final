@@ -924,47 +924,13 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
 
-    // ── Missing Secrets Detection ──────────────────────────────────────
-    // Detects critical secrets that aren't configured and injects a system
-    // prompt block so the AI proactively calls request_human_secret.
-    // This means non-technical users never need to know the tool name —
-    // the AI just asks for what it needs.
-    const CRITICAL_SECRETS: { envVar: string; secretId: string; label: string; intentMatch: string }[] = [
-      {
-        envVar: 'GITHUB_PERSONAL_ACCESS_TOKEN',
-        secretId: 'GITHUB_PERSONAL_ACCESS_TOKEN',
-        label: 'GitHub Personal Access Token',
-        intentMatch: 'push, PR, branch, merge, deploy to GitHub'
-      },
-      {
-        envVar: 'ODDS_API_KEY',
-        secretId: 'ODDS_API_KEY',
-        label: 'Odds API Key',
-        intentMatch: 'odds queries when no active ServiceBinding exists and the odds feed is failing authorization'
-      }
-    ];
-
-    const missingSecrets = CRITICAL_SECRETS.filter(s => !process.env[s.envVar]);
-    const missingSecretsBlock = missingSecrets.length > 0 ? `
-
-<secret_acquisition_policy>
-PRINCIPLE: Request a credential ONLY when the CURRENT task cannot proceed without that SPECIFIC credential.
-Never gate a user's question behind an unrelated secret. Default posture: ANSWER the question.
-
-INTENT → SECRET MAP:
-${missingSecrets.map(s => `  ${s.secretId} → ONLY for: ${s.intentMatch}. NEVER for anything else.`).join('\n')}
-
-ROUTING RULES:
-1. Classify the user's intent FIRST. If their intent is sports, odds, scores, analysis, or general chat → answer it directly. Required secrets = none.
-2. If a data feed is down → say "feed unavailable." NEVER substitute a credential demand for an honest status answer.
-3. Only call request_human_secret when the user's explicit intent matches the secret's purpose AND proceeding is impossible without it.
-4. NEVER demand a secret on the first message. Understand the question first.
-
-FORBIDDEN:
-- Demanding GITHUB_PERSONAL_ACCESS_TOKEN for any sports/odds/scores/analysis question.
-- Running request_human_secret before understanding the user's question.
-- Blocking a product answer on a secret the answer doesn't require.
-</secret_acquisition_policy>` : '';
+    // ── Missing Secrets Detection (DISABLED) ──────────────────────────────
+    // Previously injected a system prompt block telling the AI to proactively
+    // call request_human_secret for missing env vars. This caused terrible UX:
+    // the AI would demand credentials instead of answering questions, even when
+    // the keys were already set. The request_human_secret tool still exists for
+    // genuine cases — but the AI should not be prompted to use it proactively.
+    const missingSecretsBlock = '';
 
     const getBaseSystemPrompt = (modelName: string, actualModelId: string = ''): string => {
       const id = actualModelId.toLowerCase();
