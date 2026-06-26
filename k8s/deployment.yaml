@@ -35,7 +35,7 @@ spec:
             - name: GCP_PROJECT
               value: "gen-lang-client-0281999829"
             - name: GCP_LOCATION
-              value: "us-central1"
+              value: "global"
           envFrom:
             - secretRef:
                 name: truth-secrets
