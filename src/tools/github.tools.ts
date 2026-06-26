@@ -308,4 +308,65 @@ export const githubTools: RegisteredTool<any>[] = [
       }
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  LIST WORKFLOW RUNS — GitHub Actions CI/CD status
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "list_workflow_runs",
+      description: "List recent GitHub Actions workflow runs with status, conclusion, and timing. Use to check CI/CD pipeline health.",
+      schema: z.object({
+        owner: z.string().default("Kfarkye").describe("GitHub repo owner"),
+        repo: z.string().default("Final").describe("GitHub repo name"),
+        perPage: z.number().int().positive().default(10).describe("Number of runs to return (max 30)"),
+        branch: z.string().optional().describe("Filter by branch name"),
+        status: z.enum(["completed", "action_required", "cancelled", "failure", "neutral", "skipped", "stale", "success", "timed_out", "in_progress", "queued", "requested", "waiting", "pending"]).optional().describe("Filter by status"),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        let url = `https://api.github.com/repos/${args.owner}/${args.repo}/actions/runs?per_page=${Math.min(args.perPage || 10, 30)}`;
+        if (args.branch) url += `&branch=${encodeURIComponent(args.branch)}`;
+        if (args.status) url += `&status=${args.status}`;
+
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `token ${pat}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Truth-Platform',
+          },
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        return {
+          totalCount: data.total_count,
+          runs: (data.workflow_runs || []).map((run: any) => ({
+            id: run.id,
+            name: run.name,
+            status: run.status,
+            conclusion: run.conclusion,
+            branch: run.head_branch,
+            sha: run.head_sha?.substring(0, 7),
+            event: run.event,
+            createdAt: run.created_at,
+            updatedAt: run.updated_at,
+            htmlUrl: run.html_url,
+            runNumber: run.run_number,
+            actor: run.actor?.login,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to list workflow runs: ${err.message}` };
+      }
+    },
+  },
 ];

@@ -41,6 +41,7 @@ import { sourceTools } from './source.tools';
 import { githubTools } from './github.tools';
 import { oddsAdminTools } from './odds_admin.tools.js';
 import { gkeTools } from './gke.tools';
+import { artifactRegistryTools } from './artifact-registry.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -86,6 +87,7 @@ toolRegistry.registerMany([
   ...githubTools,
   ...oddsAdminTools,
   ...gkeTools,
+  ...artifactRegistryTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.
