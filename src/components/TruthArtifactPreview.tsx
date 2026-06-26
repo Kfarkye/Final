@@ -23,6 +23,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { copyToClipboard } from '../utils/clipboard';
 import {
   SandpackProvider,
   SandpackCodeEditor,
@@ -128,7 +129,7 @@ function ArtifactInner({
   }, [sandpack.files]);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(getCurrentHtml());
+    copyToClipboard(getCurrentHtml());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [getCurrentHtml]);

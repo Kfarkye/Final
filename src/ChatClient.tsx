@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { copyToClipboard } from './utils/clipboard';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, getAccessToken, initAuth } from './lib/firebase';
@@ -1511,7 +1512,7 @@ export default function ChatClient() {
                           const content = Object.values(turn.responses || {})
                             .filter(Boolean)
                             .join('\n\n---\n\n');
-                          navigator.clipboard.writeText(content);
+                          copyToClipboard(content);
                         }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-800 text-white px-2 py-1 rounded text-[10px] hover:bg-zinc-700"
                         title="Copy all responses"

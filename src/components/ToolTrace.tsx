@@ -8,6 +8,7 @@
  * - Duration badges and result previews
  */
 import React, { useState } from 'react';
+import { copyToClipboard } from '../utils/clipboard';
 import './tool-trace.css';
 
 export interface ToolTraceEntry {
@@ -69,7 +70,7 @@ const ToolTraceItem: React.FC<{ entry: ToolTraceEntry }> = ({ entry }) => {
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (entry.argsPreview) {
-      navigator.clipboard.writeText(entry.argsPreview);
+      copyToClipboard(entry.argsPreview);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }

@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { copyToClipboard } from '../utils/clipboard';
 import { DownloadMenu } from './DownloadMenu';
 
 const EXT_BY_LANG: Record<string, string> = {
@@ -17,7 +18,7 @@ export const CodeBlock: React.FC<{ code: string; lang?: string; children: React.
   const ext = EXT_BY_LANG[lang] ?? 'txt';
   const mime = MIME_BY_EXT[ext] ?? 'text/plain';
   const copy = useCallback(async () => {
-    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch {}
+    try { await copyToClipboard(code); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch {}
   }, [code]);
 
   return (
