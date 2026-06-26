@@ -108,6 +108,8 @@ function createMockRes() {
     written,
     setHeader: vi.fn(),
     flushHeaders: vi.fn(),
+    setTimeout: vi.fn(),
+    writableEnded: false,
     write: vi.fn((chunk: string) => {
       written.push(chunk);
       const match = chunk.match(/^event: (.+)\ndata: (.+)\n\n$/);
@@ -125,6 +127,7 @@ function createMockRes() {
 
 function createMockReq(overrides: Record<string, any> = {}) {
   return {
+    socket: { setKeepAlive: vi.fn(), setTimeout: vi.fn(), setNoDelay: vi.fn() },
     body: {
       prompt: 'What are the Yankees odds tonight?',
       history: [],
