@@ -1,19 +1,23 @@
 /* ============================================================================
-   AGENTIC TOOL TRACE — INVOCATION LOG
-   Ported from Clearspace native (index.css L298–L423) and refined.
+   AGENTIC TOOL TRACE — v2 (Series A Polish)
+   Human-readable timeline with micro-interactions.
    ============================================================================ */
 
 :root {
   --trace-bg:        #000000;
-  --trace-surface:   #0d0d0f;
-  --trace-line:      #1f1f24;
+  --trace-surface:   #0a0a0c;
+  --trace-surface-2: #111114;
+  --trace-line:      #1c1c22;
   --trace-line-soft: #141417;
   --trace-text:      #ededf0;
-  --trace-text-dim:  #6b6b73;
-  --trace-text-mute: #45454c;
-  --trace-accent:    #3b82f6;
-  --trace-ok:        #4ade80;
-  --trace-error:     #ef4444;
+  --trace-text-dim:  #8e8e96;
+  --trace-text-mute: #52525a;
+  --trace-accent:    #6366f1;
+  --trace-accent-soft: rgba(99, 102, 241, 0.08);
+  --trace-ok:        #34d399;
+  --trace-ok-soft:   rgba(52, 211, 153, 0.08);
+  --trace-error:     #f87171;
+  --trace-error-soft: rgba(248, 113, 113, 0.08);
 
   --trace-c-kw:   #c792ea;
   --trace-c-str:  #c3e88d;
@@ -21,29 +25,31 @@
   --trace-c-punc: #89ddff;
 
   --trace-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --trace-sans: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
 }
 
-/* ---- the invocation log container ---- */
+/* ---- container ---- */
 .trace-log {
-  padding: 12px 0 4px 0;
+  padding: 14px 0 6px 0;
 }
 
-/* ---- individual turn (one tool call) ---- */
+/* ---- individual turn ---- */
 .trace-turn {
   position: relative;
-  padding-left: 26px;
-  padding-bottom: 20px;
+  padding-left: 28px;
+  padding-bottom: 16px;
+  transition: opacity 0.2s ease;
 }
 
-/* vertical connector line */
+/* vertical connector */
 .trace-turn::before {
   content: '';
   position: absolute;
   left: 5px;
   top: 7px;
-  bottom: -3px;
-  width: 1px;
-  background: var(--trace-line);
+  bottom: -1px;
+  width: 1.5px;
+  background: linear-gradient(to bottom, var(--trace-line), transparent);
   transition: background 0.3s ease;
 }
 .trace-turn:last-child::before {
@@ -51,7 +57,12 @@
   height: 18px;
 }
 
-/* ---- timeline node dot ---- */
+/* connector color when running */
+.trace-turn.trace-running::before {
+  background: linear-gradient(to bottom, var(--trace-accent), transparent);
+}
+
+/* ---- timeline node ---- */
 .trace-turn .trace-node {
   position: absolute;
   left: 0;
@@ -62,12 +73,13 @@
   background: var(--trace-bg);
   border: 1.5px solid var(--trace-text-mute);
   transition: all 0.3s ease;
+  z-index: 1;
 }
 
-/* running state — pulsing blue */
+/* running — pulsing indigo */
 .trace-turn.trace-running .trace-node {
   border-color: var(--trace-accent);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 4px var(--trace-accent-soft);
 }
 .trace-turn.trace-running .trace-node::after {
   content: '';
@@ -75,10 +87,10 @@
   inset: 1.5px;
   border-radius: 50%;
   background: var(--trace-accent);
-  animation: trace-pulse 1.6s ease-in-out infinite;
+  animation: trace-pulse 1.4s ease-in-out infinite;
 }
 
-/* success state — solid green */
+/* success — emerald */
 .trace-turn.trace-done .trace-node {
   border-color: var(--trace-ok);
 }
@@ -88,9 +100,10 @@
   inset: 2px;
   border-radius: 50%;
   background: var(--trace-ok);
+  animation: trace-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* error state — solid red */
+/* error — red */
 .trace-turn.trace-error .trace-node {
   border-color: var(--trace-error);
 }
@@ -102,98 +115,158 @@
   background: var(--trace-error);
 }
 
-/* subtle hover glow on node */
 .trace-turn:hover .trace-node {
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.03);
 }
 
 @keyframes trace-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.8); }
+}
+
+@keyframes trace-pop {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 /* ---- tool name row ---- */
 .trace-turn .trace-tool {
-  font-family: var(--trace-mono);
+  font-family: var(--trace-sans);
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.01em;
   color: var(--trace-text);
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
   line-height: 1.4;
+  letter-spacing: -0.01em;
+  transition: color 0.15s ease;
 }
 .trace-turn .trace-tool:hover {
   color: #fff;
 }
 
+.trace-turn .trace-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.trace-turn .trace-action {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
 .trace-turn .trace-verb {
   color: var(--trace-text-dim);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 12.5px;
+}
+
+.trace-turn .trace-preview {
+  color: var(--trace-text-dim);
+  font-family: var(--trace-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  opacity: 0.7;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 2px;
 }
 
 .trace-turn .trace-chev {
   margin-left: auto;
   color: var(--trace-text-mute);
   font-size: 10px;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-shrink: 0;
 }
 .trace-turn.trace-open .trace-chev {
   transform: rotate(180deg);
 }
 
-/* ---- meta row (status + duration) ---- */
+/* ---- meta row ---- */
 .trace-turn .trace-meta {
-  margin-top: 5px;
+  margin-top: 4px;
   font-size: 11px;
   color: var(--trace-text-dim);
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-family: var(--trace-mono);
+  gap: 6px;
+  font-family: var(--trace-sans);
+}
+
+.trace-turn .trace-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .trace-turn.trace-running .trace-meta .trace-label {
   color: var(--trace-accent);
 }
 .trace-turn.trace-done .trace-meta .trace-label {
-  color: var(--trace-text-dim);
+  color: var(--trace-text-mute);
 }
 .trace-turn.trace-error .trace-meta .trace-label {
   color: var(--trace-error);
 }
 
+/* inline spinner */
+.trace-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--trace-accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: trace-spin 0.8s linear infinite;
+}
+
+@keyframes trace-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* inline result text */
+.trace-result-inline {
+  color: var(--trace-text-mute);
+  font-size: 11px;
+}
+
 .trace-turn .trace-dur {
   color: var(--trace-text-mute);
   margin-left: auto;
-  font-size: 11px;
+  font-size: 10.5px;
+  font-family: var(--trace-mono);
   font-variant-numeric: tabular-nums;
+  opacity: 0.6;
 }
 
 /* ---- expandable payload ---- */
 .trace-turn .trace-payload {
   margin-top: 10px;
   display: none;
-  animation: trace-reveal 0.2s ease;
+  animation: trace-reveal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .trace-turn.trace-open .trace-payload {
   display: block;
 }
 
 @keyframes trace-reveal {
-  from { opacity: 0; transform: translateY(-4px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ---- code block inside payload ---- */
+/* ---- code block ---- */
 .trace-code {
   border: 1px solid var(--trace-line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--trace-surface);
   overflow: hidden;
 }
@@ -205,11 +278,9 @@
   border-bottom: 1px solid var(--trace-line-soft);
   font-family: var(--trace-mono);
   font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--trace-text-dim);
-}
-.trace-code .trace-code-lang {
-  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  color: var(--trace-text-mute);
+  text-transform: uppercase;
 }
 .trace-code .trace-code-copy {
   margin-left: auto;
@@ -218,7 +289,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: color 0.2s;
+  transition: color 0.15s;
+  font-size: 10.5px;
 }
 .trace-code .trace-code-copy:hover {
   color: var(--trace-text-dim);
@@ -229,8 +301,8 @@
   padding: 12px 12px 12px 0;
   overflow-x: auto;
   font-family: var(--trace-mono);
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: 11.5px;
+  line-height: 1.65;
   tab-size: 2;
 }
 
@@ -248,7 +320,8 @@
   text-align: right;
   color: var(--trace-text-mute);
   user-select: none;
-  font-size: 11px;
+  font-size: 10px;
+  opacity: 0.5;
 }
 
 /* syntax tokens */
@@ -257,20 +330,20 @@
 .trace-num { color: var(--trace-c-num); }
 .trace-punc { color: var(--trace-c-punc); }
 
-/* ---- error message block ---- */
+/* ---- error message ---- */
 .trace-error-msg {
   margin-top: 8px;
   font-size: 12px;
   color: var(--trace-error);
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 6px;
+  background: var(--trace-error-soft);
+  border: 1px solid rgba(248, 113, 113, 0.15);
+  border-radius: 8px;
   padding: 8px 12px;
-  font-family: var(--trace-mono);
+  font-family: var(--trace-sans);
   line-height: 1.5;
 }
 
-/* ---- result preview inline ---- */
+/* ---- result preview (legacy compat) ---- */
 .trace-result-preview {
   margin-top: 6px;
   font-size: 11px;
