@@ -20,6 +20,14 @@ describe('MimeRenderer hydration safety (FIX #5)', () => {
     });
   });
 
+  it('renders a complete <!DOCTYPE html> document as a live artifact, not raw text', () => {
+    const md = '```html\n<!DOCTYPE html>\n<html><head><title>T</title></head><body><h1>hi</h1></body></html>\n```';
+    const { getByTestId, container } = render(<MimeRenderer content={md} />);
+    // Must mount the interactive preview, NOT dump source into a <pre>.
+    expect(getByTestId('artifact')).toBeTruthy();
+    expect(container.querySelector('pre')).toBeNull();
+  });
+
   it('renders an mlb-odds-dashboard fence as the native component', () => {
     const { getByTestId } = render(
       <MimeRenderer content={'```mlb-odds-dashboard\n```'} />,

@@ -120,14 +120,72 @@
   letter-spacing: -0.01em;
   color: var(--trace-text);
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
-  line-height: 1.4;
+  line-height: 1.5;
+  min-height: 19px;
 }
-.trace-turn .trace-tool:hover {
-  color: #fff;
+
+/* two-tier label: dim action verb + bright concrete object */
+.trace-turn .trace-verb {
+  color: var(--trace-text-dim);
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: color 0.18s ease;
+}
+.trace-turn .trace-object {
+  color: var(--trace-text);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 44ch;
+}
+.trace-turn:hover .trace-verb { color: var(--trace-text); }
+.trace-turn:hover .trace-object { color: #fff; }
+.trace-turn.trace-running .trace-verb { color: var(--trace-accent); }
+.trace-turn.trace-error .trace-verb { color: var(--trace-error); }
+
+/* pushes status/metric/duration to the right edge */
+.trace-turn .trace-spacer { flex: 1 1 auto; min-width: 8px; }
+
+/* ---- right-edge status / result metric pills ---- */
+.trace-turn .trace-pill {
+  flex-shrink: 0;
+  font-family: var(--trace-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+  line-height: 1.5;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+.trace-turn .trace-pill-ok {
+  color: var(--trace-ok);
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.18);
+}
+.trace-turn .trace-pill-err {
+  color: var(--trace-error);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+.trace-turn .trace-pill-live {
+  color: var(--trace-accent);
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.18);
+  animation: trace-pill-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes trace-pill-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 .trace-turn .trace-link {
@@ -177,6 +235,8 @@
 }
 
 .trace-turn .trace-dur {
+  flex-shrink: 0;
+  margin-left: 2px;
   color: var(--trace-text-mute);
   font-size: 11px;
   font-family: var(--trace-mono);
