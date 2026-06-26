@@ -29,7 +29,7 @@ import { env } from '../src/config/env.js';
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
-const MAX_CODEX_TOOLS = 64;
+const MAX_CODEX_TOOLS = 80;
 const MAX_TOOL_TURNS = 30;
 const MAX_STREAM_RECONNECTS = 2;
 const STREAM_IDLE_TIMEOUT_MS = 60_000;

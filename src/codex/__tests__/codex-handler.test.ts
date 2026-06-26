@@ -252,7 +252,7 @@ describe('Codex Handler — Responses API', () => {
       expect(createCall.instructions).toContain('Use clean citations');
     });
 
-    it('caps Truth tools at 64', async () => {
+    it('caps Truth tools at 80', async () => {
       // Return 100 tools from the bridge
       mockGetCodexToolDefinitions.mockReturnValueOnce(
         Array.from({ length: 100 }, (_, i) => ({
@@ -275,8 +275,8 @@ describe('Codex Handler — Responses API', () => {
 
       const createCall = mockCreate.mock.calls[0][0];
       const functionTools = createCall.tools.filter((t: any) => t.type === 'function');
-      // 64 max + web_search + code_interpreter = 66 total
-      expect(functionTools.length).toBeLessThanOrEqual(64);
+      // 80 max + web_search + code_interpreter = 82 total
+      expect(functionTools.length).toBeLessThanOrEqual(80);
     });
 
     it('routes supported modelVersion values', async () => {
