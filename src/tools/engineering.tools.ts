@@ -64,7 +64,6 @@ const WRITE_MODE = (process.env.ENGINEERING_WRITE_MODE || "approval") as
 
 const BLOCKED_PATTERNS = [
   /\.env/i,
-  /node_modules/,
   /\.git\//,
   /\/\.git$/,
   /\.pem$/,
@@ -94,10 +93,14 @@ function safePath(requestedPath: string): string {
   }
 
   if (!realPath.startsWith(WORKSPACE_ROOT)) {
-    throw new Error(
-      `Path traversal blocked: "${requestedPath}" resolves outside workspace root` +
-        (realPath !== resolved ? " (via symlink)" : "")
-    );
+    throw new Error(`Path resolution violation: ${requestedPath} resolved outside workspace.`);
+  }
+
+  // SEC-8.1: Block dangerous files, but allow .d.ts files in node_modules
+  const isNodeModules = realPath.includes("node_modules");
+  const isDts = realPath.endsWith(".d.ts");
+  if (isNodeModules && !isDts) {
+    throw new Error(`Path violation: Access to node_modules/ is restricted to .d.ts files for type checking.`);
   }
 
   for (const pattern of BLOCKED_PATTERNS) {
@@ -136,8 +139,6 @@ const ALLOWED_NPX_PACKAGES = new Set([
 // e.g., `node -e "code"` AND `node --eval="code"` AND `node --eval code`
 const BLOCKED_RUNTIME_FLAGS: Record<string, string[]> = {
   node:    ["-e", "--eval", "-p", "--print", "--input-type"],
-  python:  ["-c"],
-  python3: ["-c"],
 };
 
 function hasBlockedRuntimeFlag(binary: string, cmdArgs: string[]): string | null {
