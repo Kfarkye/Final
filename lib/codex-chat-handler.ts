@@ -26,6 +26,9 @@ import {
 } from '../src/codex/truth-mcp-bridge.js';
 import { waitForApproval } from '../src/utils/approval.js';
 import { env } from '../src/config/env.js';
+import { logger } from '../src/utils/logger.js';
+
+const codexLog = logger.child({ component: 'codex-chat' });
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
@@ -165,6 +168,8 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
   ];
 
   const systemInstructions = buildCodexSystemPrompt(userTimezone);
+
+  codexLog.info({ model: codexModel, requestedModel, connectionId }, 'codex_stream_starting');
 
   sendSSE('codex_turn_started', {
     model: codexModel,
@@ -310,6 +315,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
             emittedUserVisibleOutput = true;
             emittedTextOutput = true;
             hostedToolCallsWithoutText = 0;
+            codexLog.debug({ connectionId, deltaLen: event.delta?.length }, 'codex_text_delta');
             sendSSE('delta', {
               model: 'codex',
               text: event.delta,
@@ -642,6 +648,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       if (!turnHadFunctionCalls || pendingCalls.length === 0) {
         // Model is done — no more function calls to process
         endedNaturally = true;
+        codexLog.info({ connectionId, turn, emittedTextOutput, emittedUserVisibleOutput }, 'codex_turn_ended_naturally');
         sendSSE('codex_turn_completed', {
           model: 'codex',
           responseId: latestResponseId,
@@ -649,6 +656,8 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         });
         break;
       }
+
+      codexLog.info({ connectionId, turn, pendingCalls: pendingCalls.length, emittedTextOutput }, 'codex_executing_truth_tools');
 
       // Execute all pending function calls and collect outputs
       const functionOutputs: Array<{
@@ -792,9 +801,10 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     }
 
   } catch (err: any) {
-    console.error(`[Codex] Responses API error: ${err.message}`);
+    codexLog.error({ err, connectionId, stack: err.stack }, 'codex_responses_api_error');
     sendSSE('error', { message: `Codex error: ${err.message}` });
   } finally {
+    codexLog.info({ connectionId }, 'codex_stream_ended');
     sendSSE('done', { model: 'codex' });
     res.end();
   }
