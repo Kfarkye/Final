@@ -1,0 +1,19 @@
+{
+  "id": "mcp-design-system-ts",
+  "title": "Design System MCP",
+  "description": "Status reporting for the Truth Design System.",
+  "tools": [
+    {
+      "name": "get_design_system_status",
+      "description": "Returns the operational status of the Truth Design System infrastructure.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ],
+  "createdAt": "2026-06-26T09:30:00.000Z",
+  "status": "staged",
+  "routePath": "/api/design-systems"
+}

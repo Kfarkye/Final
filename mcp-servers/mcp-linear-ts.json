@@ -1,0 +1,35 @@
+{
+  "id": "mcp-linear-ts",
+  "title": "Linear MCP Server",
+  "description": "Integration with Linear issues and team management",
+  "tools": [
+    {
+      "name": "linear_search_issues",
+      "description": "Search for issues in Linear by keyword.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "limit": { "type": "number", "description": "Default 10, Max 50" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "linear_create_issue",
+      "description": "Create a new Linear issue in a specific team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "teamId": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["teamId", "title"]
+      }
+    }
+  ],
+  "createdAt": "2026-06-26T09:30:00.000Z",
+  "status": "staged",
+  "routePath": "/api/mcp/linear"
+}

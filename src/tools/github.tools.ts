@@ -21,10 +21,15 @@ export async function getGithubPat(): Promise<string | null> {
     || env.GITHUB_PAT || process.env.GITHUB_PAT
     || process.env.GITHUB_TOKEN;
   if (envToken) return envToken;
-  
   // Check Secret Manager
   try {
     const client = getSecretClient();
+    try {
+      const [version] = await client.accessSecretVersion({
+        name: `projects/${env.GCP_PROJECT}/secrets/tenant_default_GITHUB_PERSONAL_ACCESS_TOKEN/versions/latest`,
+      });
+      return version.payload?.data?.toString() || null;
+    } catch(e) {}
     try {
       const [version] = await client.accessSecretVersion({
         name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_PERSONAL_ACCESS_TOKEN/versions/latest`,

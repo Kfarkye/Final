@@ -8,6 +8,13 @@ async function getYouTubeApiKey(): Promise<string> {
   if (youtubeApiKey) return youtubeApiKey;
   try {
     const client = new SecretManagerServiceClient();
+    try {
+      const [version] = await client.accessSecretVersion({
+        name: `projects/gen-lang-client-0281999829/secrets/tenant_default_YOUTUBE_API_KEY/versions/latest`,
+      });
+      youtubeApiKey = version.payload?.data?.toString() || '';
+      return youtubeApiKey;
+    } catch(e) {}
     const [version] = await client.accessSecretVersion({
       name: `projects/gen-lang-client-0281999829/secrets/YOUTUBE_API_KEY/versions/latest`,
     });
