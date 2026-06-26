@@ -26,17 +26,20 @@ import {
 } from '../src/codex/truth-mcp-bridge.js';
 import { waitForApproval } from '../src/utils/approval.js';
 import { env } from '../src/config/env.js';
+import { logger } from '../src/utils/logger.js';
+
+const codexLog = logger.child({ component: 'codex-chat' });
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
 const MAX_CODEX_TOOLS = 80;
-const MAX_TOOL_TURNS = 30;
-const MAX_STREAM_RECONNECTS = 2;
+const MAX_TOOL_TURNS = 100;
+const MAX_STREAM_RECONNECTS = 3;
 const STREAM_IDLE_TIMEOUT_MS = 60_000;
 const MAX_CODEX_OUTPUT_TOKENS = 16_384;
 const MAX_TOTAL_RESPONSE_TOKENS = 200_000;
-const MAX_TOTAL_TOOL_CALLS = 80;
-const MAX_REPEATED_TOOL_CALLS = 3;
+const MAX_TOTAL_TOOL_CALLS = 100;
+const MAX_REPEATED_TOOL_CALLS = 10;
 const MAX_STUCK_TOOL_ONLY_TURNS = 6;
 const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 6;
 const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 24;
@@ -165,6 +168,8 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
   ];
 
   const systemInstructions = buildCodexSystemPrompt(userTimezone);
+
+  codexLog.info({ model: codexModel, requestedModel, connectionId }, 'codex_stream_starting');
 
   sendSSE('codex_turn_started', {
     model: codexModel,
@@ -310,6 +315,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
             emittedUserVisibleOutput = true;
             emittedTextOutput = true;
             hostedToolCallsWithoutText = 0;
+            codexLog.debug({ connectionId, deltaLen: event.delta?.length }, 'codex_text_delta');
             sendSSE('delta', {
               model: 'codex',
               text: event.delta,
@@ -642,6 +648,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       if (!turnHadFunctionCalls || pendingCalls.length === 0) {
         // Model is done — no more function calls to process
         endedNaturally = true;
+        codexLog.info({ connectionId, turn, emittedTextOutput, emittedUserVisibleOutput }, 'codex_turn_ended_naturally');
         sendSSE('codex_turn_completed', {
           model: 'codex',
           responseId: latestResponseId,
@@ -649,6 +656,8 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         });
         break;
       }
+
+      codexLog.info({ connectionId, turn, pendingCalls: pendingCalls.length, emittedTextOutput }, 'codex_executing_truth_tools');
 
       // Execute all pending function calls and collect outputs
       const functionOutputs: Array<{
@@ -776,6 +785,10 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       sendSSE('error', {
         message: 'Codex stopped before producing a final answer.',
       });
+      sendSSE('message', {
+        model: codexModel,
+        chunk: `\n\n[Reached tool-call limit of ${MAX_TOTAL_TOOL_CALLS}; stopping here.]`
+      });
     }
 
     if (latestResponseId) {
@@ -788,9 +801,10 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     }
 
   } catch (err: any) {
-    console.error(`[Codex] Responses API error: ${err.message}`);
+    codexLog.error({ err, connectionId, stack: err.stack }, 'codex_responses_api_error');
     sendSSE('error', { message: `Codex error: ${err.message}` });
   } finally {
+    codexLog.info({ connectionId }, 'codex_stream_ended');
     sendSSE('done', { model: 'codex' });
     res.end();
   }

@@ -175,6 +175,29 @@ const MimeRendererComponent = memo(function MimeRenderer({
         );
       }
 
+      if (mimeType === 'application/vnd.truth.youtube+json') {
+        let payload = JSON.parse(getDecoded());
+        if (payload.payload) {
+          payload = payload.payload;
+        }
+        const videoId = payload.videoId;
+        if (!videoId) return null;
+        
+        return (
+          <div className="my-6 w-full max-w-[800px] aspect-video rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-black">
+            <iframe
+              width="100%"
+              height="100%"
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=${payload.displaySettings?.autoplay ? 1 : 0}&controls=${payload.displaySettings?.controls !== false ? 1 : 0}`}
+              title={payload.metadata?.title || 'YouTube video'}
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        );
+      }
+
       if (mimeType.startsWith('application/vnd.google-apps.')) {
         const doc = JSON.parse(getDecoded());
         return (
@@ -224,6 +247,9 @@ const MimeRendererComponent = memo(function MimeRenderer({
             const codeContent = String(childProps.children || '').replace(/\n$/, '');
 
             if (lang === 'html' || lang === 'iframe') {
+              // Complete HTML documents (incl. <!DOCTYPE html>) render as a live
+              // interactive preview. TruthArtifactPreview uses Sandpack template="static"
+              // with /index.html + SecureRenderHost, both of which expect a full document.
               return <TruthArtifactPreview html={codeContent} />;
             }
             if (lang === 'mlb-odds-dashboard') {

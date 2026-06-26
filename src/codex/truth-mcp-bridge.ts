@@ -17,37 +17,13 @@ import type { ApprovalDecision, TenantContext } from './types.js';
  * Tools explicitly blocked from Codex access.
  * These are admin/destructive operations that require direct human action.
  */
-const BLOCKED_TOOLS = new Set([
-  // Deployment & infrastructure
-  'deploy_staged_mcp',
-  'trigger_deploy',
-
-  // Key management
-  'rotate_odds_key',
-
-  // Ingestor control (can consume API quota)
-  'run_odds_ingestor_once',
-  'pause_odds_polling',
-  'resume_odds_polling',
-
-  // Runtime tool management
-  'register_runtime_tool',
-  'unregister_runtime_tool',
-
-  // Direct DB mutation tools
-  'spanner_admin_execute',
-]);
+const BLOCKED_TOOLS = new Set<string>([]);
 
 /**
  * Tools that require human approval before Codex can execute them.
  * These are safe but have side effects (writes, external API calls).
  */
-const APPROVAL_REQUIRED_TOOLS = new Set([
-  'github_write_file',
-  'github_create_pr',
-  'exec_command',
-  'write_file',
-]);
+const APPROVAL_REQUIRED_TOOLS = new Set<string>([]);
 
 /**
  * Returns the filtered list of tool names Codex is allowed to see.

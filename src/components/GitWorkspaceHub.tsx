@@ -623,8 +623,8 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       <div key={node.path || 'root'} className="select-none">
         {node.path && (
           <div 
-            style={{ paddingLeft: `${depth * 10 + 6}px` }}
-            className="flex items-center justify-between group py-1.5 px-2.5 rounded-lg hover:bg-zinc-900/40 cursor-pointer text-xs font-sans text-zinc-300 transition-colors"
+            style={{ paddingLeft: `${depth * 10 + 6}px`, fontFamily: 'var(--font-outfit)' }}
+            className="flex items-center justify-between group py-1.5 px-2.5 rounded-lg hover:bg-white/5 hover:backdrop-blur-md hover:translate-x-0.5 hover:shadow-lg cursor-pointer text-xs font-medium text-zinc-300 transition-all duration-300 ease-out"
             onClick={() => isDir ? handleExpandFolder(node.path) : null}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -716,13 +716,14 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       </AnimatePresence>
 
       {/* Visual Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-900 bg-black">
-        <div className="min-w-0">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800/40 bg-gradient-to-b from-zinc-900/30 to-black backdrop-blur-xl relative overflow-hidden">
+        <div className="absolute inset-0 bg-white/[0.02] pointer-events-none" />
+        <div className="min-w-0 relative">
           <div className="flex items-center gap-1.5 text-xs text-zinc-400 tracking-wider uppercase font-medium">
             <Terminal size={11} className="text-zinc-500" />
             <span>{activeSource === 'local' ? 'Local Workspace' : 'GitHub'}</span>
           </div>
-          <h2 className="text-base font-semibold text-white tracking-tight mt-1 truncate" title={activeSource === 'github' && selectedGithubRepo ? selectedGithubRepo : treeData?.name || 'Workspace'}>
+          <h2 className="text-base font-semibold text-white tracking-tight mt-1 truncate" style={{ fontFamily: 'var(--font-outfit)' }} title={activeSource === 'github' && selectedGithubRepo ? selectedGithubRepo : treeData?.name || 'Workspace'}>
             {activeSource === 'github' && selectedGithubRepo 
               ? selectedGithubRepo.split('/').pop() 
               : treeData?.name || 'No Repository Loaded'}
@@ -731,7 +732,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
         <button 
           onClick={activeSource === 'local' ? () => loadLocalGitData() : () => fetchGithubTree(selectedGithubRepo, selectedGithubBranch, githubToken)}
-          className="p-1 px-2 text-xs bg-zinc-950 hover:bg-zinc-900 active:scale-[0.98] border border-zinc-800/80 rounded-lg text-zinc-400 transition-all flex items-center gap-1.5"
+          className="p-1 px-2.5 text-xs bg-zinc-950/80 hover:bg-zinc-800 active:scale-[0.97] border border-zinc-800/80 hover:border-zinc-700 hover:text-white hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] rounded-lg text-zinc-400 transition-all duration-300 flex items-center gap-1.5 relative z-10"
           disabled={loading}
         >
           <RefreshCw size={11} className={loading ? 'animate-spin text-zinc-300' : 'text-zinc-500'} />

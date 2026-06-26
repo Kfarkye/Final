@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { copyToClipboard } from './utils/clipboard';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, getAccessToken, initAuth } from './lib/firebase';
@@ -290,7 +291,20 @@ export default function ChatClient() {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 300)}px`;
+    }
+  }, [inputVal]);
+
+  useEffect(() => {
+    const draft = localStorage.getItem('chat_draft');
+    if (draft && !inputVal) setInputVal(draft);
+  }, []);
+
+  useEffect(() => {
+    if (inputVal) {
+      localStorage.setItem('chat_draft', inputVal);
+    } else {
+      localStorage.removeItem('chat_draft');
     }
   }, [inputVal]);
 
@@ -468,6 +482,11 @@ export default function ChatClient() {
       dataUrl: att.dataUrl
     }));
     clearAttachments();
+    
+    // Refocus the input after sending like frontier labs do
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 10);
 
     const currentTarget = replyTargetModel
       ? [replyTargetModel]
@@ -1511,7 +1530,7 @@ export default function ChatClient() {
                           const content = Object.values(turn.responses || {})
                             .filter(Boolean)
                             .join('\n\n---\n\n');
-                          navigator.clipboard.writeText(content);
+                          copyToClipboard(content);
                         }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-800 text-white px-2 py-1 rounded text-[10px] hover:bg-zinc-700"
                         title="Copy all responses"
@@ -1595,12 +1614,12 @@ export default function ChatClient() {
       </div>
 
       {/* Input Area */}
-      <div className="p-6 bg-black/60 backdrop-blur-3xl backdrop-saturate-150 border-t border-white/[0.06] z-10 relative">
+      <div className="p-4 md:p-6 pb-6 md:pb-8 bg-gradient-to-t from-black via-black/80 to-transparent z-10 relative">
         <form
           onSubmit={handleSend}
-          className={`max-w-4xl mx-auto w-full relative flex flex-col space-y-2.5 shadow-[0_0_30px_rgba(255,255,255,0.03)] rounded-2xl border transition-all duration-200 ${isDragging
-              ? 'border-emerald-500 ring-2 ring-emerald-500/10 bg-emerald-950/20'
-              : 'border-white/10 bg-zinc-900/60 focus-within:border-white/30'
+          className={`max-w-[48rem] mx-auto w-full relative flex flex-col shadow-2xl rounded-[1.5rem] border transition-all duration-300 ${isDragging
+              ? 'border-emerald-500/50 ring-4 ring-emerald-500/10 bg-zinc-900/90 backdrop-blur-xl'
+              : 'border-white/10 bg-[#212121]/90 backdrop-blur-xl hover:bg-[#252525]/90 hover:border-white/15 focus-within:bg-[#252525] focus-within:border-white/25 focus-within:shadow-[0_8px_32px_rgba(0,0,0,0.5)]'
             }`}
           {...dragProps}
         >
@@ -1658,12 +1677,12 @@ export default function ChatClient() {
           )}
 
           {/* Input control area */}
-          <div className="flex items-start gap-2 p-3 min-h-[50px]">
+          <div className="flex items-end gap-2 p-3 min-h-[60px]">
             {/* Paperclip Button */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-3 text-zinc-500 hover:text-white hover:bg-white/5 rounded-full transition-colors flex-shrink-0"
+              className="p-2.5 mb-1.5 ml-1 text-zinc-400 hover:text-white hover:bg-white/10 rounded-full transition-colors flex-shrink-0"
               aria-label="Attach local files"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1675,25 +1694,27 @@ export default function ChatClient() {
             <textarea
               ref={textareaRef}
               rows={1}
+              style={{ fontFamily: 'var(--font-outfit)' }}
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                // Prevent accidental submission when using an IME (Input Method Editor)
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   handleSend(e);
                 }
               }}
-              placeholder={replyTargetModel ? `Type a message to ${getModelDisplayName(replyTargetModel)} only...` : mode === 'solo' ? "Type a message..." : "Type a message to prompt multiple models..."}
-              className="flex-1 w-full text-sm resize-none bg-transparent border-0 outline-none p-2 focus:ring-0 text-white placeholder-zinc-500 leading-relaxed font-light min-h-[38px] max-h-[200px]"
+              placeholder={replyTargetModel ? `Type a message to ${getModelDisplayName(replyTargetModel)}...` : "Send a message..."}
+              className="flex-1 w-full text-[15px] resize-none bg-transparent border-0 outline-none px-2 py-4 focus:ring-0 text-zinc-100 placeholder-zinc-600 leading-relaxed font-normal min-h-[56px] max-h-[300px] [&::-webkit-scrollbar]:hidden hover:[&::-webkit-scrollbar]:block"
               disabled={isTyping}
               {...pasteProps}
             />
 
             {/* Actions Toolbar on the Right */}
-            <div className="flex items-center space-x-2 self-end pb-1 pr-1 flex-shrink-0">
+            <div className="flex items-center space-x-2 pb-2 pr-2 flex-shrink-0">
               <button
                 type="button"
-                className="p-2.5 text-zinc-500 hover:text-white hover:bg-white/5 rounded-full transition-colors"
+                className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-full transition-colors"
                 title="Prompt Library"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path></svg>
@@ -1726,12 +1747,14 @@ export default function ChatClient() {
               <button
                 type="submit"
                 disabled={(!inputVal.trim() && attachments.length === 0) || isTyping}
-                className="p-3 bg-white text-black rounded-full hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 transition-all w-11 h-11 flex items-center justify-center shadow-md cursor-pointer"
+                className="p-2 bg-white text-black rounded-full hover:bg-zinc-200 disabled:opacity-20 disabled:hover:bg-white transition-all w-9 h-9 flex items-center justify-center shadow-sm cursor-pointer ml-1"
               >
                 {isTyping ? (
-                  <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  <svg className="w-4 h-4 translate-x-[1px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                  </svg>
                 )}
               </button>
             </div>

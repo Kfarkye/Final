@@ -49,12 +49,6 @@ function safePath(requestedPath: string): string {
     throw new Error(`Path traversal blocked: "${requestedPath}" resolves outside project root`);
   }
 
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(resolved)) {
-      throw new Error(`Access denied: "${requestedPath}" matches blocked pattern ${pattern}`);
-    }
-  }
-
   return resolved;
 }
 

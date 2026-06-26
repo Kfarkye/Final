@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface MessageActionsProps {
   content: string;
@@ -17,7 +18,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      await copyToClipboard(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (err) {

@@ -1,0 +1,41 @@
+{
+  "id": "mcp-notebook-ts",
+  "title": "Notebook MCP Server",
+  "description": "Safe reading, writing, and execution of Jupyter notebooks.",
+  "tools": [
+    {
+      "name": "notebook_read",
+      "description": "Reads a Jupyter notebook. Safely strips massive base64 images.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "filepath": { "type": "string" } },
+        "required": ["filepath"]
+      }
+    },
+    {
+      "name": "notebook_append_cell",
+      "description": "Append a code or markdown cell to the notebook WITHOUT executing it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filepath": { "type": "string" },
+          "source": { "type": "string" },
+          "cellType": { "type": "string", "enum": ["code", "markdown"] }
+        },
+        "required": ["filepath", "source"]
+      }
+    },
+    {
+      "name": "notebook_execute_all",
+      "description": "Executes the notebook sequentially top-to-bottom and saves outputs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "filepath": { "type": "string" } },
+        "required": ["filepath"]
+      }
+    }
+  ],
+  "createdAt": "2026-06-26T09:30:00.000Z",
+  "status": "staged",
+  "routePath": "/api/mcp/notebook"
+}

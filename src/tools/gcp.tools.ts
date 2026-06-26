@@ -163,16 +163,25 @@ export const gcpTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "list_cloud_log_entries",
-      description: "Search and retrieve Cloud Logging log entries.",
+      description: "Search and retrieve Cloud Logging log entries. Uses the Cloud Logging MCP endpoint.",
       schema: z.object({
-        filter: z.string().optional(),
+        filter: z.string().optional().describe("Cloud Logging filter expression (e.g. 'severity>=ERROR')"),
         projectId: z.string().optional(),
-        orderBy: z.string().optional(),
+        orderBy: z.string().optional().describe("'timestamp asc' or 'timestamp desc'"),
         pageSize: z.number().optional(),
         pageToken: z.string().optional()
       })
     },
-    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.logging, "list_log_entries", withProject(args))
+    handler: async (args) => {
+      const proj = args.projectId || projectId;
+      return callGcpMcpTool(MCP_ENDPOINTS.logging, "list_log_entries", {
+        resourceNames: [`projects/${proj}`],
+        filter: args.filter,
+        orderBy: args.orderBy || "timestamp desc",
+        pageSize: args.pageSize || 50,
+        ...(args.pageToken ? { pageToken: args.pageToken } : {}),
+      });
+    }
   },
   {
     definition: {
@@ -183,7 +192,13 @@ export const gcpTools: RegisteredTool<any>[] = [
         pageSize: z.number().optional()
       })
     },
-    handler: async (args) => callGcpMcpTool(MCP_ENDPOINTS.logging, "list_log_names", withProject(args))
+    handler: async (args) => {
+      const proj = args.projectId || projectId;
+      return callGcpMcpTool(MCP_ENDPOINTS.logging, "list_log_names", {
+        parent: `projects/${proj}`,
+        pageSize: args.pageSize,
+      });
+    }
   },
   {
     definition: {
@@ -198,10 +213,11 @@ export const gcpTools: RegisteredTool<any>[] = [
       })
     },
     handler: async (args) => {
+      const proj = args.projectId || projectId;
       // Build a Cloud Logging filter for the specific Cloud Run service
       const filter = `resource.type="cloud_run_revision" AND resource.labels.service_name="${args.serviceName}"${args.severity ? ` AND severity>=${args.severity}` : ''}`;
       return callGcpMcpTool(MCP_ENDPOINTS.logging, "list_log_entries", {
-        projectId: args.projectId || projectId,
+        resourceNames: [`projects/${proj}`],
         filter,
         pageSize: args.pageSize || 20,
         orderBy: "timestamp desc"

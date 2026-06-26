@@ -41,6 +41,11 @@ import { sourceTools } from './source.tools';
 import { githubTools } from './github.tools';
 import { oddsAdminTools } from './odds_admin.tools.js';
 import { gkeTools } from './gke.tools';
+import { artifactRegistryTools } from './artifact-registry.tools';
+import { youtubeMediaTools } from './youtube-media/index';
+import { pubsubTools } from './pubsub.tools';
+import { visionTools } from './vision.tools';
+import { platformTools } from './platform.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -86,6 +91,11 @@ toolRegistry.registerMany([
   ...githubTools,
   ...oddsAdminTools,
   ...gkeTools,
+  ...artifactRegistryTools,
+  ...youtubeMediaTools,
+  ...pubsubTools,
+  ...visionTools,
+  ...platformTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.

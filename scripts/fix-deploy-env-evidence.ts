@@ -27,7 +27,7 @@ async function main() {
         node: 'node:24-slim (v24.18.0 confirmed via /api/system/status)',
         deno: 'Installed in runner stage (Dockerfile line 45)',
         chromium: 'Installed for Puppeteer (Dockerfile line 30)',
-        live_revision: 'reverie-00260-pch',
+        live_revision: 'truth-cluster (GKE)',
       }),
     },
     'deploy-env-002': {
@@ -44,7 +44,7 @@ async function main() {
         deploy_method: {
           local: 'gcloud run deploy --source . (builds container via Cloud Build, deploys to Cloud Run)',
           ci_cd: 'google-github-actions/deploy-cloudrun@v2 (GitHub Actions workflow)',
-          proof: 'reverie-00260-pch deployed and serving 100% traffic',
+          proof: 'truth-cluster (GKE) deployed and serving 100% traffic',
         },
         deploy_staged_mcp: 'This is a tool for staging MCP server configs, NOT the primary deploy mechanism. Primary deploy is gcloud run deploy or GitHub Actions.',
         odds_admin: {
@@ -74,7 +74,7 @@ async function main() {
         git_on_container: 'Available (Dockerfile installs it), but git push from container is NOT the primary deploy path',
         gitops_tool: 'github_commit_file tool can push to GitHub → triggers CI/CD on main',
         proof: {
-          local_deploy_revision: 'reverie-00260-pch (deployed 2026-06-24T23:49Z)',
+          local_deploy_revision: 'truth-cluster (GKE) (deployed 2026-06-24T23:49Z)',
           security_commit_pushed: 'f62c3ed pushed to origin/kfarkye/final',
         },
       }),
@@ -125,7 +125,7 @@ async function main() {
           gate_exit_code: 0,
         },
         deploy_proof: {
-          revision: 'reverie-00260-pch',
+          revision: 'truth-cluster (GKE)',
           traffic: '100%',
           service_url: 'https://reverie-70323048967.us-central1.run.app',
           created: '2026-06-24T23:49:37Z',

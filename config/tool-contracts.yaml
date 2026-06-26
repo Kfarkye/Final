@@ -843,3 +843,34 @@ contracts:
       - operation_ledger
       - query_truth_ledger
       - undo_operation
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # YOUTUBE & VIDEO MEDIA
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: youtube-media
+    name: YouTube & Video Media
+    keywords:
+      - youtube
+      - video
+      - highlight
+      - highlights
+      - recap
+      - recaps
+      - clip
+      - clips
+      - walk-off
+      - walkoff
+      - watch
+      - show me
+      - footage
+      - interview
+      - press conference
+      - home run
+      - play of the game
+      - top plays
+      - game recap
+      - condensed game
+    tools:
+      - resolve_youtube_media
+    system_prompt_file: youtube-media.md
+

@@ -3,7 +3,7 @@ steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
     args:
       - '--dockerfile=Dockerfile'
-      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:$SHORT_SHA'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:$_IMAGE_TAG'
       - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:latest'
       - '--cache=true'
       - '--cache-ttl=168h'
@@ -21,7 +21,7 @@ steps:
         kubectl apply -f k8s/backend-config.yaml
         kubectl apply -f k8s/service.yaml
         kubectl apply -f k8s/deployment.yaml
-        kubectl set image deployment/reverie reverie=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:$SHORT_SHA
+        kubectl set image deployment/reverie reverie=us-central1-docker.pkg.dev/$PROJECT_ID/truth/reverie:$_IMAGE_TAG
         kubectl rollout status deployment/reverie --timeout=300s
 
 timeout: '1800s'
@@ -29,3 +29,6 @@ timeout: '1800s'
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
+
+substitutions:
+  _IMAGE_TAG: 'latest'

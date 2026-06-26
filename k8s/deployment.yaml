@@ -14,6 +14,9 @@ spec:
       labels:
         app: reverie
     spec:
+      # Uses the 'default' KSA in namespace 'default', which is annotated with:
+      #   iam.gke.io/gcp-service-account: truth-runtime@gen-lang-client-0281999829.iam.gserviceaccount.com
+      # This Workload Identity binding gives the pod the truth-runtime GSA's permissions.
       containers:
         - name: reverie
           image: us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:latest
