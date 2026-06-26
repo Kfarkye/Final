@@ -30,6 +30,17 @@ const execFileAsync = promisify(execFile);
 
 const PROJECT_ROOT = process.cwd();
 
+const BLOCKED_PATTERNS = [
+  /\.env/i,
+  /node_modules\/(?!.*\.d\.ts$)/,  // Allow .d.ts type definitions
+  /\.git\//,
+  /\/\.git$/,
+  /dist\//,
+  /\.pem$/,
+  /\.key$/,
+  /secrets?\./i,
+];
+
 function safePath(requestedPath: string): string {
   // Resolve relative to project root, then verify it's within bounds
   const resolved = path.resolve(PROJECT_ROOT, requestedPath);
