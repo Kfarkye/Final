@@ -4,9 +4,117 @@ import { sseManager } from '../../lib/sse/sse-manager';
 import { waitForApproval } from '../utils/approval';
 import { Spanner } from '@google-cloud/spanner';
 import { env } from '../config/env';
+import { logger } from '../utils/logger';
 
 // Initialize Spanner client
 const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
+
+// ── Schema Cache ─────────────────────────────────────────────────────────────
+// Caches parsed DDL for all tables with a 10-minute TTL.
+// Used by: get_full_schema tool (B) and system prompt injection (A).
+
+const SCHEMA_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+interface TableSummary {
+  name: string;
+  columns: { name: string; type: string; nullable: boolean }[];
+  primaryKey: string;
+  indexes: { name: string; columns: string; unique: boolean }[];
+}
+
+interface CachedSchema {
+  tables: TableSummary[];
+  fetchedAt: number;
+  tableCount: number;
+}
+
+const schemaCache = new Map<string, CachedSchema>();
+
+function parseDdlToSummaries(ddlStatements: string[]): TableSummary[] {
+  const tables: TableSummary[] = [];
+  const tableRegex = /CREATE TABLE\s+(\w+)\s*\(([\s\S]*?)\)\s*PRIMARY KEY\s*\(([^)]+)\)/gi;
+
+  for (const stmt of ddlStatements) {
+    const match = /CREATE TABLE\s+(\w+)\s*\(([\s\S]*?)\)\s*PRIMARY KEY\s*\(([^)]+)\)/i.exec(stmt);
+    if (match) {
+      const [, name, colBlock, pk] = match;
+      const columns = colBlock
+        .split(',\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && !l.startsWith(')'))
+        .map(line => {
+          const parts = line.match(/^(\w+)\s+(.+?)(\s+NOT NULL)?$/i);
+          if (!parts) return { name: line.split(' ')[0], type: 'UNKNOWN', nullable: true };
+          return { name: parts[1], type: parts[2].replace(/\s+OPTIONS\s*\(.*\)/, '').trim(), nullable: !parts[3] };
+        });
+
+      tables.push({ name, columns, primaryKey: pk.trim(), indexes: [] });
+    }
+  }
+
+  // Parse indexes and attach to tables
+  for (const stmt of ddlStatements) {
+    const idxMatch = /CREATE\s+(UNIQUE\s+)?(?:NULL_FILTERED\s+)?INDEX\s+(\w+)\s+ON\s+(\w+)\s*\(([^)]+)\)/i.exec(stmt);
+    if (idxMatch) {
+      const table = tables.find(t => t.name === idxMatch[3]);
+      if (table) {
+        table.indexes.push({
+          name: idxMatch[2],
+          columns: idxMatch[4].trim(),
+          unique: !!idxMatch[1],
+        });
+      }
+    }
+  }
+
+  return tables;
+}
+
+async function getOrFetchSchema(instanceId: string, databaseId: string): Promise<CachedSchema> {
+  const key = `${instanceId}/${databaseId}`;
+  const cached = schemaCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < SCHEMA_CACHE_TTL_MS) {
+    return cached;
+  }
+
+  const database = spanner.instance(instanceId).database(databaseId);
+  const [ddlStatements] = await withTimeout(database.getSchema(), 15000);
+  const tables = parseDdlToSummaries(ddlStatements);
+
+  const entry: CachedSchema = { tables, fetchedAt: Date.now(), tableCount: tables.length };
+  schemaCache.set(key, entry);
+  logger.info({ msg: 'Schema cache refreshed', key, tableCount: tables.length });
+  return entry;
+}
+
+/**
+ * Returns a compact schema snapshot string for system prompt injection.
+ * Format: TableName(Col1 TYPE, Col2 TYPE, ...) PK(col1, col2)
+ */
+export async function getSchemaSnapshot(): Promise<string> {
+  try {
+    const mlb = await getOrFetchSchema('clearspace', 'sports-mlb-db');
+    const entities = await getOrFetchSchema('clearspace', 'sports-entities-db');
+
+    const formatTable = (t: TableSummary) => {
+      const cols = t.columns.map(c => `${c.name} ${c.type}`).join(', ');
+      return `  ${t.name}(${cols}) PK(${t.primaryKey})`;
+    };
+
+    const lines = [
+      'DATABASE: clearspace/sports-mlb-db',
+      ...mlb.tables.map(formatTable),
+      '',
+      'DATABASE: clearspace/sports-entities-db',
+      ...entities.tables.map(formatTable),
+    ];
+
+    return lines.join('\n');
+  } catch (err: any) {
+    logger.error({ msg: 'Failed to build schema snapshot', err: err.message });
+    return '(Schema snapshot unavailable — use describe_spanner_table or get_full_schema)';
+  }
+}
 
 // Helper: wrap database calls with a timeout to prevent silent hangs
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
@@ -209,6 +317,39 @@ export const spannerTools: RegisteredTool<any>[] = [
         primaryKey,
         indexCount: indexes.length,
         indexes
+      };
+    }
+  },
+
+  // ── Full Schema (cached) ──────────────────────────────────────────────
+  {
+    definition: {
+      name: "get_full_schema",
+      description:
+        "Returns ALL table schemas for a Spanner database in one call. " +
+        "Results are cached for 10 minutes. Much more efficient than calling " +
+        "describe_spanner_table multiple times. Returns: table name, columns " +
+        "(name + type + nullable), primary key, and indexes for every table. " +
+        "Default: instanceId='clearspace', databaseId='sports-mlb-db'.",
+      schema: z.object({
+        instanceId: z.string().default('clearspace').describe("Spanner instance ID"),
+        databaseId: z.string().default('sports-mlb-db').describe("Database ID"),
+      })
+    },
+    handler: async (args) => {
+      const schema = await getOrFetchSchema(args.instanceId, args.databaseId);
+      return {
+        instanceId: args.instanceId,
+        databaseId: args.databaseId,
+        tableCount: schema.tableCount,
+        cachedAt: new Date(schema.fetchedAt).toISOString(),
+        tables: schema.tables.map(t => ({
+          name: t.name,
+          columns: t.columns,
+          primaryKey: t.primaryKey,
+          indexCount: t.indexes.length,
+          indexes: t.indexes,
+        })),
       };
     }
   }

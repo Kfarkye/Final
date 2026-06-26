@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { sseManager } from './sse/sse-manager';
 import { EnterpriseGovernanceService } from './governance/enterprise-governance';
 import { toolRegistry } from '../src/tools';
+import { getSchemaSnapshot } from '../src/tools/spanner.tools';
 import { ChatLogger } from './observability/chat-logger';
 import { knowledgeManager } from '../src/services/knowledge-manager';
 import { skillRouter } from '../src/services/skill-router';
@@ -1226,12 +1227,21 @@ CONSTRAINTS:
 
     // ── Database Audit Contract ──
     // Gives all models the ability to autonomously audit and maintain Spanner databases
+    // Load schema snapshot (cached for 10 min — no per-request cost after first load)
+    let schemaSnapshotBlock = '';
+    try {
+      const snapshot = await getSchemaSnapshot();
+      schemaSnapshotBlock = `\n\nSCHEMA MAP (auto-loaded, cached 10 min):\n${snapshot}\n\nYou already have the full schema above. Do NOT call describe_spanner_table unless you need to verify a recent schema change.`;
+    } catch (err: any) {
+      ChatLogger.warn('schema_snapshot_failed', { err: err.message });
+    }
+
     const databaseAuditInstructions = `
 
 <database_audit_instructions>
 DATABASE AUDIT & MAINTENANCE PROTOCOL
 
-You have full access to Cloud Spanner databases via the execute_sql and describe_spanner_table tools.
+You have full access to Cloud Spanner databases via the execute_sql, describe_spanner_table, and get_full_schema tools.${schemaSnapshotBlock}
 When asked to audit, check, inspect, or maintain database state, follow this protocol:
 
 ═══════════════════════════════════════════════════════════════
