@@ -1,27 +1,17 @@
 // ============================================================================
 // src/services/render/betting-angles.adapter.ts
 //
-// PURPOSE
-//   Deterministic adapter: TruthEdgeCard (math-validated, vig-aware, evidence-
-//   gated) -> `bettingangles` render contract consumed by the frontend.
+// Deterministic adapter: TruthEdgeCard (math-validated, vig-aware, evidence-
+// gated upstream) -> `bettingangles` render contract.
 //
-// DOCTRINE
-//   The math already happened upstream in edge-engine.ts + lib/quant-math.ts.
-//   This file performs NO probability math, NO odds invention, NO entity
-//   resolution. It is a pure, total function from a validated card to a render
-//   payload. If a field cannot be sourced from the card, it is OMITTED — never
-//   fabricated. This keeps the LLM's hallucination surface at exactly zero.
+// DOCTRINE: No probability math, no odds invention, no entity resolution here.
+// Pure total function. If a field cannot be sourced, it is OMITTED, never faked.
+// This holds the LLM/render hallucination surface at exactly zero.
 // ============================================================================
 
-import {
-  TruthEdgeCard,
-  EdgeSourceMeta,
-  SideSummary,
-} from "../../types/edge.types.js";
+import { TruthEdgeCard, SideSummary, EdgeSourceMeta } from "../../types/edge.types.js";
 
-// ---------------------------------------------------------------------------
-// Render contract (mirrors the frontend `bettingangles` JSON block exactly).
-// ---------------------------------------------------------------------------
+// ---- Render contract (mirrors the frontend `bettingangles` block) ----------
 
 export type AngleEdgeTier = "Low" | "Medium" | "High" | "Very High";
 
@@ -30,8 +20,8 @@ export interface BettingAngle {
   description: string;
   edge: AngleEdgeTier;
   odds: string;            // American, e.g. "+110" / "-125"
-  recommendation: string;  // e.g. "Play Over"
-  image_url?: string;      // omitted if we cannot source a real logo
+  recommendation: string;
+  image_url?: string;
 }
 
 export interface AnglesChartPoint {
@@ -70,29 +60,18 @@ export interface AnglesConsensus {
 export interface BettingAnglesPayload {
   analysis_markdown: string;
   angles: BettingAngle[];
-  chart?: AnglesChart;        // optional: only when a real series exists
-  consensus?: AnglesConsensus; // optional: only when split data exists
+  chart?: AnglesChart;
+  consensus?: AnglesConsensus;
 }
 
-// ---------------------------------------------------------------------------
-// Optional inputs the adapter can fold in IF (and only if) they are real.
-// These come from the caller (edge-engine / orchestrator), never invented here.
-// ---------------------------------------------------------------------------
-
 export interface BettingAnglesContext {
-  /** Pre-validated consensus splits sourced from the market layer. */
   consensus?: AnglesConsensus;
-  /** Pre-validated chart series (e.g. rolling xERA vs ERA) from the feature store. */
   chart?: AnglesChart;
-  /** Verified team/player logo URL. Omitted if not resolvable. */
   imageUrl?: string;
-  /** Optional prose written by the generative layer; sanitized before use. */
   llmNarrative?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
+// ---- Pure helpers ----------------------------------------------------------
 
 const TIER_BY_CONFIDENCE: Record<TruthEdgeCard["confidence"], AngleEdgeTier> = {
   low: "Medium",
@@ -100,15 +79,13 @@ const TIER_BY_CONFIDENCE: Record<TruthEdgeCard["confidence"], AngleEdgeTier> = {
   high: "Very High",
 };
 
-/** Map confidence + composite score into a coarse, honest tier. Score gates the ceiling. */
 export function deriveEdgeTier(card: TruthEdgeCard): AngleEdgeTier {
   const score = card.compositeScore ?? 0;
   if (score <= 0) return "Low";
   return TIER_BY_CONFIDENCE[card.confidence] ?? "Medium";
 }
 
-/** Normalize any string odds/decimal-ish value to a clean American string. */
-export function toAmericanString(value: string | number | undefined): string {
+export function toAmericanString(value: string | number | undefined | null): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "number") {
     const n = Math.round(value);
@@ -116,20 +93,16 @@ export function toAmericanString(value: string | number | undefined): string {
   }
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (/^[+-]\d+$/.test(trimmed)) return trimmed;          // already american
+  if (/^[+-]\d+$/.test(trimmed)) return trimmed;
   const num = Number(trimmed);
   if (Number.isFinite(num)) {
     const n = Math.round(num);
     return n > 0 ? `+${n}` : `${n}`;
   }
-  return trimmed; // leave untouched rather than fabricate
+  return trimmed;
 }
 
-/**
- * Strip anything that could be a template leak or markdown injection out of
- * LLM-authored prose. Mirrors edge-engine's assertNoPlaceholderLeak intent.
- */
-export function sanitizeNarrative(raw: string | undefined): string {
+export function sanitizeNarrative(raw: string | undefined | null): string {
   if (!raw) return "";
   const forbidden = ["${", "{{", "}}", "undefined", "null", "```"];
   let out = raw;
@@ -137,40 +110,29 @@ export function sanitizeNarrative(raw: string | undefined): string {
   return out.trim();
 }
 
-/** Build the recommendation verb from the chosen side, no invention. */
 function buildRecommendation(side: SideSummary | undefined, headline: string): string {
   if (!side) return "See analysis";
-  const s = side.side.toLowerCase();
+  const s = (side.side ?? "").toLowerCase();
   if (s.includes("over")) return "Play Over";
   if (s.includes("under")) return "Play Under";
   if (s.includes("yes")) return "Play Yes";
   if (s.includes("no")) return "Play No";
   if (s.includes("ml") || s.includes("moneyline")) return "Play ML";
   if (s.includes("+") || s.includes("-")) return "Play Spread";
-  return headline.length ? `Play ${side.side}` : "See analysis";
+  return side.side ? `Play ${side.side}` : "See analysis";
 }
 
-/**
- * Assemble the default markdown from the card's evidence-gated narrative.
- * If the LLM supplied prose, it is sanitized and preferred; otherwise we fall
- * back to the receipts the math engine already proved.
- */
-function buildAnalysisMarkdown(
-  card: TruthEdgeCard,
-  llmNarrative?: string,
-): string {
+function buildAnalysisMarkdown(card: TruthEdgeCard, llmNarrative?: string): string {
   const llm = sanitizeNarrative(llmNarrative);
   if (llm) return llm;
 
-  const setup = card.narrative?.summary?.trim() || card.headline;
+  const setup = (card.narrative?.summary ?? "").trim() || card.headline;
   const receipts = (card.narrative?.receipts ?? []).filter(Boolean);
   const risks = (card.narrative?.riskFlags ?? []).filter(Boolean);
 
   const parts: string[] = [];
   parts.push(`**The Setup:** ${setup}`);
-  if (receipts.length) {
-    parts.push(`**By the Numbers:** ${receipts.join(" ")}`);
-  }
+  if (receipts.length) parts.push(`**By the Numbers:** ${receipts.join(" ")}`);
   parts.push(
     `**The Angle:** ${card.marketLabel} — sharp fair ${card.sharpFair} vs offered ${card.offeredPrice} at ${card.book}.` +
       (risks.length ? ` Risk flags: ${risks.join(", ")}.` : ""),
@@ -178,25 +140,31 @@ function buildAnalysisMarkdown(
   return parts.join("\n\n");
 }
 
-// ---------------------------------------------------------------------------
-// Main adapter
-// ---------------------------------------------------------------------------
-
 /**
- * Convert a single math-validated TruthEdgeCard into a `bettingangles` payload.
- * Total function: never throws on missing optional data, never fabricates.
+ * Pick the best side from evaluatedSides. Uses probGap as the tiebreaker
+ * since SideSummary has: side, fairProb, bestOffered, probGap, meetsThreshold.
  */
+function pickBestSide(card: TruthEdgeCard): SideSummary | undefined {
+  const a = card.evaluatedSides?.sideA;
+  const b = card.evaluatedSides?.sideB;
+  if (a?.meetsThreshold && !b?.meetsThreshold) return a;
+  if (b?.meetsThreshold && !a?.meetsThreshold) return b;
+  if (a?.meetsThreshold && b?.meetsThreshold) {
+    // probGap is a string like "4.20pp" — parse the numeric prefix
+    const gapA = parseFloat(a.probGap) || 0;
+    const gapB = parseFloat(b.probGap) || 0;
+    return gapA >= gapB ? a : b;
+  }
+  return a ?? b;
+}
+
+// ---- Main adapter ----------------------------------------------------------
+
 export function toBettingAngles(
   card: TruthEdgeCard,
   ctx: BettingAnglesContext = {},
 ): BettingAnglesPayload {
-  // Choose the side the engine actually leaned toward (best candidate).
-  const best =
-    card.evaluatedSides?.sideA?.meetsThreshold && !card.evaluatedSides?.sideB?.meetsThreshold
-      ? card.evaluatedSides.sideA
-      : card.evaluatedSides?.sideB?.meetsThreshold
-        ? card.evaluatedSides.sideB
-        : card.evaluatedSides?.sideA;
+  const best = pickBestSide(card);
 
   const angle: BettingAngle = {
     title: card.headline,
@@ -205,7 +173,6 @@ export function toBettingAngles(
     odds: toAmericanString(best?.bestOffered ?? card.offeredPrice),
     recommendation: buildRecommendation(best, card.headline),
   };
-  // Only attach an image if a REAL url was resolved upstream.
   if (ctx.imageUrl && /^https?:\/\//.test(ctx.imageUrl)) {
     angle.image_url = ctx.imageUrl;
   }
@@ -215,25 +182,16 @@ export function toBettingAngles(
     angles: [angle],
   };
 
-  // Optional blocks: included ONLY when the caller passed real data.
   if (ctx.chart && Array.isArray(ctx.chart.data) && ctx.chart.data.length > 0) {
     payload.chart = ctx.chart;
   }
-  if (
-    ctx.consensus &&
-    Array.isArray(ctx.consensus.splits) &&
-    ctx.consensus.splits.length > 0
-  ) {
+  if (ctx.consensus && Array.isArray(ctx.consensus.splits) && ctx.consensus.splits.length > 0) {
     payload.consensus = ctx.consensus;
   }
 
   return payload;
 }
 
-/**
- * Convert a list of cards into a single multi-angle payload (one analysis
- * block, N angles). Used for full-slate sharp boards.
- */
 export function toBettingAnglesBoard(
   cards: TruthEdgeCard[],
   ctxByCardId: Record<string, BettingAnglesContext> = {},
@@ -241,31 +199,16 @@ export function toBettingAnglesBoard(
   if (cards.length === 0) {
     return { analysis_markdown: "No qualifying edges on the current slate.", angles: [] };
   }
-
   const lead = cards[0];
-  const leadCtx = ctxByCardId[lead.cardId] ?? {};
-  const base = toBettingAngles(lead, leadCtx);
-
-  const extraAngles = cards.slice(1).map((c) => {
-    const single = toBettingAngles(c, ctxByCardId[c.cardId] ?? {});
-    return single.angles[0];
-  });
-
-  return {
-    ...base,
-    angles: [...base.angles, ...extraAngles],
-  };
+  const base = toBettingAngles(lead, ctxByCardId[lead.cardId] ?? {});
+  const extra = cards.slice(1).map((c) => toBettingAngles(c, ctxByCardId[c.cardId] ?? {}).angles[0]);
+  return { ...base, angles: [...base.angles, ...extra] };
 }
 
-// ---------------------------------------------------------------------------
-// Source-integrity guard. Call before emitting to the user, mirroring the
-// edge-engine doctrine: no simulated data reaches a user-facing render.
-// ---------------------------------------------------------------------------
+// ---- Source-integrity guard ------------------------------------------------
 
-export function assertAnglesAreLive(sourceMeta: EdgeSourceMeta[]): void {
-  if (process.env.NODE_ENV === "test" || process.env.ALLOW_EDGE_FIXTURES === "true") {
-    return;
-  }
+export function assertAnglesAreLive(sourceMeta: EdgeSourceMeta[] | undefined): void {
+  if (process.env.NODE_ENV === "test" || process.env.ALLOW_EDGE_FIXTURES === "true") return;
   if (!sourceMeta || sourceMeta.length === 0) {
     throw new Error("bettingangles render blocked: empty sourceMeta");
   }
