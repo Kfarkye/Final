@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install -g @openai/codex \
     && git config --global --add safe.directory /app \
     && git config --global user.name "Truth AI" \
-    && git config --global user.email "truth@reverie.ai" \
+    && git config --global user.email "kofi.farkye@gmail.com" \
     && apt-get purge -y --auto-remove curl unzip \
     && rm -rf /var/lib/apt/lists/*
 ENV DENO_INSTALL="/root/.deno"
