@@ -1,0 +1,66 @@
+---
+# 1. Identity Binding
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: espn-ingestor-ksa
+  namespace: data-pipelines
+  annotations:
+    iam.gke.io/gcp-service-account: espn-ingestor-gsa@<YOUR-PROJECT>.iam.gserviceaccount.com
+
+---
+# 2. Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: espn-gamelog-worker
+  namespace: data-pipelines
+spec:
+  selector:
+    matchLabels:
+      app: espn-gamelog-worker
+  template:
+    metadata:
+      labels:
+        app: espn-gamelog-worker
+    spec:
+      serviceAccountName: espn-ingestor-ksa
+      terminationGracePeriodSeconds: 45
+      containers:
+      - name: worker
+        image: gcr.io/<YOUR-PROJECT>/espn-gamelog-worker:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+
+---
+# 3. KEDA Autoscaling Contract
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: espn-gamelog-scaler
+  namespace: data-pipelines
+spec:
+  scaleTargetRef:
+    name: espn-gamelog-worker
+  minReplicaCount: 0
+  maxReplicaCount: 25
+  triggers:
+  - type: gcp-pubsub
+    metadata:
+      subscriptionSize: "100"
+      subscriptionName: "mlb-fetch-player-gamelog-sub"
+      credentialsFromEnv:
+        credentials: ""
