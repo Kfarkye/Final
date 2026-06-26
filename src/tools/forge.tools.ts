@@ -235,7 +235,7 @@ export const forgeTools: RegisteredTool<any>[] = [
           },
           body: archiveStream,
           // Node 18+ fetch supports streams as body
-          duplex: 'half'
+          // @ts-ignore Node.js specific fetch option for streams\n          duplex: 'half'
         });
 
         if (!uploadRes.ok) {
