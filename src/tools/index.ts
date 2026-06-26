@@ -42,7 +42,7 @@ import { githubTools } from './github.tools';
 import { oddsAdminTools } from './odds_admin.tools.js';
 import { gkeTools } from './gke.tools';
 import { artifactRegistryTools } from './artifact-registry.tools';
-import { youtubeTools } from './youtube.tools';
+import { youtubeMediaTools } from './youtube-media/index';
 import { pubsubTools } from './pubsub.tools';
 import { visionTools } from './vision.tools';
 import { platformTools } from './platform.tools';
@@ -92,7 +92,7 @@ toolRegistry.registerMany([
   ...oddsAdminTools,
   ...gkeTools,
   ...artifactRegistryTools,
-  ...youtubeTools,
+  ...youtubeMediaTools,
   ...pubsubTools,
   ...visionTools,
   ...platformTools,

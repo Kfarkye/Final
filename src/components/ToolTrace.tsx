@@ -194,6 +194,8 @@ function translateTool(tool: string, argsPreview?: string): ToolLabel {
     case 'run_script':
     case 'execute_javascript':
       return { verb: 'Executed', object: 'script' };
+    case 'resolve_youtube_media':
+      return { verb: 'Finding videos:', object: `"${(args.query || '').slice(0, 30)}"` };
     case 'run_git_status':
     case 'git_branch_ops':
       return { verb: 'Ran', object: `git ${args.operation || 'status'}` };
