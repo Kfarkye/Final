@@ -115,23 +115,23 @@ export default function LandingPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">Google</span>
-                  <span className="text-2xl font-serif text-white">Gemini 1.5 Pro</span>
+                  <span className="text-2xl font-serif text-white">Gemini 3.5 Flash</span>
                </div>
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">OpenAI</span>
-                  <span className="text-2xl font-serif text-white">GPT-4o</span>
+                  <span className="text-2xl font-serif text-white">GPT 5.5</span>
                </div>
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">Anthropic</span>
-                  <span className="text-2xl font-serif text-white">Claude 3.7 Sonnet</span>
+                  <span className="text-2xl font-serif text-white">Claude 4.8 Opus</span>
                </div>
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">xAI</span>
-                  <span className="text-2xl font-serif text-white">Grok-2</span>
+                  <span className="text-2xl font-serif text-white">Grok 4.3</span>
                </div>
                <div className="bg-black p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all duration-300 flex flex-col sm:col-span-2 lg:col-span-1">
                   <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 mb-4">DeepSeek</span>
-                  <span className="text-2xl font-serif text-white">DeepSeek-R1 / V3</span>
+                  <span className="text-2xl font-serif text-white">DeepSeek V4 Pro</span>
                </div>
             </div>
           </div>
@@ -198,9 +198,9 @@ export default function LandingPage() {
         <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row justify-between items-center text-sm text-zinc-500 space-y-4 md:space-y-0">
           <div className="font-mono tracking-wider text-xs">TRUTH SYSTEMS // RUNTIME SECURE.</div>
           <div className="flex space-x-8 tracking-wide">
-            <a href="#" className="hover:text-white transition-colors">Intelligence</a>
-            <a href="#" className="hover:text-white transition-colors">Privacy</a>
-            <a href="#" className="hover:text-white transition-colors">Terms</a>
+            <span className="cursor-not-allowed opacity-50">Intelligence</span>
+            <span className="cursor-not-allowed opacity-50">Privacy</span>
+            <span className="cursor-not-allowed opacity-50">Terms</span>
           </div>
         </div>
       </footer>

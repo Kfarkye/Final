@@ -224,6 +224,15 @@ const MimeRendererComponent = memo(function MimeRenderer({
             const codeContent = String(childProps.children || '').replace(/\n$/, '');
 
             if (lang === 'html' || lang === 'iframe') {
+              // Bypassing <!doctype html> from being rendered as an interactive preview
+              // Since TruthArtifactPreview puts it in an iframe body, full HTML docs break it.
+              if (codeContent.trim().toLowerCase().startsWith('<!doctype')) {
+                return (
+                  <pre className="bg-white/5 p-4 rounded-xl overflow-x-auto text-[13px] font-mono my-4" {...props}>
+                    {first}
+                  </pre>
+                );
+              }
               return <TruthArtifactPreview html={codeContent} />;
             }
             if (lang === 'mlb-odds-dashboard') {

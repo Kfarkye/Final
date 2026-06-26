@@ -46,6 +46,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 /* Custom Truth Prose Styles (Plugin-Free replacement for @tailwindcss/typography) */
 .t-prose {
   max-width: var(--max-width-prose, 68ch);
