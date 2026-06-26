@@ -657,8 +657,8 @@ describe('Codex Handler — Responses API', () => {
 
       await handleCodexChat(req as any, res as any);
 
-      expect(mockCreate.mock.calls.length).toBe(6);
-      expect(mockExecuteCodexToolCall.mock.calls.length).toBeLessThan(6);
+      expect(mockCreate.mock.calls.length).toBe(30);
+      expect(mockExecuteCodexToolCall.mock.calls.length).toBeLessThan(30);
       const error = res.events.find(e => e.event === 'error');
       expect(error!.data.message).toContain('consecutive tool-only turns');
     });
@@ -763,7 +763,7 @@ describe('Codex Handler — Responses API', () => {
     it('stops hosted web_search loops that produce no answer text', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_hosted_search_loop' } },
-        ...Array.from({ length: 6 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
+        ...Array.from({ length: 30 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
         { type: 'response.completed', response: { id: 'resp_hosted_search_loop', usage: {} } },
       ]));
 
@@ -777,8 +777,8 @@ describe('Codex Handler — Responses API', () => {
       expect(guardrail!.data).toMatchObject({
         guardrail: 'hosted_tool_calls_without_text',
         tool: 'web_search',
-        limit: 6,
-        callsWithoutText: 6,
+        limit: 30,
+        callsWithoutText: 30,
       });
       const error = res.events.find(e => e.event === 'error');
       expect(error!.data.message).toContain('hosted web_search calls');
