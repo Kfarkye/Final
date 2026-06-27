@@ -43,6 +43,7 @@ import designSystemRoutes from "./src/routes/designSystemRoutes";
 import suggestRoutes from "./src/routes/suggest.routes";
 import sourceRoutes from "./src/routes/source.routes";
 import artifactRoutes from "./src/routes/artifacts.routes";
+import statmuseRoutes from "./src/routes/statmuse.routes";
 import bindExternalServiceRoute from "./src/routes/workers/bind-external-service.route";
 
 const app = express();
@@ -69,6 +70,7 @@ app.use("/api/vault", vaultRoutes);
 app.use("/api/design-systems", designSystemRoutes);
 app.use("/api/truth", suggestRoutes);
 app.use("/api/source", sourceRoutes);
+app.use("/api/statmuse", statmuseRoutes); // Shadow API — AI-powered sports data extraction
 app.use(artifactRoutes); // SSR artifacts + sitemap.xml (indexable by construction)
 app.use(bindExternalServiceRoute);
 

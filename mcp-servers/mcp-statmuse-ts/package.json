@@ -1,0 +1,23 @@
+{
+  "name": "mcp-statmuse",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-core": "^25.1.0",
+    "@google/genai": "^1.29.0",
+    "zod": "^3.25.76",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.2",
+    "@types/node": "^22.14.0"
+  }
+}
