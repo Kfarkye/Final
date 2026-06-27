@@ -25,9 +25,9 @@ RUN npm ci --omit=dev --legacy-peer-deps
 FROM node:24-slim AS runner
 WORKDIR /app
 
-# Install Deno + headless Chromium + dumb-init (PID 1 zombie reaper) for browser tools
+# Install Deno + headless Chromium + dumb-init (PID 1 zombie reaper) + gcloud CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip git \
+    curl unzip git gnupg \
     dumb-init \
     chromium \
     fonts-liberation \
@@ -47,10 +47,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && curl -fsSL https://deno.land/x/install/install.sh | sh \
     && npm install -g @openai/codex \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+       > /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+       | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && apt-get update && apt-get install -y --no-install-recommends google-cloud-cli \
     && git config --global --add safe.directory /app \
     && git config --global user.name "Truth AI" \
     && git config --global user.email "kofi.farkye@gmail.com" \
-    && apt-get purge -y --auto-remove curl unzip \
+    && apt-get purge -y --auto-remove curl unzip gnupg \
     && rm -rf /var/lib/apt/lists/*
 ENV DENO_INSTALL="/root/.deno"
 ENV PATH="$DENO_INSTALL/bin:$PATH"

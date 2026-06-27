@@ -98,7 +98,13 @@ export function createDefaultApprovalPolicy(
       method: "command/exec",
       predicate: (params) => {
         const cmd = extractCommand(params);
-        return cmd !== null && allow.has(cmd);
+        if (cmd === null) return false;
+        // Prefix match: "gcloud" allows "gcloud builds submit ...",
+        // "git status" allows "git status -s", but NOT "git push".
+        for (const allowed of allow) {
+          if (cmd === allowed || cmd.startsWith(allowed + " ")) return true;
+        }
+        return false;
       },
       result: { decision: "approved" },
     });
