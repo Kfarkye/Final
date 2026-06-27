@@ -43,7 +43,7 @@ const itemBase = [
   "rounded-md px-2.5 py-2 text-sm text-gray-200 outline-none",
   "transition-colors duration-75",
   // Highlight comes from data-highlighted → identical for mouse & keyboard
-  "data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-white",
+  "data-[highlighted]:bg-[var(--s1)] data-[highlighted]:text-[var(--t1)]",
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
 ].join(" ");
 
@@ -137,7 +137,7 @@ const DropdownMenuSubTrigger = forwardRef<
 >(({ className = "", children, ...props }, ref) => (
   <RadixDropdown.SubTrigger
     ref={ref}
-    className={[itemBase, "data-[state=open]:bg-white/[0.06]", className].join(" ")}
+    className={[itemBase, "data-[state=open]:bg-[var(--s1)]", className].join(" ")}
     {...props}
   >
     <span className="flex-1 truncate">{children}</span>

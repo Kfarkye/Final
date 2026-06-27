@@ -25,8 +25,8 @@ export const DownloadMenu: React.FC<DownloadMenuProps> = ({ content, fileName, m
   const saved = local.state === 'saved' || drive.state === 'saved';
   const btnBase = 'text-[10px] px-2.5 py-1 rounded-md font-medium tracking-wide transition-all duration-200 flex items-center gap-1.5 cursor-pointer active:scale-95';
   const btnGhost = tone === 'toolbar'
-    ? `${btnBase} bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border border-white/[0.06]`
-    : 'text-[11px] font-medium px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors flex items-center gap-1.5';
+    ? `${btnBase} bg-[var(--s1)] text-[var(--t3)] hover:text-[var(--t1)]/70 hover:bg-[var(--s1)] border border-[var(--b1)]`
+    : 'text-[11px] font-medium px-2 py-1 rounded-md bg-[var(--s1)] hover:bg-[var(--s2)] text-[var(--t1)]/70 hover:text-[var(--t1)] transition-colors flex items-center gap-1.5';
 
   return (
     <div className="relative" ref={ref}>
@@ -36,17 +36,17 @@ export const DownloadMenu: React.FC<DownloadMenuProps> = ({ content, fileName, m
         <span className="opacity-50 text-[8px]">▾</span>
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 mt-1 z-50 min-w-[168px] rounded-lg border border-white/[0.08] bg-[#0D1117] shadow-2xl py-1 animate-[slidein_0.18s_ease]">
-          <button role="menuitem" onClick={toComputer} className="w-full text-left text-[11px] px-3 py-2 text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors flex items-center gap-2.5">
+        <div role="menu" className="absolute right-0 mt-1 z-50 min-w-[168px] rounded-lg border border-[var(--b1)] bg-[#0D1117] shadow-2xl py-1 animate-[slidein_0.18s_ease]">
+          <button role="menuitem" onClick={toComputer} className="w-full text-left text-[11px] px-3 py-2 text-[var(--t1)]/70 hover:text-[var(--t1)] hover:bg-[var(--s1)] transition-colors flex items-center gap-2.5">
             <span>💻</span><span className="flex-1">To computer</span>
-            {local.supportsFsAccess && <span className="text-[9px] text-white/30">choose folder</span>}
+            {local.supportsFsAccess && <span className="text-[9px] text-[var(--t1)]/30">choose folder</span>}
           </button>
-          <button role="menuitem" onClick={toDrive} className="w-full text-left text-[11px] px-3 py-2 text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors flex items-center gap-2.5">
+          <button role="menuitem" onClick={toDrive} className="w-full text-left text-[11px] px-3 py-2 text-[var(--t1)]/70 hover:text-[var(--t1)] hover:bg-[var(--s1)] transition-colors flex items-center gap-2.5">
             <span>📁</span><span className="flex-1">To Google Drive</span>
-            {drive.state === 'saving' && <span className="text-[9px] text-white/30">…</span>}
+            {drive.state === 'saving' && <span className="text-[9px] text-[var(--t1)]/30">…</span>}
           </button>
           {drive.state === 'saved' && drive.link && (
-            <a href={drive.link} target="_blank" rel="noopener noreferrer" className="block text-[10px] px-3 py-1.5 text-emerald-400/80 hover:text-emerald-300 border-t border-white/[0.06] mt-1">Open in Drive →</a>
+            <a href={drive.link} target="_blank" rel="noopener noreferrer" className="block text-[10px] px-3 py-1.5 text-emerald-400/80 hover:text-emerald-300 border-t border-[var(--b1)] mt-1">Open in Drive →</a>
           )}
         </div>
       )}

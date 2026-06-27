@@ -85,7 +85,7 @@ export const MlbOddsDashboard: React.FC = () => {
               onClick={() => setActiveMarket(m)}
               className={`px-3 py-1.5 rounded text-xs font-semibold tracking-wide transition-colors ${
                 activeMarket === m
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-blue-600 text-[var(--t1)]'
                   : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
               }`}
             >
@@ -134,7 +134,7 @@ export const MlbOddsDashboard: React.FC = () => {
                           {game.status}
                         </span>
                         <div className="flex items-center space-x-2">
-                          <span className="font-bold text-white w-8">{game.away.name}</span>
+                          <span className="font-bold text-[var(--t1)] w-8">{game.away.name}</span>
                           {game.away.score !== undefined && (
                             <span className="font-mono text-gray-300 font-bold">{game.away.score}</span>
                           )}
@@ -158,7 +158,7 @@ export const MlbOddsDashboard: React.FC = () => {
                       <div className="flex items-center space-x-3">
                         <span className="w-16"></span> {/* Spacer for status alignment */}
                         <div className="flex items-center space-x-2">
-                          <span className="font-bold text-white w-8">{game.home.name}</span>
+                          <span className="font-bold text-[var(--t1)] w-8">{game.home.name}</span>
                           {game.home.score !== undefined && (
                             <span className="font-mono text-gray-300 font-bold">{game.home.score}</span>
                           )}

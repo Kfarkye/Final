@@ -10,14 +10,16 @@ ENV PATH="$DENO_INSTALL/bin:$PATH"
 
 # Copy package configurations and install dependencies
 COPY package*.json ./
-RUN rm -f package-lock.json && npm install --legacy-peer-deps
+# Use npm ci for reproducible, lockfile-pinned installs — matches the
+# cloudbuild.yaml lint step so we type-check the SAME dependency tree we ship.
+RUN npm ci --legacy-peer-deps
 
 # Copy the rest of the source code and run the build script
 COPY . .
 RUN npm run build
 
 # Clean devDependencies by running a clean production install
-RUN rm -rf node_modules package-lock.json && npm install --omit=dev --legacy-peer-deps
+RUN npm ci --omit=dev --legacy-peer-deps
 
 # Stage 2: Production runner stage
 FROM node:24-slim AS runner
@@ -78,7 +80,6 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/k8s ./k8s
 COPY --from=builder /app/data ./data
 COPY --from=builder /app/Dockerfile ./Dockerfile
-COPY --from=builder /app/.git ./.git
 
 # Copy compiled MCP servers to the expected location
 RUN mkdir -p /opt/truth/mcp-servers && cp -r mcp-servers/* /opt/truth/mcp-servers/

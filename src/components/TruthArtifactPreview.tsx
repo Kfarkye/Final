@@ -170,19 +170,19 @@ function ArtifactInner({
 
   const previewHeight = expanded ? 800 : 480;
   const btnBase = "text-[10px] px-2.5 py-1 rounded-md font-medium tracking-wide transition-all duration-200 flex items-center gap-1.5 cursor-pointer active:scale-95";
-  const btnGhost = `${btnBase} bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border border-white/[0.06]`;
+  const btnGhost = `${btnBase} bg-[var(--s1)] text-[var(--t3)] hover:text-[var(--t1)]/70 hover:bg-[var(--s1)] border border-[var(--b1)]`;
 
   return (
     <>
       {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1117] border-b border-white/[0.06]">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1117] border-b border-[var(--b1)]">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex gap-1.5 shrink-0">
             <div className="w-[10px] h-[10px] rounded-full bg-[#FF5F57]" style={{ boxShadow: '0 0 6px rgba(255,95,87,0.25)' }} />
             <div className="w-[10px] h-[10px] rounded-full bg-[#FEBC2E]" style={{ boxShadow: '0 0 6px rgba(254,188,46,0.25)' }} />
             <div className="w-[10px] h-[10px] rounded-full bg-[#28C840]" style={{ boxShadow: '0 0 6px rgba(40,200,64,0.25)' }} />
           </div>
-          <span className="text-[11px] font-medium text-white/50 tracking-wide truncate">
+          <span className="text-[11px] font-medium text-[var(--t2)] tracking-wide truncate">
             {resolvedTitle}
           </span>
         </div>
@@ -218,7 +218,7 @@ function ArtifactInner({
 
           <button
             onClick={() => setShowSource(!showSource)}
-            className={`${btnBase} border ${showSource ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'}`}>
+            className={`${btnBase} border ${showSource ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' : 'bg-[var(--s1)] text-[var(--t3)] hover:text-[var(--t1)]/70 hover:bg-[var(--s1)] border-[var(--b1)]'}`}>
             <span>{'</>'}</span><span>Source</span>
           </button>
 
@@ -226,14 +226,14 @@ function ArtifactInner({
           {gateLog.length > 0 && (
             <button
               onClick={() => setShowGateLog(!showGateLog)}
-              className={`${btnBase} border ${showGateLog ? 'bg-purple-500/15 text-purple-400 border-purple-500/20' : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'}`}>
+              className={`${btnBase} border ${showGateLog ? 'bg-purple-500/15 text-purple-400 border-purple-500/20' : 'bg-[var(--s1)] text-[var(--t3)] hover:text-[var(--t1)]/70 hover:bg-[var(--s1)] border-[var(--b1)]'}`}>
               <span>🔒</span><span>Gate ({gateLog.filter(e => e.verdict === 'ask').length})</span>
             </button>
           )}
 
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-[10px] px-2 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.06] transition-all duration-200 cursor-pointer active:scale-95"
+            className="text-[10px] px-2 py-1 rounded-md text-[var(--t1)]/30 hover:text-[var(--t2)] hover:bg-[var(--s1)] border border-transparent hover:border-[var(--b1)] transition-all duration-200 cursor-pointer active:scale-95"
             title={expanded ? 'Collapse' : 'Expand'}>
             {expanded ? '⊟' : '⊞'}
           </button>
@@ -330,7 +330,7 @@ export const TruthArtifactPreview: React.FC<TruthArtifactPreviewProps> = ({ html
   }), [html]);
 
   return (
-    <div className="my-6 w-full rounded-2xl overflow-hidden border border-white/[0.06]"
+    <div className="my-6 w-full rounded-2xl overflow-hidden border border-[var(--b1)]"
          style={{ boxShadow: '0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03)' }}>
       <SandpackProvider
         template="static"

@@ -54,31 +54,30 @@ describe('Truth MCP Bridge', () => {
     });
   });
 
-  describe('Tool Blocking via evaluateToolAccess', () => {
-    it('blocks deploy tools', () => {
+  describe('Approval Policy via evaluateToolAccess', () => {
+    it('requires human approval for deploy_staged_mcp', () => {
       const result = evaluateToolAccess('deploy_staged_mcp', {}, { tenantId: 'test', requestId: 'req' });
-      expect(result).toHaveProperty('allow', false);
-      expect((result as any).reason).toContain('blocked');
+      expect(result).toBe('needs_human');
     });
 
-    it('blocks trigger_deploy', () => {
+    it('requires human approval for trigger_deploy', () => {
       const result = evaluateToolAccess('trigger_deploy', {}, { tenantId: 'test', requestId: 'req' });
-      expect(result).toHaveProperty('allow', false);
+      expect(result).toBe('needs_human');
     });
 
-    it('blocks rotate_odds_key', () => {
+    it('requires human approval for rotate_odds_key', () => {
       const result = evaluateToolAccess('rotate_odds_key', {}, { tenantId: 'test', requestId: 'req' });
-      expect(result).toHaveProperty('allow', false);
+      expect(result).toBe('needs_human');
     });
 
-    it('blocks run_odds_ingestor_once', () => {
+    it('requires human approval for run_odds_ingestor_once', () => {
       const result = evaluateToolAccess('run_odds_ingestor_once', {}, { tenantId: 'test', requestId: 'req' });
-      expect(result).toHaveProperty('allow', false);
+      expect(result).toBe('needs_human');
     });
 
-    it('blocks spanner_admin_execute', () => {
+    it('requires human approval for spanner_admin_execute', () => {
       const result = evaluateToolAccess('spanner_admin_execute', {}, { tenantId: 'test', requestId: 'req' });
-      expect(result).toHaveProperty('allow', false);
+      expect(result).toBe('needs_human');
     });
 
     it('allows read-only tools', () => {
@@ -92,7 +91,7 @@ describe('Truth MCP Bridge', () => {
     });
   });
 
-  describe('Approval Policy via evaluateToolAccess', () => {
+  describe('Approval Policy via evaluateToolAccess (GitHub)', () => {
     it('requires human approval for github_write_file', () => {
       const result = evaluateToolAccess('github_write_file', {}, { tenantId: 'test', requestId: 'req' });
       expect(result).toBe('needs_human');
@@ -111,33 +110,31 @@ describe('Truth MCP Bridge', () => {
   });
 
   describe('Tool Filtering', () => {
-    it('getCodexAllowedTools excludes all blocked tools', () => {
+    it('getCodexAllowedTools includes all tools (none blocked)', () => {
       const allowed = getCodexAllowedTools();
 
-      // Should include safe tools
+      // All tools should be visible — approval is checked at execution time, not at listing
       expect(allowed).toContain('get_odds');
       expect(allowed).toContain('get_scores');
-      expect(allowed).toContain('github_write_file'); // Not blocked, just needs approval
-      expect(allowed).toContain('github_create_pr');   // Not blocked, just needs approval
-
-      // Should NOT include blocked tools
-      expect(allowed).not.toContain('deploy_staged_mcp');
-      expect(allowed).not.toContain('trigger_deploy');
-      expect(allowed).not.toContain('rotate_odds_key');
-      expect(allowed).not.toContain('run_odds_ingestor_once');
-      expect(allowed).not.toContain('spanner_admin_execute');
+      expect(allowed).toContain('github_write_file');
+      expect(allowed).toContain('github_create_pr');
+      expect(allowed).toContain('deploy_staged_mcp');
+      expect(allowed).toContain('trigger_deploy');
+      expect(allowed).toContain('rotate_odds_key');
+      expect(allowed).toContain('run_odds_ingestor_once');
+      expect(allowed).toContain('spanner_admin_execute');
     });
   });
 
   describe('Tool Definitions (MCP-compatible)', () => {
-    it('returns schemas only for allowed tools', () => {
+    it('returns schemas for all tools including approval-required', () => {
       const defs = getCodexToolDefinitions();
       const names = defs.map(d => d.name);
 
       expect(names).toContain('get_odds');
       expect(names).toContain('get_scores');
-      expect(names).not.toContain('deploy_staged_mcp');
-      expect(names).not.toContain('spanner_admin_execute');
+      expect(names).toContain('deploy_staged_mcp');
+      expect(names).toContain('spanner_admin_execute');
     });
 
     it('each definition has name, description, inputSchema', () => {
@@ -174,19 +171,19 @@ describe('Truth MCP Bridge', () => {
       expect(result).toEqual({ data: 'mock result' });
     });
 
-    it('throws on blocked tool execution attempt', async () => {
-      await expect(
-        executeCodexToolCall('deploy_staged_mcp', {}, { connectionId: 'test' })
-      ).rejects.toThrow(/not available in Codex autonomy mode/);
+    it('allows approval-required tools to execute (approval checked in handler)', async () => {
+      const result = await executeCodexToolCall('deploy_staged_mcp', {}, { connectionId: 'test' });
+      expect(toolRegistry.execute).toHaveBeenCalled();
+      expect(result).toEqual({ data: 'mock result' });
     });
 
-    it('throws on spanner_admin_execute attempt', async () => {
-      await expect(
-        executeCodexToolCall('spanner_admin_execute', {}, { connectionId: 'test' })
-      ).rejects.toThrow(/not available in Codex autonomy mode/);
+    it('allows spanner_admin_execute to execute (approval checked in handler)', async () => {
+      const result = await executeCodexToolCall('spanner_admin_execute', {}, { connectionId: 'test' });
+      expect(toolRegistry.execute).toHaveBeenCalled();
+      expect(result).toEqual({ data: 'mock result' });
     });
 
-    it('allows approval-required tools to execute (approval checked elsewhere)', async () => {
+    it('allows github tools to execute (approval checked in handler)', async () => {
       const result = await executeCodexToolCall('github_write_file', { path: 'test.md', content: 'hello' }, {
         connectionId: 'test',
       });

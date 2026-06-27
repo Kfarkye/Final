@@ -135,18 +135,18 @@ export default function ExportDialog({ onClose, turns, topic, currentUser }: Exp
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg)]/60 backdrop-blur-sm">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+        className="bg-[var(--s2)] border border-[var(--b1)] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
       >
-        <div className="p-6 border-b border-white/10 flex justify-between items-center bg-zinc-950">
-          <h2 className="text-lg font-medium text-white flex items-center gap-2">
+        <div className="p-6 border-b border-[var(--b1)] flex justify-between items-center bg-[var(--s2)]">
+          <h2 className="text-lg font-medium text-[var(--t1)] flex items-center gap-2">
             <Download size={18} /> Export Conversation
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -159,17 +159,17 @@ export default function ExportDialog({ onClose, turns, topic, currentUser }: Exp
           )}
 
           <div className="space-y-3">
-            <label className="text-xs uppercase tracking-wider font-semibold text-zinc-500">Format</label>
+            <label className="text-xs uppercase tracking-wider font-semibold text-[var(--t4)]">Format</label>
             <div className="flex gap-3">
               <button 
                 onClick={() => setFormat('pdf')} 
-                className={`flex-1 py-3 px-4 rounded-xl border flex items-center justify-center gap-2 transition-colors ${format === 'pdf' ? 'bg-white text-black border-white' : 'bg-zinc-950 border-white/10 text-zinc-400 hover:text-white hover:border-white/30'}`}
+                className={`flex-1 py-3 px-4 rounded-xl border flex items-center justify-center gap-2 transition-colors ${format === 'pdf' ? 'bg-[var(--t1)] text-[var(--bg)] border-[var(--t1)]' : 'bg-[var(--s2)] border-[var(--b1)] text-[var(--t2)] hover:text-[var(--t1)] hover:border-[var(--b2)]'}`}
               >
                 <FileText size={18} /> PDF Document
               </button>
               <button 
                 onClick={() => setFormat('md')} 
-                className={`flex-1 py-3 px-4 rounded-xl border flex items-center justify-center gap-2 transition-colors ${format === 'md' ? 'bg-white text-black border-white' : 'bg-zinc-950 border-white/10 text-zinc-400 hover:text-white hover:border-white/30'}`}
+                className={`flex-1 py-3 px-4 rounded-xl border flex items-center justify-center gap-2 transition-colors ${format === 'md' ? 'bg-[var(--t1)] text-[var(--bg)] border-[var(--t1)]' : 'bg-[var(--s2)] border-[var(--b1)] text-[var(--t2)] hover:text-[var(--t1)] hover:border-[var(--b2)]'}`}
               >
                 <FileText size={18} /> Markdown
               </button>
@@ -177,18 +177,18 @@ export default function ExportDialog({ onClose, turns, topic, currentUser }: Exp
           </div>
 
           <div className="space-y-3">
-             <label className="text-xs uppercase tracking-wider font-semibold text-zinc-500">Local Download</label>
+             <label className="text-xs uppercase tracking-wider font-semibold text-[var(--t4)]">Local Download</label>
              <button 
                onClick={() => handleExport('download')}
                disabled={isExporting || turns.length === 0}
-               className="w-full py-3 px-4 rounded-xl border border-white/10 bg-zinc-950 hover:bg-white/5 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+               className="w-full py-3 px-4 rounded-xl border border-[var(--b1)] bg-[var(--s2)] hover:bg-[var(--s1)] text-[var(--t1)] flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
              >
                <Download size={18} /> Save to Device
              </button>
           </div>
 
-          <div className="space-y-3 pt-4 border-t border-white/10">
-             <label className="text-xs uppercase tracking-wider font-semibold text-zinc-500">Workspace Integrations</label>
+          <div className="space-y-3 pt-4 border-t border-[var(--b1)]">
+             <label className="text-xs uppercase tracking-wider font-semibold text-[var(--t4)]">Workspace Integrations</label>
              <button 
                onClick={() => handleExport('drive')}
                disabled={isExporting || turns.length === 0}
@@ -203,7 +203,7 @@ export default function ExportDialog({ onClose, turns, topic, currentUser }: Exp
                  placeholder="Email address" 
                  value={email}
                  onChange={e => setEmail(e.target.value)}
-                 className="flex-1 bg-zinc-950 border border-white/10 rounded-xl px-4 text-sm text-white focus:border-white/40 focus:outline-none"
+                 className="flex-1 bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 text-sm text-[var(--t1)] focus:border-[var(--b2)] focus:outline-none"
                />
                <button 
                  onClick={() => handleExport('email')}
@@ -213,12 +213,12 @@ export default function ExportDialog({ onClose, turns, topic, currentUser }: Exp
                  <Mail size={16} /> Send Email
                </button>
              </div>
-             <p className="text-[10px] text-zinc-500 mt-2 text-center">Requires Workspace connection with proper permissions.</p>
+             <p className="text-[10px] text-[var(--t4)] mt-2 text-center">Requires Workspace connection with proper permissions.</p>
           </div>
 
-          <div className="space-y-3 pt-4 border-t border-white/10">
+          <div className="space-y-3 pt-4 border-t border-[var(--b1)]">
              <div className="flex items-center justify-between">
-               <label className="text-xs uppercase tracking-wider font-semibold text-zinc-500">Google Chat</label>
+               <label className="text-xs uppercase tracking-wider font-semibold text-[var(--t4)]">Google Chat</label>
                {spaces.length === 0 && (
                  <button onClick={loadChatSpaces} disabled={loadingSpaces} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
                    <RefreshCw size={12} className={loadingSpaces ? "animate-spin" : ""} /> Load Spaces
@@ -232,14 +232,14 @@ export default function ExportDialog({ onClose, turns, topic, currentUser }: Exp
                    <select 
                      value={selectedSpace}
                      onChange={e => setSelectedSpace(e.target.value)}
-                     className="w-full h-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-white/40 focus:outline-none appearance-none"
+                     className="w-full h-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-3 text-sm text-[var(--t1)] focus:border-[var(--b2)] focus:outline-none appearance-none"
                    >
                      <option value="" disabled>Select a Space</option>
                      {spaces.map(s => (
                        <option key={s.name} value={s.name}>{s.displayName || s.name}</option>
                      ))}
                    </select>
-                   <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500" />
+                   <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--t4)]" />
                  </div>
                  <button 
                    onClick={() => handleExport('chat')}

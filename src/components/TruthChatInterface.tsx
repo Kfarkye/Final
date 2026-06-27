@@ -255,7 +255,7 @@ export const TruthChatInterface: React.FC = () => {
               {/* User Avatar Circle */}
               {msg.sender === "assistant" && (
                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center shadow-lg flex-shrink-0">
-                  <span className="text-xs font-bold text-white">TR</span>
+                  <span className="text-xs font-bold text-[var(--t1)]">TR</span>
                 </div>
               )}
 
@@ -291,7 +291,7 @@ export const TruthChatInterface: React.FC = () => {
                         {para.includes("**") ? (
                           <span>
                             {para.split("**").map((chunk, cIdx) => 
-                              cIdx % 2 === 1 ? <strong key={cIdx} className="text-white font-bold">{chunk}</strong> : chunk
+                              cIdx % 2 === 1 ? <strong key={cIdx} className="text-[var(--t1)] font-bold">{chunk}</strong> : chunk
                             )}
                           </span>
                         ) : para}
@@ -349,7 +349,7 @@ export const TruthChatInterface: React.FC = () => {
             <div className="absolute right-3 flex items-center">
               <button 
                 type="submit"
-                className="w-10 h-10 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center justify-center shadow-lg shadow-cyan-500/15 transition-all focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
+                className="w-10 h-10 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-[var(--t1)] font-bold flex items-center justify-center shadow-lg shadow-cyan-500/15 transition-all focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
                 aria-label="Send Message button"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

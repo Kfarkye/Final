@@ -111,16 +111,16 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
 
   if (!token) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center text-zinc-400 space-y-6">
-        <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center text-zinc-500">
+      <div className="flex flex-col items-center justify-center h-full p-6 text-center text-[var(--t2)] space-y-6">
+        <div className="w-16 h-16 bg-[var(--s2)] rounded-full flex items-center justify-center text-[var(--t4)]">
           <LogIn size={24} />
         </div>
         <div>
-          <h3 className="text-white font-medium text-lg mb-2">Connect Workspace</h3>
+          <h3 className="text-[var(--t1)] font-medium text-lg mb-2">Connect Workspace</h3>
           <p className="text-sm max-w-[200px] mb-6">Integrate your Docs, Mail, and Calendar directly into Truth.</p>
           <button 
             onClick={handleLogin}
-            className="bg-white text-black px-6 py-3 rounded-full text-sm font-medium hover:bg-zinc-200 transition-colors shadow-lg shadow-white/5 flex items-center justify-center space-x-2 w-full"
+            className="bg-[var(--t1)] text-[var(--bg)] px-6 py-3 rounded-full text-sm font-medium hover:bg-[var(--t-text-secondary)] transition-colors shadow-lg shadow-[var(--b1)] flex items-center justify-center space-x-2 w-full"
           >
             <span>Connect Google</span>
           </button>
@@ -138,9 +138,9 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
 
   return (
     <div className="h-full flex flex-col overflow-y-auto custom-scrollbar p-6 space-y-6">
-      <div className="flex items-center justify-between pb-2 border-b border-white/10">
-        <h2 className="text-lg font-medium text-white tracking-tight">Workspace</h2>
-        <button onClick={() => fetchData(token)} className="text-zinc-500 hover:text-white transition-colors">
+      <div className="flex items-center justify-between pb-2 border-b border-[var(--b1)]">
+        <h2 className="text-lg font-medium text-[var(--t1)] tracking-tight">Workspace</h2>
+        <button onClick={() => fetchData(token)} className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors">
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
@@ -149,7 +149,7 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
       <section className="space-y-3">
         <button 
           onClick={() => setExpandedSection(expandedSection === 'calendar' ? '' as any : 'calendar')}
-          className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
+          className="w-full flex items-center justify-between text-xs font-semibold text-[var(--t4)] uppercase tracking-wider hover:text-[var(--t1)] transition-colors"
         >
           <div className="flex items-center gap-2"><Calendar size={14} /> Upcoming Meetings</div>
           {expandedSection === 'calendar' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -157,15 +157,15 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
         <AnimatePresence>
           {expandedSection === 'calendar' && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-hidden">
-              {events.length === 0 && !loading && <div className="text-sm text-zinc-600 mt-2">No upcoming events.</div>}
+              {events.length === 0 && !loading && <div className="text-sm text-[var(--t4)] mt-2">No upcoming events.</div>}
               {events.map(ev => (
                 <div 
                   key={ev.id} 
                   onClick={() => onInsertContext(`Event: ${ev.summary}\nTime: ${ev.start?.dateTime || ev.start?.date}\nDescription: ${ev.description || 'None'}`)}
-                  className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 cursor-pointer group transition-all"
+                  className="p-3 rounded-xl bg-[var(--s2)] border border-[var(--b2)] hover:border-[var(--b2)] cursor-pointer group transition-all"
                 >
-                  <div className="font-medium text-white text-sm truncate">{ev.summary || 'Untitled Event'}</div>
-                  <div className="text-xs text-zinc-500 mt-1 flex justify-between items-center">
+                  <div className="font-medium text-[var(--t1)] text-sm truncate">{ev.summary || 'Untitled Event'}</div>
+                  <div className="text-xs text-[var(--t4)] mt-1 flex justify-between items-center">
                     <span>{new Date(ev.start?.dateTime || ev.start?.date).toLocaleString()}</span>
                     <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
@@ -180,7 +180,7 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
       <section className="space-y-3">
         <button 
           onClick={() => setExpandedSection(expandedSection === 'gmail' ? '' as any : 'gmail')}
-          className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
+          className="w-full flex items-center justify-between text-xs font-semibold text-[var(--t4)] uppercase tracking-wider hover:text-[var(--t1)] transition-colors"
         >
           <div className="flex items-center gap-2"><Mail size={14} /> Unread Emails {emails.length > 0 && `(${emails.length})`}</div>
           {expandedSection === 'gmail' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -188,17 +188,17 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
         <AnimatePresence>
           {expandedSection === 'gmail' && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-hidden">
-               {emails.length === 0 && !loading && <div className="text-sm text-zinc-600 mt-2">Inbox zero!</div>}
+               {emails.length === 0 && !loading && <div className="text-sm text-[var(--t4)] mt-2">Inbox zero!</div>}
                {emails.map(em => (
                  <div 
                    key={em.id} 
                    onClick={() => onInsertContext(`data:application/vnd.google-apps.mail;base64,${btoa(JSON.stringify({ id: em.id, subject: getSubject(em.payload.headers), from: getSender(em.payload.headers), snippet: em.snippet, date: em.internalDate }))}`)}
-                   className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 cursor-pointer group transition-all relative overflow-hidden"
+                   className="p-3 rounded-xl bg-[var(--s2)] border border-[var(--b2)] hover:border-[var(--b2)] cursor-pointer group transition-all relative overflow-hidden"
                  >
                    <div className="pr-6">
-                     <div className="font-medium text-white text-sm truncate">{getSubject(em.payload.headers)}</div>
-                     <div className="text-xs text-zinc-500 mt-1 truncate">{getSender(em.payload.headers)}</div>
-                     <div className="text-xs text-zinc-600 mt-2 line-clamp-2 leading-relaxed">{em.snippet}</div>
+                     <div className="font-medium text-[var(--t1)] text-sm truncate">{getSubject(em.payload.headers)}</div>
+                     <div className="text-xs text-[var(--t4)] mt-1 truncate">{getSender(em.payload.headers)}</div>
+                     <div className="text-xs text-[var(--t4)] mt-2 line-clamp-2 leading-relaxed">{em.snippet}</div>
                    </div>
                    
                    {/* Delete button that appears on hover */}
@@ -215,7 +215,7 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
                {emailPageToken && (
                  <button 
                    onClick={() => fetchEmails(token, emailPageToken)}
-                   className="w-full py-2 mt-2 text-xs text-zinc-400 hover:text-white bg-zinc-900/50 hover:bg-zinc-900 rounded-lg transition-colors border border-transparent hover:border-zinc-800"
+                   className="w-full py-2 mt-2 text-xs text-[var(--t2)] hover:text-[var(--t1)] bg-[var(--s2)] hover:bg-[var(--s2)] rounded-lg transition-colors border border-transparent hover:border-[var(--b2)]"
                  >
                    {loading ? 'Loading...' : 'Load more emails'}
                  </button>
@@ -229,7 +229,7 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
       <section className="space-y-3">
         <button 
           onClick={() => setExpandedSection(expandedSection === 'drive' ? '' as any : 'drive')}
-          className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
+          className="w-full flex items-center justify-between text-xs font-semibold text-[var(--t4)] uppercase tracking-wider hover:text-[var(--t1)] transition-colors"
         >
           <div className="flex items-center gap-2"><FileText size={14} /> Recent Files</div>
           {expandedSection === 'drive' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -237,15 +237,15 @@ export default function WorkspaceHub({ onInsertContext }: WorkspaceHubProps) {
         <AnimatePresence>
           {expandedSection === 'drive' && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-hidden">
-               {files.length === 0 && !loading && <div className="text-sm text-zinc-600 mt-2">No recent files.</div>}
+               {files.length === 0 && !loading && <div className="text-sm text-[var(--t4)] mt-2">No recent files.</div>}
                {files.map(f => (
                  <div 
                    key={f.id} 
                    onClick={() => onInsertContext(`data:${f.mimeType};base64,${btoa(JSON.stringify({ id: f.id, name: f.name, link: f.webViewLink || `https://docs.google.com/document/d/${f.id}/preview` }))}`)}
-                   className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 cursor-pointer group transition-all"
+                   className="p-3 rounded-xl bg-[var(--s2)] border border-[var(--b2)] hover:border-[var(--b2)] cursor-pointer group transition-all"
                  >
-                   <div className="font-medium text-white text-sm truncate">{f.name}</div>
-                   <div className="text-xs text-zinc-500 mt-1 flex justify-between items-center">
+                   <div className="font-medium text-[var(--t1)] text-sm truncate">{f.name}</div>
+                   <div className="text-xs text-[var(--t4)] mt-1 flex justify-between items-center">
                      <span className="truncate">{f.mimeType.split('.').pop()}</span>
                      <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                    </div>

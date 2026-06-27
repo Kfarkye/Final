@@ -1,4 +1,17 @@
 steps:
+  # Verify types before attempting to build
+  # NOTE: lint gate is NON-BLOCKING on first run (|| echo). The codebase had no
+  # tsconfig.json until now and has never been type-checked, so we surface the
+  # true error count WITHOUT bricking the deploy. Once a clean run is observed
+  # (or errors are fixed), delete the "|| echo ..." to make this a HARD gate.
+  - name: 'node:24-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        npm ci --legacy-peer-deps
+        npm run lint || echo "⚠️  TYPECHECK FAILED — non-blocking on first run. Review errors above, then flip to hard gate."
+
   # Build with kaniko — cached layers, pushes to Artifact Registry
   - name: 'gcr.io/kaniko-project/executor:latest'
     args:

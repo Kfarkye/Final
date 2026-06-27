@@ -772,13 +772,13 @@ const ToolPill = memo(function ToolPill({ run, index }: { run: ToolRun; index: n
         'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full',
         'text-[11px] font-medium tracking-wide whitespace-nowrap',
         isErr && 'bg-red-500/10 text-red-400',
-        isDone && 'bg-white/5 text-white/40',
-        !isDone && !isErr && 'bg-white/[0.04] text-white/50',
+        isDone && 'bg-[var(--s1)] text-[var(--t3)]',
+        !isDone && !isErr && 'bg-[var(--s1)] text-[var(--t2)]',
       )}
     >
       {run.state === 'active' && (
         <motion.span
-          className="size-1.5 rounded-full bg-white/50"
+          className="size-1.5 rounded-full bg-[var(--s1)]0"
           animate={{ opacity: [0.3, 1, 0.3] }}
           transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -786,7 +786,7 @@ const ToolPill = memo(function ToolPill({ run, index }: { run: ToolRun; index: n
       {isDone && <Check className="size-2.5 opacity-50" />}
       {isErr && <X className="size-2.5" />}
       <span className="font-mono">{run.name}</span>
-      {elapsed > 0 && <span className="text-white/20 tabular-nums">{elapsed}s</span>}
+      {elapsed > 0 && <span className="text-[var(--t4)] tabular-nums">{elapsed}s</span>}
     </motion.span>
   );
 });
@@ -822,7 +822,7 @@ const ThinkingDots = memo(function ThinkingDots() {
       {[0, 1, 2].map(i => (
         <motion.span
           key={i}
-          className="size-[5px] rounded-full bg-white/30"
+          className="size-[5px] rounded-full bg-[var(--b2)]"
           animate={{ opacity: [0.2, 0.8, 0.2], scale: [0.8, 1.1, 0.8] }}
           transition={{ duration: 1.2, delay: i * 0.15, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -838,7 +838,7 @@ const ThinkingDots = memo(function ThinkingDots() {
 const StreamingCursor = memo(function StreamingCursor() {
   return (
     <motion.span
-      className="inline-block w-[2px] h-[1em] bg-white/50 rounded-full ml-0.5 align-text-bottom"
+      className="inline-block w-[2px] h-[1em] bg-[var(--s1)]0 rounded-full ml-0.5 align-text-bottom"
       animate={{ opacity: [1, 0] }}
       transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
       aria-hidden
@@ -878,8 +878,8 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
         transition={spring.gentle}
         className="flex justify-end w-full"
       >
-        <div className="max-w-[85%] bg-white/[0.07] rounded-[20px] rounded-br-[6px] px-5 py-3.5">
-          <span className="text-[15px] text-white/90 whitespace-pre-wrap leading-relaxed break-words"
+        <div className="max-w-[85%] bg-[var(--s1)] rounded-[20px] rounded-br-[6px] px-5 py-3.5">
+          <span className="text-[15px] text-[var(--t1)] whitespace-pre-wrap leading-relaxed break-words"
             style={{ fontFamily: FONT_STACK }}>{msg.content}</span>
         </div>
       </motion.div>
@@ -907,7 +907,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
       {msg.segments.map((seg, si) => (
         <React.Fragment key={si}>
           {seg.kind === 'text' && seg.content && (
-            <div className="t-prose text-[15px] leading-[1.65] text-white/85 break-words overflow-hidden">
+            <div className="t-prose text-[15px] leading-[1.65] text-[var(--t1)] break-words overflow-hidden">
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
                 {seg.content}
               </ReactMarkdown>
@@ -933,7 +933,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
             className={cn(
               'flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium',
               'transition-colors duration-200 active:scale-95',
-              copied ? 'text-white/50' : 'text-white/20 hover:text-white/50',
+              copied ? 'text-[var(--t2)]' : 'text-[var(--t4)] hover:text-[var(--t2)]',
             )}
             aria-label={copied ? 'Copied to clipboard' : 'Copy message'}
           >
@@ -942,7 +942,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
           </button>
           {isLast && onRetry && (
             <button onClick={onRetry}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-white/20 hover:text-white/50 transition-colors duration-200 active:scale-95"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-[var(--t4)] hover:text-[var(--t2)] transition-colors duration-200 active:scale-95"
               aria-label="Retry this message">
               <RotateCcw className="size-3" /> Retry
             </button>
@@ -985,7 +985,7 @@ const ErrorBar = memo(function ErrorBar({ error, onRetry, onDismiss }: {
         </button>
       )}
       <button onClick={onDismiss}
-        className="text-white/20 p-0.5 active:scale-95 transition-transform"
+        className="text-[var(--t4)] p-0.5 active:scale-95 transition-transform"
         aria-label="Dismiss error">
         <X className="size-3" />
       </button>
@@ -1024,15 +1024,15 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
   }, [inputRef]);
 
   return (
-    <div className="px-4 pt-3 pb-3 flex-shrink-0 z-20 border-t border-white/5 bg-black/95 backdrop-blur"
+    <div className="px-4 pt-3 pb-3 flex-shrink-0 z-20 border-t border-[var(--b1)] bg-[var(--bg)] backdrop-blur"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 12px)' }}>
       <div className="mx-auto max-w-chat w-full">
         <div className={cn(
-          'relative flex items-end gap-2 bg-white/[0.05] rounded-[26px]',
+          'relative flex items-end gap-2 bg-[var(--s1)] rounded-[26px]',
           'border transition-all duration-300 ease-out',
           focused
-            ? 'border-white/[0.15] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_2px_12px_rgba(255,255,255,0.03)]'
-            : 'border-white/[0.06]',
+            ? 'border-[var(--b2)] shadow-[var(--t-shadow-md)]'
+            : 'border-[var(--b1)]',
         )}>
         <textarea
           ref={inputRef}
@@ -1044,7 +1044,7 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
           placeholder="Message"
           rows={1}
           aria-label="Chat input"
-          className="flex-1 bg-transparent text-[15px] text-white placeholder:text-white/25 leading-[1.4] resize-none outline-none pl-5 pr-2 py-3 scrollbar-none"
+          className="flex-1 bg-transparent text-[15px] text-[var(--t1)] placeholder:text-[var(--t4)] leading-[1.4] resize-none outline-none pl-5 pr-2 py-3 scrollbar-none"
           style={{ fontFamily: FONT_STACK, maxHeight: MAX_TEXTAREA_HEIGHT, transition: 'height 120ms ease-out' }}
         />
         <div className="pr-2 pb-2 flex-shrink-0">
@@ -1076,7 +1076,7 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
           </motion.button>
         </div>
       </div>
-      <p className="mt-2 text-center text-[10px] text-white/30" style={{ fontFamily: FONT_STACK }}>
+      <p className="mt-2 text-center text-[10px] text-[var(--t3)]" style={{ fontFamily: FONT_STACK }}>
         Optimized for deep, readable responses
       </p>
       </div>
@@ -1141,13 +1141,13 @@ export default function MobileChat() {
   const handleSend = useCallback((text: string) => { chat.send(text); }, [chat]);
 
   return (
-    <div className="flex flex-col h-dvh w-full bg-black text-white antialiased overflow-hidden">
+    <div className="flex flex-col h-dvh w-full bg-[var(--bg)] text-[var(--t1)] antialiased overflow-hidden">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 border-b border-white/10 bg-black/95 px-4 py-3 backdrop-blur flex-shrink-0"
+      <div className="sticky top-0 z-10 border-b border-[var(--b1)] bg-[var(--bg)] px-4 py-3 backdrop-blur flex-shrink-0"
            style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
         <div className="mx-auto max-w-chat flex items-center justify-between w-full">
-          <div className="text-sm text-white/50 flex items-center" style={{ fontFamily: FONT_STACK }}>
-            <span className="font-semibold text-white/80 tracking-tight">Truth</span>
+          <div className="text-sm text-[var(--t2)] flex items-center" style={{ fontFamily: FONT_STACK }}>
+            <span className="font-semibold text-[var(--t1)] tracking-tight">Truth</span>
             <span className="mx-2 opacity-30">•</span>
             <select
               value={`${model}:${modelConfig}`}
@@ -1156,21 +1156,21 @@ export default function MobileChat() {
                 setModel(m);
                 setModelConfig(mc);
               }}
-              className="bg-transparent text-white/50 appearance-none outline-none cursor-pointer hover:text-white/80 transition-colors"
+              className="bg-transparent text-[var(--t2)] appearance-none outline-none cursor-pointer hover:text-[var(--t1)] transition-colors"
             >
-              <option value="gemini:gemini-3.1-pro-preview" className="text-black">Gemini 3.1 Pro</option>
-              <option value="gemini:gemini-3.5-flash" className="text-black">Gemini 3.5 Flash</option>
-              <option value="chatgpt:gpt-5.5" className="text-black">GPT 5.5</option>
-              <option value="claude:claude-sonnet-4-6" className="text-black">Claude 4.6 Sonnet</option>
-              <option value="claude:claude-opus-4-8" className="text-black">Claude 4.8 Opus</option>
-              <option value="grok:grok-4.3" className="text-black">Grok 4.3</option>
-              <option value="codex:gpt-5.5" className="text-black">Codex GPT-5.5</option>
-              <option value="codex:gpt-5.4" className="text-black">Codex GPT-5.4</option>
+              <option value="gemini:gemini-3.1-pro-preview" className="text-[var(--bg)]">Gemini 3.1 Pro</option>
+              <option value="gemini:gemini-3.5-flash" className="text-[var(--bg)]">Gemini 3.5 Flash</option>
+              <option value="chatgpt:gpt-5.5" className="text-[var(--bg)]">GPT 5.5</option>
+              <option value="claude:claude-sonnet-4-6" className="text-[var(--bg)]">Claude 4.6 Sonnet</option>
+              <option value="claude:claude-opus-4-8" className="text-[var(--bg)]">Claude 4.8 Opus</option>
+              <option value="grok:grok-4.3" className="text-[var(--bg)]">Grok 4.3</option>
+              <option value="codex:gpt-5.5" className="text-[var(--bg)]">Codex GPT-5.5</option>
+              <option value="codex:gpt-5.4" className="text-[var(--bg)]">Codex GPT-5.4</option>
             </select>
             <ChevronDown className="size-3 ml-1 opacity-50" />
           </div>
           <button onClick={chat.reset}
-            className="p-1.5 rounded-full text-white/25 hover:text-white/60 active:scale-90 transition-all duration-150"
+            className="p-1.5 rounded-full text-[var(--t4)] hover:text-[var(--t2)] active:scale-90 transition-all duration-150"
             aria-label="New conversation">
             <PenLine className="size-4" strokeWidth={1.8} />
           </button>
@@ -1184,13 +1184,13 @@ export default function MobileChat() {
         style={{ WebkitOverflowScrolling: 'touch' }}>
         {msgCount === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <div className="mb-4 size-12 rounded-2xl bg-white/[0.03] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] flex items-center justify-center">
-              <span className="text-xl font-bold text-white/80" style={{ fontFamily: FONT_STACK }}>T</span>
+            <div className="mb-4 size-12 rounded-2xl bg-[var(--s1)] shadow-[inset_0_0_0_1px_var(--b1)] flex items-center justify-center">
+              <span className="text-xl font-bold text-[var(--t1)]" style={{ fontFamily: FONT_STACK }}>T</span>
             </div>
-            <h1 className="text-xl font-medium tracking-tight text-white/90" style={{ fontFamily: FONT_STACK }}>
+            <h1 className="text-xl font-medium tracking-tight text-[var(--t1)]" style={{ fontFamily: FONT_STACK }}>
               How can I help you today?
             </h1>
-            <p className="mt-2 text-sm text-white/40 max-w-[280px]">
+            <p className="mt-2 text-sm text-[var(--t3)] max-w-[280px]">
               Optimized for deep, long-form exploration and research.
             </p>
           </div>

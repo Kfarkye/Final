@@ -937,15 +937,15 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
   });
 
   return (
-    <div className="h-full flex flex-col bg-black text-zinc-100 overflow-hidden font-sans border-l border-zinc-900">
+    <div className="h-full flex flex-col bg-black text-[var(--t1)] overflow-hidden font-sans border-l border-[var(--b1)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-900 bg-black">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--b1)] bg-black">
         <div>
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400 tracking-wider uppercase font-medium">
-            <Compass size={11} className="text-zinc-500" />
+          <div className="flex items-center gap-1.5 text-xs text-[var(--t2)] tracking-wider uppercase font-medium">
+            <Compass size={11} className="text-[var(--t4)]" />
             <span>Protocol Registry</span>
           </div>
-          <h2 className="text-base font-medium text-white tracking-tight mt-1">
+          <h2 className="text-base font-medium text-[var(--t1)] tracking-tight mt-1">
             Registered Models context (MCP)
           </h2>
         </div>
@@ -954,16 +954,16 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
           <button
             onClick={triggerRefreshAll}
             disabled={refreshing}
-            className="p-1 px-2 text-xs bg-zinc-950 hover:bg-zinc-900 active:scale-[0.98] border border-zinc-800/80 rounded-lg text-zinc-400 hover:text-white transition-all flex items-center gap-1.5"
+            className="p-1 px-2 text-xs bg-[var(--s2)] hover:bg-[var(--s2)] active:scale-[0.98] border border-[var(--b2)]/80 rounded-lg text-[var(--t2)] hover:text-[var(--t1)] transition-all flex items-center gap-1.5"
           >
-            <RefreshCw size={11} className={refreshing ? 'animate-spin text-zinc-300' : 'text-zinc-500'} />
+            <RefreshCw size={11} className={refreshing ? 'animate-spin text-[var(--t3)]' : 'text-[var(--t4)]'} />
             <span className="text-[10px] tracking-wide">Sync</span>
           </button>
 
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-950 rounded-lg transition-colors border border-transparent hover:border-zinc-900"
+              className="p-1.5 text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s2)] rounded-lg transition-colors border border-transparent hover:border-[var(--b1)]"
               title="Close Panel"
             >
               <X size={16} />
@@ -974,25 +974,25 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Search & Tabs: Apple-like segmented control */}
-        <div className="px-6 py-4 flex flex-col gap-3.5 border-b border-zinc-900 bg-zinc-950/20">
+        <div className="px-6 py-4 flex flex-col gap-3.5 border-b border-[var(--b1)] bg-[var(--s2)]/20">
           <div className="relative">
-            <Search className="absolute left-3.5 top-2.5 text-zinc-600 pointer-events-none" size={13} />
+            <Search className="absolute left-3.5 top-2.5 text-[var(--t4)] pointer-events-none" size={13} />
             <input 
               type="text" 
               placeholder="Search schemas or context engines..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-900 hover:border-zinc-800 focus:border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-200 outline-none transition-all placeholder-zinc-600 font-sans"
+              className="w-full bg-[var(--s2)] border border-[var(--b1)] hover:border-[var(--b2)] focus:border-[var(--b2)] rounded-xl pl-10 pr-4 py-2.5 text-xs text-[var(--t1)] outline-none transition-all placeholder-[var(--t4)] font-sans"
             />
           </div>
 
           <div className="flex items-center justify-between gap-4">
-            <div className="flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-900 text-[10px] uppercase font-semibold tracking-wider">
+            <div className="flex bg-[var(--s2)] rounded-lg p-0.5 border border-[var(--b1)] text-[10px] uppercase font-semibold tracking-wider">
               {(['all', 'official', 'custom'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-3 py-1.5 rounded-md transition-all duration-300 font-sans ${activeTab === tab ? 'bg-zinc-100 text-black font-bold' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  className={`px-3 py-1.5 rounded-md transition-all duration-300 font-sans ${activeTab === tab ? 'bg-[var(--t-text-primary)] text-[var(--bg)] font-bold' : 'text-[var(--t4)] hover:text-[var(--t3)]'}`}
                 >
                   {tab === 'all' ? 'All' : tab}
                 </button>
@@ -1001,7 +1001,7 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
 
             <button 
               onClick={() => setIsAddingServer(true)}
-              className="flex items-center gap-1.5 bg-zinc-100 text-black px-3.5 py-1.5 rounded-lg text-xs font-semibold tracking-wide hover:bg-white active:scale-[0.98] transition-all"
+              className="flex items-center gap-1.5 bg-[var(--t-text-primary)] text-[var(--bg)] px-3.5 py-1.5 rounded-lg text-xs font-semibold tracking-wide hover:bg-[var(--t-text-primary)] active:scale-[0.98] transition-all"
             >
               <Plus size={12} strokeWidth={2.5} />
               <span>Register Server</span>
@@ -1017,61 +1017,61 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
                 initial={{ opacity: 0, scale: 0.98, y: -8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: -8 }}
-                className="p-5 rounded-2xl bg-zinc-950 border border-zinc-900 space-y-4"
+                className="p-5 rounded-2xl bg-[var(--s2)] border border-[var(--b1)] space-y-4"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
-                    <PlusCircle size={12} className="text-zinc-500" /> Deploy Host Connection
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t2)] flex items-center gap-1.5">
+                    <PlusCircle size={12} className="text-[var(--t4)]" /> Deploy Host Connection
                   </span>
-                  <button onClick={() => setIsAddingServer(false)} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+                  <button onClick={() => setIsAddingServer(false)} className="text-[var(--t4)] hover:text-[var(--t3)] transition-colors">
                     <X size={14} />
                   </button>
                 </div>
 
                 <form onSubmit={handleCreateServer} className="space-y-3.5">
                   <div className="space-y-1">
-                    <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Unique Name <span className="text-zinc-600">*</span></label>
+                    <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Unique Name <span className="text-[var(--t4)]">*</span></label>
                     <input 
                       type="text" 
                       placeholder="e.g., Enterprise Database Tunnel" 
                       required
                       value={name}
                       onChange={e => setName(e.target.value)}
-                      className="w-full bg-black border border-zinc-900 focus:border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none placeholder-zinc-700"
+                      className="w-full bg-black border border-[var(--b1)] focus:border-[var(--b2)] rounded-xl px-3 py-2 text-xs text-[var(--t1)] outline-none placeholder-[var(--t4)]"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Publisher</label>
+                      <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Publisher</label>
                       <input 
                         type="text" 
                         placeholder="e.g., Internal Infra" 
                         value={publisher}
                         onChange={e => setPublisher(e.target.value)}
-                        className="w-full bg-black border border-zinc-900 focus:border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none placeholder-zinc-700"
+                        className="w-full bg-black border border-[var(--b1)] focus:border-[var(--b2)] rounded-xl px-3 py-2 text-xs text-[var(--t1)] outline-none placeholder-[var(--t4)]"
                       />
                     </div>
                     <div className="space-y-1 relative">
-                      <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Transport</label>
+                      <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Transport</label>
                       <div className="relative">
                         <select 
                           value={transport}
                           onChange={e => setTransport(e.target.value as any)}
-                          className="w-full bg-black border border-zinc-900 focus:border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none cursor-pointer appearance-none pr-8"
+                          className="w-full bg-black border border-[var(--b1)] focus:border-[var(--b2)] rounded-xl px-3 py-2 text-xs text-[var(--t1)] outline-none cursor-pointer appearance-none pr-8"
                         >
                           <option value="SSE">SSE Webservice</option>
                           <option value="Stdout">Stdout (npx runtime)</option>
                           <option value="WebSocket">WebSocket Stream</option>
                         </select>
-                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500" />
+                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--t4)]" />
                       </div>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">
-                      {transport === 'SSE' ? 'Service Connection Endpoint URL' : transport === 'Stdout' ? 'Command/Process Instruction Line' : 'WebSocket Host Address'} <span className="text-zinc-600">*</span>
+                    <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">
+                      {transport === 'SSE' ? 'Service Connection Endpoint URL' : transport === 'Stdout' ? 'Command/Process Instruction Line' : 'WebSocket Host Address'} <span className="text-[var(--t4)]">*</span>
                     </label>
                     <input 
                       type="text" 
@@ -1079,35 +1079,35 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
                       required
                       value={commandOrUrl}
                       onChange={e => setCommandOrUrl(e.target.value)}
-                      className="w-full bg-black border border-zinc-900 focus:border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-300 outline-none font-mono placeholder-zinc-700"
+                      className="w-full bg-black border border-[var(--b1)] focus:border-[var(--b2)] rounded-xl px-3 py-2 text-xs text-[var(--t3)] outline-none font-mono placeholder-[var(--t4)]"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Environment Config (JSON Optional)</label>
+                    <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Environment Config (JSON Optional)</label>
                     <textarea 
                       placeholder='{ "API_KEY": "sk_prod_...", "DEBUG": "true" }'
                       value={env}
                       rows={2}
                       onChange={e => setEnv(e.target.value)}
-                      className="w-full bg-black border border-zinc-900 focus:border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-300 outline-none font-mono resize-none placeholder-zinc-700"
+                      className="w-full bg-black border border-[var(--b1)] focus:border-[var(--b2)] rounded-xl px-3 py-2 text-xs text-[var(--t3)] outline-none font-mono resize-none placeholder-[var(--t4)]"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Brief Functional Purpose</label>
+                    <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Brief Functional Purpose</label>
                     <input 
                       type="text" 
                       placeholder="Access tables, run scripts, query logs..." 
                       value={description}
                       onChange={e => setDescription(e.target.value)}
-                      className="w-full bg-black border border-zinc-900 focus:border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none placeholder-zinc-700"
+                      className="w-full bg-black border border-[var(--b1)] focus:border-[var(--b2)] rounded-xl px-3 py-2 text-xs text-[var(--t1)] outline-none placeholder-[var(--t4)]"
                     />
                   </div>
 
                   <button 
                     type="submit"
-                    className="w-full bg-zinc-100 text-black py-2.5 rounded-xl font-semibold text-xs tracking-wide hover:bg-white active:scale-[0.98] transition-colors mt-2"
+                    className="w-full bg-[var(--t-text-primary)] text-[var(--bg)] py-2.5 rounded-xl font-semibold text-xs tracking-wide hover:bg-[var(--t-text-primary)] active:scale-[0.98] transition-colors mt-2"
                   >
                     Deploy Connection & Hydrate Schema
                   </button>
@@ -1117,8 +1117,8 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
           </AnimatePresence>
 
           {filteredServers.length === 0 && (
-            <div className="text-center py-16 text-zinc-600 space-y-2">
-              <Server size={18} className="mx-auto text-zinc-700" />
+            <div className="text-center py-16 text-[var(--t4)] space-y-2">
+              <Server size={18} className="mx-auto text-[var(--t4)]" />
               <p className="text-xs font-light">No records match the current filter state.</p>
             </div>
           )}
@@ -1131,25 +1131,25 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
               <div 
                 key={server.id}
                 onClick={() => setSelectedServer(isSelected ? null : server)}
-                className={`p-5 rounded-2xl bg-zinc-950 hover:bg-zinc-900/40 border border-zinc-900/60 hover:border-zinc-800 transition-all cursor-pointer ${isSelected ? 'border-zinc-800 bg-zinc-950' : ''}`}
+                className={`p-5 rounded-2xl bg-[var(--s2)] hover:bg-[var(--s2)] border border-[var(--b1)]/60 hover:border-[var(--b2)] transition-all cursor-pointer ${isSelected ? 'border-[var(--b2)] bg-[var(--s2)]' : ''}`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3 flex-1 min-w-0">
                     {/* Exquisite Minimal Status Indicator */}
                     <div className="pt-1.5 flex-shrink-0">
-                      <span className={`block w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-zinc-100 shadow-[0_0_8px_rgba(255,255,255,0.4)]' : 'bg-zinc-800'}`} />
+                      <span className={`block w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-[var(--t-text-primary)] shadow-[0_0_8px_rgba(255,255,255,0.4)]' : 'bg-[var(--s3)]'}`} />
                     </div>
                     
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="text-xs font-medium text-white truncate tracking-tight">{server.name}</h4>
+                        <h4 className="text-xs font-medium text-[var(--t1)] truncate tracking-tight">{server.name}</h4>
                         {server.type === 'Official' ? (
-                          <span className="text-[8px] px-1.5 py-0.5 bg-zinc-900 text-zinc-300 font-bold uppercase tracking-wider rounded">Host API</span>
+                          <span className="text-[8px] px-1.5 py-0.5 bg-[var(--s2)] text-[var(--t3)] font-bold uppercase tracking-wider rounded">Host API</span>
                         ) : (
-                          <span className="text-[8px] px-1.5 py-0.5 bg-zinc-900/80 text-zinc-500 font-semibold uppercase tracking-wider rounded">Custom</span>
+                          <span className="text-[8px] px-1.5 py-0.5 bg-[var(--s2)] text-[var(--t4)] font-semibold uppercase tracking-wider rounded">Custom</span>
                         )}
                       </div>
-                      <p className="text-[10px] text-zinc-500 mt-1 font-sans">{server.publisher} • {server.transport}</p>
+                      <p className="text-[10px] text-[var(--t4)] mt-1 font-sans">{server.publisher} • {server.transport}</p>
                     </div>
                   </div>
 
@@ -1157,18 +1157,18 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
                     <button 
                       onClick={(e) => testConnection(server.id, e)}
                       disabled={testingId === server.id}
-                      className="p-1 px-2 rounded-lg bg-zinc-950 hover:bg-zinc-900 active:scale-[0.98] border border-zinc-900 text-[9px] uppercase tracking-wider text-zinc-400 hover:text-white transition-all flex items-center gap-1"
+                      className="p-1 px-2 rounded-lg bg-[var(--s2)] hover:bg-[var(--s2)] active:scale-[0.98] border border-[var(--b1)] text-[9px] uppercase tracking-wider text-[var(--t2)] hover:text-[var(--t1)] transition-all flex items-center gap-1"
                       title="Verify Protocol Latency"
                     >
                       {testingId === server.id ? (
-                        <div className="w-2 h-2 border border-zinc-400 border-t-white rounded-full animate-spin" />
+                        <div className="w-2 h-2 border border-[var(--b2)] border-t-[var(--t1)] rounded-full animate-spin" />
                       ) : (
                         <span>Ping</span>
                       )}
                     </button>
                     <button 
                       onClick={(e) => handleToggleStatus(server.id, e)}
-                      className={`p-1.5 rounded-lg border transition-all ${isOnline ? 'bg-zinc-900/80 border-zinc-800/60 text-zinc-300 hover:text-white' : 'bg-zinc-950 border-zinc-900 text-zinc-600 hover:text-zinc-400'}`}
+                      className={`p-1.5 rounded-lg border transition-all ${isOnline ? 'bg-[var(--s2)] border-[var(--b2)]/60 text-[var(--t3)] hover:text-[var(--t1)]' : 'bg-[var(--s2)] border-[var(--b1)] text-[var(--t4)] hover:text-[var(--t2)]'}`}
                       title={isOnline ? 'Disconnect' : 'Connect'}
                     >
                       <Power size={10} />
@@ -1176,14 +1176,14 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
                   </div>
                 </div>
 
-                <p className="text-zinc-400 text-xs font-light tracking-normal leading-relaxed mt-3 max-w-[95%]">
+                <p className="text-[var(--t2)] text-xs font-light tracking-normal leading-relaxed mt-3 max-w-[95%]">
                   {server.description}
                 </p>
 
-                <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 mt-4 border-t border-zinc-900/60 pt-3">
+                <div className="flex items-center justify-between text-[10px] font-mono text-[var(--t4)] mt-4 border-t border-[var(--b1)]/60 pt-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-zinc-600">STATE:</span>
-                    <span className={`uppercase font-sans font-semibold tracking-wide ${isOnline ? 'text-zinc-300' : 'text-zinc-600'}`}>{server.status}</span>
+                    <span className="text-[var(--t4)]">STATE:</span>
+                    <span className={`uppercase font-sans font-semibold tracking-wide ${isOnline ? 'text-[var(--t3)]' : 'text-[var(--t4)]'}`}>{server.status}</span>
                     {server.latency && <span className="opacity-60 text-[9px] font-mono">• {server.latency}ms</span>}
                   </div>
                   <div className="text-[9.5px]">
@@ -1198,50 +1198,50 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      className="mt-4 pt-4 border-t border-zinc-900/80 space-y-4.5 overflow-hidden"
+                      className="mt-4 pt-4 border-t border-[var(--b1)]/80 space-y-4.5 overflow-hidden"
                       onClick={e => e.stopPropagation()} 
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 flex items-center gap-1.5">
-                          <Terminal size={10} className="text-zinc-600" /> Host Connection String
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--t4)] flex items-center gap-1.5">
+                          <Terminal size={10} className="text-[var(--t4)]" /> Host Connection String
                         </span>
                         {server.type === 'Custom' && (
                           <button 
                             onClick={(e) => handleDeleteServer(server.id, e)}
-                            className="text-zinc-500 hover:text-zinc-300 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1"
+                            className="text-[var(--t4)] hover:text-[var(--t3)] text-[9px] font-bold uppercase tracking-wider flex items-center gap-1"
                             title="Remove custom host"
                           >
-                            <Trash2 size={10} className="text-zinc-600" /> Remove Connection
+                            <Trash2 size={10} className="text-[var(--t4)]" /> Remove Connection
                           </button>
                         )}
                       </div>
                       
-                      <div className="bg-black border border-zinc-900 px-3.5 py-2.5 rounded-xl text-[10px] font-mono text-zinc-400 break-all select-all">
+                      <div className="bg-black border border-[var(--b1)] px-3.5 py-2.5 rounded-xl text-[10px] font-mono text-[var(--t2)] break-all select-all">
                         {server.commandOrUrl}
                       </div>
 
                       {server.env && (
                         <div className="space-y-1">
-                          <span className="text-[8.5px] font-semibold uppercase tracking-widest text-zinc-600 block">System Environment vars:</span>
-                          <div className="bg-black/40 px-3 py-2 rounded-xl text-[9px] font-mono text-zinc-500 break-all border border-zinc-900/45">
+                          <span className="text-[8.5px] font-semibold uppercase tracking-widest text-[var(--t4)] block">System Environment vars:</span>
+                          <div className="bg-[var(--s1)] px-3 py-2 rounded-xl text-[9px] font-mono text-[var(--t4)] break-all border border-[var(--b1)]/45">
                             {server.env}
                           </div>
                         </div>
                       )}
 
                       <div className="space-y-3">
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 block">Exposed Context Functions:</span>
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--t4)] block">Exposed Context Functions:</span>
                         <div className="space-y-2.5">
                           {server.tools.map((tool) => (
                             <div 
                               key={tool.name}
-                              className="p-3.5 bg-black border border-zinc-900 hover:border-zinc-800/80 rounded-xl transition-all"
+                              className="p-3.5 bg-black border border-[var(--b1)] hover:border-[var(--b2)]/80 rounded-xl transition-all"
                             >
                               <div className="flex items-start justify-between gap-4">
                                 <div className="font-mono min-w-0">
                                   <div className="flex items-center gap-1.5">
-                                    <Hash size={9} className="text-zinc-600" />
-                                    <span className="text-[11px] font-medium text-white truncate">{tool.name}</span>
+                                    <Hash size={9} className="text-[var(--t4)]" />
+                                    <span className="text-[11px] font-medium text-[var(--t1)] truncate">{tool.name}</span>
                                   </div>
                                 </div>
                                 <button
@@ -1250,17 +1250,17 @@ export default function McpRegistry({ onInsertContext, onClose }: McpRegistryPro
                                       onInsertContext(`[Active MCP Server: ${server.name}]\nPlease make use of the tool called "${tool.name}". It is registered to run with the following parameter schemas:\n${tool.parameters}\nFeel free to invoke it directly whenever the user mentions actions corresponding to its logic.`);
                                     }
                                   }}
-                                  className="text-[9px] font-semibold text-zinc-400 hover:text-white border border-zinc-800 hover:border-zinc-700 bg-zinc-950 hover:bg-zinc-900 rounded-lg px-2 py-1 transition-all flex items-center gap-1 active:scale-[0.98]"
+                                  className="text-[9px] font-semibold text-[var(--t2)] hover:text-[var(--t1)] border border-[var(--b2)] hover:border-[var(--b2)] bg-[var(--s2)] hover:bg-[var(--s2)] rounded-lg px-2 py-1 transition-all flex items-center gap-1 active:scale-[0.98]"
                                   title="Inject tool instructions into prompt"
                                 >
                                   <span>Load Parameters</span>
                                   <ArrowRight size={8} />
                                 </button>
                               </div>
-                              <p className="text-[11px] text-zinc-400 mt-1.5 leading-relaxed font-light">
+                              <p className="text-[11px] text-[var(--t2)] mt-1.5 leading-relaxed font-light">
                                 {tool.description}
                               </p>
-                              <div className="mt-2.5 text-[9px] font-mono bg-zinc-950/80 p-2 border border-zinc-900/40 rounded-lg text-zinc-500">
+                              <div className="mt-2.5 text-[9px] font-mono bg-[var(--s2)] p-2 border border-[var(--b1)]/40 rounded-lg text-[var(--t4)]">
                                 {tool.parameters}
                               </div>
                             </div>

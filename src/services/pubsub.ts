@@ -17,3 +17,10 @@ export async function publishRawOdds(payload: any) {
     throw err;
   }
 }
+
+export function decodePush<T>(body: any): { payload: T } {
+  const dataString = body.message?.data;
+  if (!dataString) throw new Error("Missing message.data in Pub/Sub payload");
+  const decoded = Buffer.from(dataString, 'base64').toString('utf8');
+  return { payload: JSON.parse(decoded) as T };
+}
