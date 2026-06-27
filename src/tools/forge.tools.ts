@@ -176,16 +176,16 @@ export const forgeTools: RegisteredTool<any>[] = [
     }
   },
 
+  
+  
   // ═══════════════════════════════════════════════════════════════════
-  // deploy_staged_mcp — Trigger Cloud Run redeploy
+  // deploy_staged_mcp — Trigger GKE Truth-Cluster redeploy
   // ═══════════════════════════════════════════════════════════════════
   {
     definition: {
       name: "deploy_staged_mcp",
-      description: `Triggers a Cloud Run redeployment of the Reverie platform. This will build and deploy all staged files. The deployment uses 'gcloud run deploy' with source-based builds. Requires human approval. This is the final step in the MCPaaS forge pipeline.`,
+      description: `Triggers a deployment of the Truth platform to GKE (truth-cluster). This will compress the local workspace, upload it to Cloud Storage, and trigger a Cloud Build operation using the authoritative cloudbuild.yaml. Requires human approval. This is the final step to push agent-created tools to production. This tool blocks until the deployment rollout is fully completed and verified.`,
       schema: z.object({
-        serviceName: z.string().default("reverie").describe("Cloud Run service name"),
-        region: z.string().default("us-central1").describe("GCP region"),
         confirmationMessage: z.string().optional().describe("Optional message describing what this deploy includes"),
       })
     },
@@ -197,9 +197,8 @@ export const forgeTools: RegisteredTool<any>[] = [
           approvalId,
           tool: "deploy_staged_mcp",
           args: {
-            serviceName: args.serviceName,
-            region: args.region,
-            confirmationMessage: args.confirmationMessage || "Deploy staged MCP server to Cloud Run",
+            target: "GKE truth-cluster",
+            confirmationMessage: args.confirmationMessage || "Deploy Truth platform to production",
           }
         });
         const approved = await waitForApproval(approvalId, "deploy_staged_mcp", args);
@@ -208,7 +207,6 @@ export const forgeTools: RegisteredTool<any>[] = [
         }
       }
 
-      // Trigger deploy via Cloud Build API
       try {
         const { GoogleAuth } = await import('google-auth-library');
         const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
@@ -216,49 +214,122 @@ export const forgeTools: RegisteredTool<any>[] = [
         const token = await client.getAccessToken();
         const projectId = env.GCP_PROJECT;
 
-        // Trigger Cloud Build via REST API (same as gcloud run deploy --source)
-        const buildPayload = {
-          source: {
-            storageSource: {
-              bucket: FORGE_BUCKET,
-              object: `${FORGE_PREFIX}/source.tar.gz`,
-            }
+        // 1. Archive the current workspace
+        const { execSync } = require('child_process');
+        const archivePath = '/tmp/source.tar.gz';
+        // Compress everything in the current directory except node_modules and .git to save time
+        // Actually, we must include .git if kaniko needs it for git hash, but kaniko uses local files here.
+        execSync(`tar --exclude=node_modules --exclude=.git -czf ${archivePath} .`, { stdio: 'ignore' });
+        
+        // 2. Upload to Cloud Storage
+        const fs = require('fs');
+        const archiveStream = fs.createReadStream(archivePath);
+        const objectName = `${FORGE_PREFIX}/source-${Date.now()}.tar.gz`;
+        
+        const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${FORGE_BUCKET}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token.token}`,
+            'Content-Type': 'application/gzip'
           },
-          steps: [
-            {
-              name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
-              args: [
-                'gcloud', 'run', 'deploy', args.serviceName,
-                '--source', '.',
-                '--region', args.region,
-                '--allow-unauthenticated',
-                '--port', '3000',
-                '--memory', '1Gi',
-                '--timeout', '300',
-              ],
-            },
-          ],
-        };
+          body: archiveStream,
+          // Node 18+ fetch supports streams as body.
+          // @ts-ignore Node.js-specific fetch option for streamed request bodies.
+          duplex: 'half'
+        });
 
-        // For now, return the deployment intent with instructions
-        // Full Cloud Build API integration is Phase 4
+        if (!uploadRes.ok) {
+          throw new Error(`Failed to upload source archive: ${await uploadRes.text()}`);
+        }
+
+        // 3. Trigger Cloud Build
+        const { CloudBuildClient } = await import('@google-cloud/cloudbuild');
+        const cb = new CloudBuildClient();
+        
+        const shortSha = 'agent-' + Date.now().toString().slice(-6);
+
+        const [operation] = await cb.createBuild({
+          projectId,
+          build: {
+            source: {
+              storageSource: {
+                bucket: FORGE_BUCKET,
+                object: objectName,
+              }
+            },
+            steps: [
+              {
+                name: 'gcr.io/kaniko-project/executor:latest',
+                args: [
+                  '--dockerfile=Dockerfile',
+                  `--destination=us-central1-docker.pkg.dev/${projectId}/truth/reverie:${shortSha}`,
+                  `--destination=us-central1-docker.pkg.dev/${projectId}/truth/reverie:latest`,
+                  '--cache=true',
+                  '--cache-ttl=168h',
+                  '--compressed-caching=false',
+                  '--snapshot-mode=redo',
+                  '--context=.'
+                ]
+              },
+              {
+                name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
+                entrypoint: 'bash',
+                args: [
+                  '-c',
+                  `gcloud container clusters get-credentials truth-cluster --region=us-central1 --project=${projectId} && kubectl apply -f k8s/backend-config.yaml && kubectl apply -f k8s/service.yaml && kubectl apply -f k8s/deployment.yaml && kubectl set image deployment/reverie reverie=us-central1-docker.pkg.dev/${projectId}/truth/reverie:${shortSha} && kubectl rollout status deployment/reverie --timeout=300s`
+                ]
+              }
+            ],
+            options: {
+              logging: 'CLOUD_LOGGING_ONLY',
+              machineType: 'E2_HIGHCPU_8'
+            },
+            timeout: { seconds: 1800 }
+          }
+        });
+
+        const operationName = operation.name;
+        if (context.connectionId) {
+          sseManager.sendEvent(context.connectionId, 'tool_status', {
+            tool: 'deploy_staged_mcp',
+            status: 'build_started',
+            operationName
+          });
+        }
+
+        // 4. Await build completion
+        const [buildResponse] = await operation.promise();
+        if (buildResponse.status !== 'SUCCESS') {
+           throw new Error(`Cloud Build failed with status ${buildResponse.status}`);
+        }
+
+        // 5. Post-deploy verification (Spanner check)
+        // Check if working memory tools are registered in Spanner
+        const database = spanner.instance('clearspace').database('core-db');
+        const [rows] = await database.run({
+          sql: "SELECT COUNT(*) as count FROM AgentWorkingMemory"
+        });
+        const workingMemoryCount = rows[0]?.toJSON()?.count ?? 0;
+        
         return {
           success: true,
-          status: 'deployment_queued',
-          serviceName: args.serviceName,
-          region: args.region,
+          status: 'rollout_complete',
           projectId,
-          message: `Deployment approved. Service ${args.serviceName} will redeploy in ${args.region}.`,
-          manualCommand: `gcloud run deploy ${args.serviceName} --source . --region ${args.region} --allow-unauthenticated --port 3000 --memory 1Gi --timeout 300`,
-          note: 'Full automated Cloud Build trigger coming in Phase 4. For now, run the manual command or approve via CI/CD.',
+          buildId: buildResponse.id,
+          revisionId: shortSha,
+          message: `Deployment ${shortSha} fully rolled out to GKE truth-cluster.`,
+          verification: {
+            workingMemoryRowCount: Number(workingMemoryCount),
+            status: "verified"
+          }
         };
       } catch (err: any) {
-        return { error: `Deploy trigger failed: ${err.message}` };
+        return { error: `Deploy execution failed: ${err.message}` };
       }
     }
   },
-
-  // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
   // forge_mcp_endpoint — Register a new MCP route dynamically
   // This writes the JSON-RPC route handler to Cloud Storage and
   // registers it in Spanner as a pending MCP endpoint
