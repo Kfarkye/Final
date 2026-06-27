@@ -1,0 +1,1 @@
+SELECT * FROM `SoccerGames` LIMIT 100;

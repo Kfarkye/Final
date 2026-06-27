@@ -1,37 +1,14 @@
 /* ============================================================================
    AGENTIC TOOL TRACE — INVOCATION LOG
-   Ported from Clearspace native (index.css L298–L423) and refined.
+   Native to Crawler OS design system (--bg, --s1, --s2, --b1, --nc, etc.)
    ============================================================================ */
-
-:root {
-  --trace-bg:        rgba(10, 10, 12, 0.4);
-  --trace-surface:   rgba(20, 20, 25, 0.4);
-  --trace-line:      rgba(255, 255, 255, 0.1);
-  --trace-line-soft: rgba(255, 255, 255, 0.05);
-  --trace-text:      #ffffff;
-  --trace-text-dim:  #a1a1aa;
-  --trace-text-mute: #52525b;
-  --trace-accent:    #8b5cf6; /* Vibrant violet */
-  --trace-ok:        #10b981; /* Emerald green */
-  --trace-error:     #ef4444;
-
-  --trace-c-kw:   #d8b4fe;
-  --trace-c-str:  #a7f3d0;
-  --trace-c-num:  #fcd34d;
-  --trace-c-punc: #93c5fd;
-
-  --trace-font: "Outfit", sans-serif;
-  --trace-mono: "IBM Plex Mono", ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
-}
 
 /* ---- the invocation log container ---- */
 .trace-log {
   padding: 16px 16px 10px 16px;
-  background: var(--trace-surface);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 12px;
-  border: 1px solid var(--trace-line-soft);
+  background: var(--s1);
+  border-radius: var(--t-radius-md, 10px);
+  border: 1px solid var(--b1);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
@@ -50,7 +27,7 @@
   top: 7px;
   bottom: -3px;
   width: 1px;
-  background: var(--trace-line);
+  background: var(--b1);
   transition: background 0.3s ease;
 }
 .trace-turn:last-child::before {
@@ -66,52 +43,52 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: var(--trace-bg);
-  border: 1.5px solid var(--trace-text-mute);
+  background: var(--bg);
+  border: 1.5px solid var(--t4);
   transition: all 0.3s ease;
 }
 
-/* running state — pulsing blue */
+/* running state — pulsing Carolina blue */
 .trace-turn.trace-running .trace-node {
-  border-color: var(--trace-accent);
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+  border-color: var(--nc);
+  box-shadow: 0 0 0 3px rgba(123, 175, 212, 0.2);
 }
 .trace-turn.trace-running .trace-node::after {
   content: '';
   position: absolute;
   inset: 1.5px;
   border-radius: 50%;
-  background: var(--trace-accent);
+  background: var(--nc);
   animation: trace-pulse 1.6s ease-in-out infinite;
 }
 
 /* success state — solid green */
 .trace-turn.trace-done .trace-node {
-  border-color: var(--trace-ok);
+  border-color: #10b981;
 }
 .trace-turn.trace-done .trace-node::after {
   content: '';
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: var(--trace-ok);
+  background: #10b981;
 }
 
 /* error state — solid red */
 .trace-turn.trace-error .trace-node {
-  border-color: var(--trace-error);
+  border-color: #ef4444;
 }
 .trace-turn.trace-error .trace-node::after {
   content: '';
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: var(--trace-error);
+  background: #ef4444;
 }
 
 /* subtle hover glow on node */
 .trace-turn:hover .trace-node {
-  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
+  box-shadow: 0 0 0 4px rgba(123, 175, 212, 0.12);
 }
 
 @keyframes trace-pulse {
@@ -121,11 +98,11 @@
 
 /* ---- tool name row ---- */
 .trace-turn .trace-tool {
-  font-family: var(--trace-font);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: var(--trace-text);
+  color: var(--t1);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -141,13 +118,13 @@
 
 /* two-tier label: dim action verb + bright concrete object */
 .trace-turn .trace-verb {
-  color: var(--trace-text-dim);
+  color: var(--t2);
   font-weight: 500;
   flex-shrink: 0;
   transition: color 0.18s ease;
 }
 .trace-turn .trace-object {
-  color: var(--trace-text);
+  color: var(--t1);
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -155,10 +132,10 @@
   text-overflow: ellipsis;
   max-width: 44ch;
 }
-.trace-turn:hover .trace-verb { color: var(--trace-text); }
+.trace-turn:hover .trace-verb { color: var(--t1); }
 .trace-turn:hover .trace-object { color: #fff; }
-.trace-turn.trace-running .trace-verb { color: var(--trace-accent); }
-.trace-turn.trace-error .trace-verb { color: var(--trace-error); }
+.trace-turn.trace-running .trace-verb { color: var(--nc); }
+.trace-turn.trace-error .trace-verb { color: #ef4444; }
 
 /* pushes status/metric/duration to the right edge */
 .trace-turn .trace-spacer { flex: 1 1 auto; min-width: 8px; }
@@ -166,7 +143,7 @@
 /* ---- right-edge status / result metric pills ---- */
 .trace-turn .trace-pill {
   flex-shrink: 0;
-  font-family: var(--trace-mono);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -178,19 +155,19 @@
   transition: all 0.2s ease;
 }
 .trace-turn .trace-pill-ok {
-  color: var(--trace-ok);
-  background: rgba(74, 222, 128, 0.08);
-  border-color: rgba(74, 222, 128, 0.18);
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.18);
 }
 .trace-turn .trace-pill-err {
-  color: var(--trace-error);
+  color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
   border-color: rgba(239, 68, 68, 0.2);
 }
 .trace-turn .trace-pill-live {
-  color: var(--trace-accent);
-  background: rgba(59, 130, 246, 0.08);
-  border-color: rgba(59, 130, 246, 0.18);
+  color: var(--nc);
+  background: rgba(123, 175, 212, 0.08);
+  border-color: rgba(123, 175, 212, 0.18);
   animation: trace-pill-breathe 1.8s ease-in-out infinite;
 }
 
@@ -200,7 +177,7 @@
 }
 
 .trace-turn .trace-link {
-  color: var(--trace-accent);
+  color: var(--nc);
   font-size: 11px;
   text-decoration: none;
   opacity: 0.7;
@@ -214,7 +191,7 @@
 
 .trace-turn .trace-chev {
   margin-left: auto;
-  color: var(--trace-text-mute);
+  color: var(--t4);
   font-size: 10px;
   transition: transform 0.2s ease;
   flex-shrink: 0;
@@ -228,29 +205,29 @@
   margin-top: 0;
   margin-bottom: 6px;
   font-size: 11px;
-  color: var(--trace-text-dim);
+  color: var(--t2);
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--trace-mono);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 .trace-turn.trace-running .trace-meta .trace-label {
-  color: var(--trace-accent);
+  color: var(--nc);
 }
 .trace-turn.trace-done .trace-meta .trace-label {
-  color: var(--trace-text-dim);
+  color: var(--t2);
 }
 .trace-turn.trace-error .trace-meta .trace-label {
-  color: var(--trace-error);
+  color: #ef4444;
 }
 
 .trace-turn .trace-dur {
   flex-shrink: 0;
   margin-left: 2px;
-  color: var(--trace-text-mute);
+  color: var(--t4);
   font-size: 11px;
-  font-family: var(--trace-mono);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-variant-numeric: tabular-nums;
 }
 
@@ -271,9 +248,9 @@
 
 /* ---- code block inside payload ---- */
 .trace-code {
-  border: 1px solid var(--trace-line);
+  border: 1px solid var(--b1);
   border-radius: 8px;
-  background: var(--trace-surface);
+  background: var(--s2);
   overflow: hidden;
 }
 
@@ -281,11 +258,11 @@
   display: flex;
   align-items: center;
   padding: 7px 12px;
-  border-bottom: 1px solid var(--trace-line-soft);
-  font-family: var(--trace-mono);
+  border-bottom: 1px solid var(--b1);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 10px;
   letter-spacing: 0.06em;
-  color: var(--trace-text-dim);
+  color: var(--t2);
 }
 .trace-code .trace-code-lang {
   text-transform: lowercase;
@@ -293,21 +270,21 @@
 .trace-code .trace-code-copy {
   margin-left: auto;
   cursor: pointer;
-  color: var(--trace-text-mute);
+  color: var(--t4);
   display: flex;
   align-items: center;
   gap: 4px;
   transition: color 0.2s;
 }
 .trace-code .trace-code-copy:hover {
-  color: var(--trace-text-dim);
+  color: var(--t2);
 }
 
 .trace-code pre {
   margin: 0;
   padding: 12px 12px 12px 0;
   overflow-x: auto;
-  font-family: var(--trace-mono);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 12px;
   line-height: 1.7;
   tab-size: 2;
@@ -325,27 +302,27 @@
   left: 0;
   width: 32px;
   text-align: right;
-  color: var(--trace-text-mute);
+  color: var(--t4);
   user-select: none;
   font-size: 11px;
 }
 
-/* syntax tokens */
-.trace-kw  { color: var(--trace-c-kw); }
-.trace-str { color: var(--trace-c-str); }
-.trace-num { color: var(--trace-c-num); }
-.trace-punc { color: var(--trace-c-punc); }
+/* syntax tokens — all Carolina blue */
+.trace-kw  { color: var(--nc); }
+.trace-str { color: var(--nc); }
+.trace-num { color: var(--nc); }
+.trace-punc { color: var(--nc); }
 
 /* ---- error message block ---- */
 .trace-error-msg {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--trace-error);
+  color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.2);
   border-radius: 6px;
   padding: 8px 12px;
-  font-family: var(--trace-mono);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   line-height: 1.5;
 }
 
@@ -353,8 +330,8 @@
 .trace-result-preview {
   margin-top: 6px;
   font-size: 11px;
-  color: var(--trace-text-mute);
-  font-family: var(--trace-mono);
+  color: var(--t4);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

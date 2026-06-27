@@ -47,6 +47,7 @@ import { pubsubTools } from './pubsub.tools';
 import { visionTools } from './vision.tools';
 import { platformTools } from './platform.tools';
 import { statmuseTools } from './statmuse.tools';
+import { mlbTablesTools } from './mlb-tables.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -98,6 +99,7 @@ toolRegistry.registerMany([
   ...visionTools,
   ...platformTools,
   ...statmuseTools,
+  ...mlbTablesTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.

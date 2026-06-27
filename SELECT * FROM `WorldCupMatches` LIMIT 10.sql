@@ -1,0 +1,1 @@
+SELECT * FROM `WorldCupMatches` LIMIT 100;

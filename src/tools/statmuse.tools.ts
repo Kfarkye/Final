@@ -191,7 +191,7 @@ export async function crawlStatmuse(query: string, sport?: SportDomain): Promise
     logger.info({ msg: 'statmuse.ai_extraction', query, markdownLen: distilled.markdown.length });
 
     const result = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.5-flash',
       contents: `You are an elite sports data extraction pipeline.
 Extract the metrics from this raw markdown and return ONLY a valid JSON object matching this exact schema:
 {

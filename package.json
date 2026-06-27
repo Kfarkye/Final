@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "prebuild": "node scripts/verify-workspace.mjs",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && npm --prefix mcp-servers/mcp-linear-ts install && npm --prefix mcp-servers/mcp-linear-ts run build && npm --prefix mcp-servers/mcp-notebook-ts install && npm --prefix mcp-servers/mcp-notebook-ts run build && npm --prefix mcp-servers/mcp-design-system-ts install && npm --prefix mcp-servers/mcp-design-system-ts run build",
+    "build": "vite build && node scripts/build-server.mjs && npm --prefix mcp-servers/mcp-linear-ts install && npm --prefix mcp-servers/mcp-linear-ts run build && npm --prefix mcp-servers/mcp-notebook-ts install && npm --prefix mcp-servers/mcp-notebook-ts run build && npm --prefix mcp-servers/mcp-design-system-ts install && npm --prefix mcp-servers/mcp-design-system-ts run build",
     "start": "node dist/server.cjs",
     "build:ingest": "esbuild src/ingest-server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/ingest-server.cjs",
     "start:ingest": "node dist/ingest-server.cjs",

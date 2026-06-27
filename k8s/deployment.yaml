@@ -44,7 +44,7 @@ spec:
                 name: truth-secrets
           livenessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 30
@@ -52,7 +52,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -60,7 +60,7 @@ spec:
             failureThreshold: 3
           startupProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
