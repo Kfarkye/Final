@@ -1,9 +1,12 @@
 node_modules/
+**/node_modules/
 build/
 dist/
 coverage/
 .DS_Store
+Thumbs.db
 *.log
+npm-debug.log*
 .env*
 !.env.example
 venv/
@@ -18,3 +21,25 @@ test-spanner.js
 fix.cjs
 patch*.cjs
 patch_*.js
+
+# Corrupted/partial backup artifact — local-only, never propagate (CONVERGENCE.md)
+.backup_corrupted/
+*.corrupted
+
+# Build artifacts (pod builds these from source; never commit)
+server.js
+*.tsbuildinfo
+
+# Secrets
+*.key
+*.pem
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local sync / tooling state (if Mutagen/skaffold are ever trialed locally)
+.mutagen/
+.skaffold/
+logs/

@@ -152,16 +152,16 @@ const MimeRendererComponent = memo(function MimeRenderer({
           : '';
 
         return (
-          <div className="w-full bg-white text-zinc-900 overflow-hidden rounded-xl border shadow-xl my-6">
-            <div className="bg-zinc-100 px-5 py-4 border-b">
+          <div className="w-full bg-[var(--t1)] text-[var(--bg)] overflow-hidden rounded-xl border shadow-xl my-6">
+            <div className="bg-[var(--t-text-primary)] px-5 py-4 border-b">
               <div className="font-serif text-xl font-medium">{email.subject}</div>
-              <div className="text-sm text-zinc-600 flex justify-between mt-3">
-                <span>From: <span className="font-medium text-zinc-800">{email.from}</span></span>
-                {date && <span className="text-xs text-zinc-500">{date}</span>}
+              <div className="text-sm text-[var(--t4)] flex justify-between mt-3">
+                <span>From: <span className="font-medium text-[var(--t4)]">{email.from}</span></span>
+                {date && <span className="text-xs text-[var(--t4)]">{date}</span>}
               </div>
             </div>
             <div className="p-6 text-sm whitespace-pre-wrap">{email.snippet}</div>
-            <div className="bg-zinc-50 px-5 py-3 border-t flex justify-end">
+            <div className="bg-[var(--s1)] px-5 py-3 border-t flex justify-end">
               <a
                 href={`https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(email.id || '')}`}
                 target="_blank"
@@ -175,11 +175,34 @@ const MimeRendererComponent = memo(function MimeRenderer({
         );
       }
 
+      if (mimeType === 'application/vnd.truth.youtube+json') {
+        let payload = JSON.parse(getDecoded());
+        if (payload.payload) {
+          payload = payload.payload;
+        }
+        const videoId = payload.videoId;
+        if (!videoId) return null;
+        
+        return (
+          <div className="my-6 w-full max-w-[800px] aspect-video rounded-xl overflow-hidden shadow-2xl border border-[var(--b1)] bg-black">
+            <iframe
+              width="100%"
+              height="100%"
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=${payload.displaySettings?.autoplay ? 1 : 0}&controls=${payload.displaySettings?.controls !== false ? 1 : 0}`}
+              title={payload.metadata?.title || 'YouTube video'}
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        );
+      }
+
       if (mimeType.startsWith('application/vnd.google-apps.')) {
         const doc = JSON.parse(getDecoded());
         return (
           <div className="my-6 w-full space-y-3">
-            <div className="text-xs font-semibold uppercase tracking-wider bg-zinc-900/50 p-2.5 rounded inline-flex">
+            <div className="text-xs font-semibold uppercase tracking-wider bg-[var(--s2)] p-2.5 rounded inline-flex">
               {doc.name}
             </div>
             <SecureIframe
@@ -233,7 +256,7 @@ const MimeRendererComponent = memo(function MimeRenderer({
               return <MlbOddsDashboard />;
             }
             return (
-              <pre className="bg-white/5 p-4 rounded-xl overflow-x-auto text-[13px] font-mono my-4" {...props}>
+              <pre className="bg-[var(--s1)] p-4 rounded-xl overflow-x-auto text-[13px] font-mono my-4" {...props}>
                 {first}
               </pre>
             );
@@ -243,7 +266,7 @@ const MimeRendererComponent = memo(function MimeRenderer({
             return isBlock ? (
               <code className={className} {...props}>{children}</code>
             ) : (
-              <code className={`bg-white/10 rounded px-1.5 py-0.5 text-[0.85em] font-mono ${className || ''}`} {...props}>
+              <code className={`bg-[var(--s2)] rounded px-1.5 py-0.5 text-[0.85em] font-mono ${className || ''}`} {...props}>
                 {children}
               </code>
             );
@@ -265,7 +288,7 @@ const MimeRendererComponent = memo(function MimeRenderer({
           },
           ul: ({ node, ...props }: any) => <ul className="list-disc pl-6 mb-4 space-y-2 opacity-90" {...props} />,
           ol: ({ node, ...props }: any) => <ol className="list-decimal pl-6 mb-4 space-y-2 opacity-90" {...props} />,
-          h1: ({ node, ...props }: any) => <h1 className="text-2xl font-serif font-medium mt-8 mb-4 border-b border-white/10 pb-2" {...props} />,
+          h1: ({ node, ...props }: any) => <h1 className="text-2xl font-serif font-medium mt-8 mb-4 border-b border-[var(--b1)] pb-2" {...props} />,
           h2: ({ node, ...props }: any) => <h2 className="text-xl font-serif font-medium mt-6 mb-3" {...props} />,
           h3: ({ node, ...props }: any) => <h3 className="text-lg font-medium mt-5 mb-2 opacity-90" {...props} />,
         }}

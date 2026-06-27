@@ -341,8 +341,7 @@ async function buildValidatedCardsForAngles(gamePk: string) {
     if (gameRows.length > 0) {
       const g = gameRows[0].toJSON();
       startTime = g.StartTime ? new Date(g.StartTime.value || g.StartTime).toISOString() : startTime;
-      const status = (g.Status || "").toLowerCase();
-      isHistorical = status.includes("final") || status.includes("completed");
+      
     }
   } catch { /* non-critical */ }
 

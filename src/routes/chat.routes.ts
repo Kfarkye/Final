@@ -19,6 +19,7 @@ router.post(
   "/codex/chat",
   json({ limit: "20mb" }),
   chatRateLimiter,
+  validateChatPayload,
   handleCodexChat
 );
 

@@ -34,6 +34,24 @@ const envSchema = z.object({
   SPANNER_PROJECT_ID: z.string().optional(),
   SPANNER_INSTANCE_ID: z.string().optional(),
   SPANNER_DATABASE_ID: z.string().optional(),
+
+  // ── Serverless Ingestion (Pub/Sub + Cloud Run) ──────────────────────────────
+  PUBSUB_TOPIC_STATS: z.string().default("mlb.stats.ingest"),
+  PUBSUB_DLQ_STATS: z.string().default("mlb.stats.deadletter"),
+
+  // OIDC auth for the dedicated ingestion service (truth-mlb-stats-ingest).
+  // PUBSUB_PUSH_SA: the service-account email the Pub/Sub push subscription
+  //   signs its OIDC token with. The handler verifies the token email matches.
+  PUBSUB_PUSH_SA: z.string().optional(),
+  // INGEST_AUDIENCE: expected OIDC audience (the Cloud Run service URL).
+  INGEST_AUDIENCE: z.string().optional(),
+  // INGEST_AUTH_REQUIRED: fail-closed switch. When true, a request with no
+  //   valid Google-signed bearer token is rejected 401. "true" in production.
+  INGEST_AUTH_REQUIRED: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((v) => v === "true"),
 });
 
 // 🛡️ Evaluate the environment immediately

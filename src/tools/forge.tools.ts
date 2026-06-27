@@ -234,10 +234,9 @@ export const forgeTools: RegisteredTool<any>[] = [
             'Content-Type': 'application/gzip'
           },
           body: archiveStream,
-          // Node 18+ fetch supports streams as body.
-          // @ts-ignore Node.js-specific fetch option for streamed request bodies.
-          duplex: 'half'
-        });
+          // @ts-ignore — Node.js fetch requires duplex for stream bodies
+          duplex: 'half',
+        } as any);
 
         if (!uploadRes.ok) {
           throw new Error(`Failed to upload source archive: ${await uploadRes.text()}`);

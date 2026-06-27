@@ -56,10 +56,10 @@ export default function SuggestedPrompts({ suggestions, onSelect }: SuggestedPro
       <button
         onClick={() => setExpanded(!expanded)}
         className="group flex items-center gap-2 px-3 py-1.5 rounded-full
-                   bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.1]
+                   bg-[var(--s1)] hover:bg-[var(--s1)] border border-[var(--b1)] hover:border-[var(--b1)]
                    transition-all duration-300 ease-out"
       >
-        <span className="text-[10px] font-semibold tracking-widest uppercase text-zinc-500 group-hover:text-zinc-400 transition-colors">
+        <span className="text-[10px] font-semibold tracking-widest uppercase text-[var(--t4)] group-hover:text-[var(--t2)] transition-colors">
           Suggested
         </span>
         <div className="flex items-center gap-1">
@@ -74,7 +74,7 @@ export default function SuggestedPrompts({ suggestions, onSelect }: SuggestedPro
           })}
         </div>
         <svg
-          className={`w-3 h-3 text-zinc-600 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}
+          className={`w-3 h-3 text-[var(--t4)] transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -105,8 +105,8 @@ export default function SuggestedPrompts({ suggestions, onSelect }: SuggestedPro
                     transition={{ delay: index * 0.06, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
                     onClick={() => onSelect(suggestion.prompt, suggestion.model)}
                     className={`group relative flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl
-                               bg-white/[0.02] hover:bg-white/[0.05]
-                               border border-white/[0.06] hover:border-white/[0.12]
+                               bg-[var(--s1)] hover:bg-[var(--s1)]
+                               border border-[var(--b1)] hover:border-[var(--b1)]
                                transition-all duration-200 text-left max-w-[300px]
                                active:scale-[0.98]`}
                   >
@@ -118,7 +118,7 @@ export default function SuggestedPrompts({ suggestions, onSelect }: SuggestedPro
                     <div className="flex flex-col gap-0.5 min-w-0">
                       {/* Label + model badge */}
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold tracking-wider uppercase text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                        <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--t2)] group-hover:text-[var(--t3)] transition-colors">
                           {suggestion.label}
                         </span>
                         <span className={`text-[8px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded-full ${colors.bg} ${colors.text} ${colors.border} border`}>
@@ -127,14 +127,14 @@ export default function SuggestedPrompts({ suggestions, onSelect }: SuggestedPro
                       </div>
 
                       {/* Prompt preview */}
-                      <span className="text-xs text-zinc-500 group-hover:text-zinc-400 transition-colors line-clamp-2 leading-relaxed">
+                      <span className="text-xs text-[var(--t4)] group-hover:text-[var(--t2)] transition-colors line-clamp-2 leading-relaxed">
                         {suggestion.prompt}
                       </span>
                     </div>
 
                     {/* Arrow indicator */}
                     <svg
-                      className="w-3 h-3 text-zinc-700 group-hover:text-zinc-400 transition-colors shrink-0 mt-1 opacity-0 group-hover:opacity-100"
+                      className="w-3 h-3 text-[var(--t4)] group-hover:text-[var(--t2)] transition-colors shrink-0 mt-1 opacity-0 group-hover:opacity-100"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"

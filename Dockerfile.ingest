@@ -1,0 +1,38 @@
+# Lightweight Dockerfile for the dedicated ingestion service.
+# Shares the same base image as the main app but ships ONLY the ingest
+# entrypoint — no Vite frontend, no MCP servers, no Chromium.
+
+FROM node:24-slim AS builder
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --legacy-peer-deps
+
+COPY . .
+RUN npx esbuild src/ingest-server.ts \
+      --bundle --platform=node --format=cjs \
+      --packages=external --sourcemap \
+      --outfile=dist/ingest-server.cjs
+
+# Production-only deps (drop devDependencies)
+RUN npm ci --omit=dev --legacy-peer-deps
+
+# ── Runner ──────────────────────────────────────────────────────────
+FROM node:24-slim AS runner
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      dumb-init ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+COPY --from=builder /app/dist/ingest-server.cjs ./dist/ingest-server.cjs
+COPY --from=builder /app/dist/ingest-server.cjs.map ./dist/ingest-server.cjs.map
+COPY --from=builder /app/node_modules ./node_modules
+
+ENV NODE_ENV=production
+ENV PORT=8080
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "dist/ingest-server.cjs"]

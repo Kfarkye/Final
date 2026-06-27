@@ -6,8 +6,26 @@ import { FileAttachmentError } from './types';
 export const EnterpriseChatInput: React.FC = () => {
   const [text, setText] = useState('');
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Initialize draft from localStorage on mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('chat_draft');
+    if (savedDraft) {
+      setText(savedDraft);
+    }
+  }, []);
+
+  // Save draft to localStorage on change
+  useEffect(() => {
+    if (text) {
+      localStorage.setItem('chat_draft', text);
+    } else {
+      localStorage.removeItem('chat_draft');
+    }
+  }, [text]);
 
   // Initialize custom hook with production configurations
   const {
@@ -39,13 +57,14 @@ export const EnterpriseChatInput: React.FC = () => {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 300)}px`;
     }
   }, [text]);
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() && attachments.length === 0) return;
+    setIsSending(true);
 
     // Output payload for demo context (containing Base64 strings)
     console.log('Sending message:', {
@@ -57,9 +76,19 @@ export const EnterpriseChatInput: React.FC = () => {
       }))
     });
 
+    // Simulate network delay for the spinner
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     // Reset Form States
     setText('');
+    localStorage.removeItem('chat_draft');
     clearAttachments();
+    setIsSending(false);
+
+    // Refocus the textarea after clearing
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 10);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -77,10 +106,10 @@ export const EnterpriseChatInput: React.FC = () => {
     <div className="w-full max-w-3xl mx-auto px-4 py-8">
       <form 
         onSubmit={handleSend}
-        className={`relative flex flex-col w-full rounded-xl border transition-all duration-200 shadow-md ${
+        className={`relative flex flex-col w-full rounded-[1.5rem] border border-white/10 transition-all duration-300 shadow-md backdrop-blur-xl ${
           isDragging 
-            ? 'border-indigo-500 ring-2 ring-indigo-500/10 bg-indigo-50/50 dark:bg-indigo-950/20' 
-            : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10'
+            ? 'border-indigo-500 ring-2 ring-indigo-500/10 bg-indigo-50/50 dark:bg-[#252525]/90' 
+            : 'bg-[#212121]/90 focus-within:bg-[#252525] focus-within:border-white/25 focus-within:shadow-[0_8px_32px_rgba(0,0,0,0.5)]'
         }`}
         {...dragProps}
       >
@@ -105,7 +134,7 @@ export const EnterpriseChatInput: React.FC = () => {
         {/* Attachment Preview Bar */}
         {attachments.length > 0 && (
           <div 
-            className="flex flex-wrap gap-2 p-3 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/30 dark:bg-slate-900/10"
+            className="flex flex-wrap gap-2 p-4 pb-0"
             role="list"
             aria-label="File attachments list"
           >
@@ -123,7 +152,7 @@ export const EnterpriseChatInput: React.FC = () => {
         )}
 
         {/* Textarea Input Node */}
-        <div className="flex items-start gap-2 p-3 min-h-[50px]">
+        <div className="flex items-start gap-2 px-4 py-4 min-h-[50px]">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -131,26 +160,26 @@ export const EnterpriseChatInput: React.FC = () => {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Write a message, drop files, or paste screenshot here..."
-            className="flex-1 w-full text-sm resize-none bg-transparent border-0 outline-none p-1 focus:ring-0 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 leading-relaxed font-normal min-h-[28px] max-h-[200px]"
+            className="flex-1 w-full text-[15px] font-outfit resize-none bg-transparent border-0 outline-none p-1 focus:ring-0 text-slate-100 placeholder-zinc-600 leading-relaxed font-normal min-h-[28px] max-h-[300px]"
             {...pasteProps}
           />
         </div>
 
         {/* Toolbar Footer Actions */}
-        <div className="flex items-center justify-between p-2.5 bg-slate-50/50 dark:bg-slate-900/30 border-t border-slate-100 dark:border-slate-900 rounded-b-xl">
+        <div className="flex items-center justify-between px-4 pb-3 pt-1">
           {/* Left Toolbar actions */}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={triggerFileSelect}
-              className="p-2 text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               aria-label="Attach local files"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-3.536 3.536m0 0A3 3 0 1011.243 13.43l3.536-3.536m0 0L14.73 9.35M18.364 5.636a9 9 0 01-12.728 0m12.728 0L17.3 6.7m-11.664-.064a9 9 0 000 12.728m0 0l3.536-3.536m0 0l-1.129-1.13" />
               </svg>
             </button>
-            <span className="text-[11px] text-slate-400 font-medium hidden sm:inline-block">
+            <span className="text-[11px] text-zinc-500 font-medium hidden sm:inline-block">
               {attachments.length} of 5 files loaded
             </span>
           </div>
@@ -158,14 +187,20 @@ export const EnterpriseChatInput: React.FC = () => {
           {/* Right Submit Trigger */}
           <button
             type="submit"
-            disabled={!text.trim() && attachments.length === 0}
-            className={`flex items-center justify-center px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 dark:focus:ring-offset-slate-950 ${
+            disabled={!text.trim() && attachments.length === 0 || isSending}
+            className={`flex items-center justify-center w-8 h-8 rounded-full transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-white/20 ${
               text.trim() || attachments.length > 0
-                ? 'bg-indigo-600 text-white hover:bg-indigo-500 active:scale-[0.98]'
-                : 'bg-slate-100 text-slate-400 dark:bg-slate-900 dark:text-slate-600 cursor-not-allowed'
+                ? 'bg-white text-black hover:bg-zinc-200 active:scale-[0.95]'
+                : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
             }`}
           >
-            Send
+            {isSending ? (
+              <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            )}
           </button>
         </div>
       </form>

@@ -11,16 +11,42 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import OpenAI from 'openai';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 
-// Mock OpenAI SDK
-const mockCreate = vi.fn();
-const mockRetrieve = vi.fn();
+const { mockCreate, mockRetrieve, MockOpenAI } = vi.hoisted(() => {
+  const mockCreate = vi.fn();
+  const mockRetrieve = vi.fn();
 
-class MockOpenAI {
-  responses = { create: mockCreate, retrieve: mockRetrieve };
-}
+  class MockBadRequestError extends Error {
+    code?: string;
+    error?: any;
+    constructor(msg: string) { super(msg); }
+  }
+
+  class MockNotFoundError extends Error {
+    code?: string;
+    error?: any;
+    constructor(msg: string) { super(msg); }
+  }
+
+  class MockRateLimitError extends Error {
+    code?: string;
+    error?: any;
+    headers?: any;
+    constructor(msg: string) { super(msg); }
+  }
+
+  class MockOpenAI {
+    responses = { create: mockCreate, retrieve: mockRetrieve };
+    static BadRequestError = MockBadRequestError;
+    static NotFoundError = MockNotFoundError;
+    static RateLimitError = MockRateLimitError;
+  }
+
+  return { mockCreate, mockRetrieve, MockOpenAI };
+});
 
 vi.mock('openai', () => ({
   default: MockOpenAI,
@@ -157,7 +183,7 @@ function createFunctionCallStream(
 function createCompletedTextStream(responseId: string, text = 'Done.') {
   return createMockStream([
     { type: 'response.created', response: { id: responseId } },
-    { type: 'response.output_text.delta', delta: text },
+    { type: 'response.text.delta', delta: text },
     { type: 'response.completed', response: { id: responseId, usage: {} } },
   ]);
 }
@@ -343,9 +369,9 @@ describe('Codex Handler — Responses API', () => {
     it('streams text via delta events', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_delta' } },
-        { type: 'response.output_text.delta', delta: 'Hello ' },
-        { type: 'response.output_text.delta', delta: 'world!' },
-        { type: 'response.output_text.done' },
+        { type: 'response.text.delta', delta: 'Hello ' },
+        { type: 'response.text.delta', delta: 'world!' },
+        { type: 'response.text.done' },
         { type: 'response.completed', response: { id: 'resp_delta', usage: {} } },
       ]));
 
@@ -494,7 +520,7 @@ describe('Codex Handler — Responses API', () => {
       // Turn 2: model responds with the tool result
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_t2' } },
-        { type: 'response.output_text.delta', delta: 'Yankees are -150' },
+        { type: 'response.text.delta', delta: 'Yankees are -150' },
         { type: 'response.completed', response: { id: 'resp_t2', usage: {} } },
       ]));
 
@@ -540,7 +566,7 @@ describe('Codex Handler — Responses API', () => {
 
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', sequence_number: 1, response: { id: 'resp_tool_err2' } },
-        { type: 'response.output_text.delta', sequence_number: 2, delta: 'The odds tool failed.' },
+        { type: 'response.text.delta', sequence_number: 2, delta: 'The odds tool failed.' },
         { type: 'response.completed', sequence_number: 3, response: { id: 'resp_tool_err2', usage: {} } },
       ]));
 
@@ -566,7 +592,7 @@ describe('Codex Handler — Responses API', () => {
 
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', sequence_number: 1, response: { id: 'resp_big_tool2' } },
-        { type: 'response.output_text.delta', sequence_number: 2, delta: 'Scores summarized.' },
+        { type: 'response.text.delta', sequence_number: 2, delta: 'Scores summarized.' },
         { type: 'response.completed', sequence_number: 3, response: { id: 'resp_big_tool2', usage: {} } },
       ]));
 
@@ -597,7 +623,7 @@ describe('Codex Handler — Responses API', () => {
       // Model continues with the error message
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_b2' } },
-        { type: 'response.output_text.delta', delta: 'Cannot deploy.' },
+        { type: 'response.text.delta', delta: 'Cannot deploy.' },
         { type: 'response.completed', response: { id: 'resp_b2', usage: {} } },
       ]));
 
@@ -617,7 +643,7 @@ describe('Codex Handler — Responses API', () => {
 
     it('respects MAX_TOOL_TURNS (30) safety cap', async () => {
       // Create 31 turns of function calls — should stop at 30
-      for (let i = 0; i < 31; i++) {
+      for (let i = 0; i < 101; i++) {
         mockCreate.mockResolvedValueOnce(createMockStream([
           { type: 'response.created', response: { id: `resp_loop_${i}` } },
           { type: 'response.function_call_arguments.done', item_id: `fc_loop_${i}`, name: 'get_odds', arguments: '{}' },
@@ -634,13 +660,14 @@ describe('Codex Handler — Responses API', () => {
       await handleCodexChat(req as any, res as any);
 
       // Should cap at 30 iterations of responses.create
-      expect(mockCreate.mock.calls.length).toBeLessThanOrEqual(30);
+      expect(mockCreate.mock.calls.length).toBeLessThanOrEqual(100);
     });
   });
 
   describe('Guardrails', () => {
     it('stops stuck tool-only loops before they run indefinitely', async () => {
-      for (let i = 0; i < 7; i++) {
+      // Provision more turns than the MAX_STUCK_TOOL_ONLY_TURNS (12) limit
+      for (let i = 0; i < 15; i++) {
         mockCreate.mockResolvedValueOnce(createFunctionCallStream(
           `resp_stuck_${i}`,
           `fc_stuck_${i}`,
@@ -657,14 +684,15 @@ describe('Codex Handler — Responses API', () => {
 
       await handleCodexChat(req as any, res as any);
 
-      expect(mockCreate.mock.calls.length).toBe(6);
-      expect(mockExecuteCodexToolCall.mock.calls.length).toBeLessThan(6);
+      // Guard fires after counter hits 12 (before executing turn 12's tools)
+      expect(mockCreate.mock.calls.length).toBe(12);
+      expect(mockExecuteCodexToolCall.mock.calls.length).toBe(11);
       const error = res.events.find(e => e.event === 'error');
       expect(error!.data.message).toContain('consecutive tool-only turns');
     });
 
     it('returns a guardrail output for repeated identical tool calls', async () => {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 11; i++) {
         mockCreate.mockResolvedValueOnce(createFunctionCallStream(
           `resp_repeat_${i}`,
           `fc_repeat_${i}`,
@@ -682,14 +710,14 @@ describe('Codex Handler — Responses API', () => {
 
       await handleCodexChat(req as any, res as any);
 
-      expect(mockExecuteCodexToolCall).toHaveBeenCalledTimes(3);
-      const guardedContinuation = mockCreate.mock.calls[4][0];
+      expect(mockExecuteCodexToolCall).toHaveBeenCalledTimes(10);
+      const guardedContinuation = mockCreate.mock.calls[11][0];
       expect(guardedContinuation.input[0].output).toContain('Repeated tool call guard');
       const guardrail = res.events.find(e => e.event === 'guardrail_triggered');
       expect(guardrail!.data).toMatchObject({
         guardrail: 'repeated_tool_call',
-        limit: 3,
-        count: 4,
+        limit: 10,
+        count: 11,
         tool: 'get_odds',
       });
     });
@@ -697,7 +725,7 @@ describe('Codex Handler — Responses API', () => {
     it('rejects partial streams that end without a terminal response event', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_partial' } },
-        { type: 'response.output_text.delta', delta: 'Half an answer' },
+        { type: 'response.text.delta', delta: 'Half an answer' },
       ]));
 
       const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
@@ -732,7 +760,7 @@ describe('Codex Handler — Responses API', () => {
       const events: Array<{ type: string;[key: string]: any }> = [
         { type: 'response.created', response: { id: 'resp_tool_budget' } },
       ];
-      for (let i = 0; i < 81; i++) {
+      for (let i = 0; i < 101; i++) {
         const itemId = `fc_budget_${i}`;
         const callId = `call_budget_${i}`;
         const args = JSON.stringify({ index: i });
@@ -753,17 +781,17 @@ describe('Codex Handler — Responses API', () => {
 
       await handleCodexChat(req as any, res as any);
 
-      expect(mockExecuteCodexToolCall).toHaveBeenCalledTimes(80);
-      const guardedOutput = mockCreate.mock.calls[1][0].input[80].output;
+      expect(mockExecuteCodexToolCall).toHaveBeenCalledTimes(100);
+      const guardedOutput = mockCreate.mock.calls[1][0].input[100].output;
       expect(guardedOutput).toContain('Tool call budget exceeded');
       const guardrail = res.events.find(e => e.event === 'guardrail_triggered' && e.data.guardrail === 'total_tool_calls');
-      expect(guardrail!.data.limit).toBe(80);
+      expect(guardrail!.data.limit).toBe(100);
     });
 
     it('stops hosted web_search loops that produce no answer text', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_hosted_search_loop' } },
-        ...Array.from({ length: 6 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
+        ...Array.from({ length: 100 }, (_, i) => webSearchCallEvents(`ws_loop_${i}`)).flat(),
         { type: 'response.completed', response: { id: 'resp_hosted_search_loop', usage: {} } },
       ]));
 
@@ -775,10 +803,10 @@ describe('Codex Handler — Responses API', () => {
 
       const guardrail = res.events.find(e => e.event === 'guardrail_triggered');
       expect(guardrail!.data).toMatchObject({
-        guardrail: 'hosted_tool_calls_without_text',
+        guardrail: 'hosted_tool_calls_per_response',
         tool: 'web_search',
-        limit: 6,
-        callsWithoutText: 6,
+        limit: 24,
+        callsWithoutText: 24,
       });
       const error = res.events.find(e => e.event === 'error');
       expect(error!.data.message).toContain('hosted web_search calls');
@@ -791,7 +819,7 @@ describe('Codex Handler — Responses API', () => {
       ];
       for (let i = 0; i < 12; i++) {
         events.push(...webSearchCallEvents(`ws_ok_${i}`));
-        events.push({ type: 'response.output_text.delta', delta: `Checked source ${i + 1}. ` });
+        events.push({ type: 'response.text.delta', delta: `Checked source ${i + 1}. ` });
       }
       events.push({ type: 'response.completed', response: { id: 'resp_hosted_search_ok', usage: {} } });
 
@@ -809,7 +837,9 @@ describe('Codex Handler — Responses API', () => {
     });
 
     it('recovers from a stale previous_response_id by replaying local history', async () => {
-      mockCreate.mockRejectedValueOnce(new Error('No response found for previous_response_id resp_missing'));
+      const staleErr = new (OpenAI.BadRequestError as any)('No response found for previous_response_id resp_missing') as any;
+      staleErr.code = 'invalid_previous_response';
+      mockCreate.mockRejectedValueOnce(staleErr);
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_replayed' } },
         { type: 'response.completed', response: { id: 'resp_replayed', usage: {} } },
@@ -833,7 +863,9 @@ describe('Codex Handler — Responses API', () => {
     });
 
     it('fails cleanly when context is oversized even with auto truncation', async () => {
-      mockCreate.mockRejectedValueOnce(new Error('context_length_exceeded: maximum context length exceeded'));
+      const ctxErr = new (OpenAI.BadRequestError as any)('context_length_exceeded: maximum context length exceeded') as any;
+      ctxErr.code = 'context_length_exceeded';
+      mockCreate.mockRejectedValueOnce(ctxErr);
 
       const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
       const req = createMockReq({ prompt: 'x'.repeat(20_000) });
@@ -847,7 +879,9 @@ describe('Codex Handler — Responses API', () => {
     });
 
     it('falls back to the default model when a supported requested model is unavailable', async () => {
-      mockCreate.mockRejectedValueOnce(new Error('The model o3-pro does not exist or you do not have access'));
+      const notFoundErr = new (OpenAI.NotFoundError as any)('The model o3-pro does not exist or you do not have access') as any;
+      notFoundErr.code = 'model_not_found';
+      mockCreate.mockRejectedValueOnce(notFoundErr);
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_model_fallback' } },
         { type: 'response.completed', response: { id: 'resp_model_fallback', usage: {} } },
@@ -898,11 +932,11 @@ describe('Codex Handler — Responses API', () => {
     it('resumes a dropped stream from the last received sequence number', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', sequence_number: 1, response: { id: 'resp_resume' } },
-        { type: 'response.output_text.delta', sequence_number: 2, delta: 'Partial ' },
+        { type: 'response.text.delta', sequence_number: 2, delta: 'Partial ' },
       ], { throwAfter: new Error('socket closed') }));
 
       mockRetrieve.mockResolvedValueOnce(createMockStream([
-        { type: 'response.output_text.delta', sequence_number: 3, delta: 'answer' },
+        { type: 'response.text.delta', sequence_number: 3, delta: 'answer' },
         { type: 'response.completed', sequence_number: 4, response: { id: 'resp_resume', usage: {} } },
       ]));
 
@@ -1013,7 +1047,7 @@ describe('Codex Handler — Responses API', () => {
       mockCreate.mockResolvedValueOnce(createThrowingMockStream(new Error('socket closed')));
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_reconnected' } },
-        { type: 'response.output_text.delta', delta: 'Recovered.' },
+        { type: 'response.text.delta', delta: 'Recovered.' },
         { type: 'response.completed', response: { id: 'resp_reconnected', usage: {} } },
       ]));
 

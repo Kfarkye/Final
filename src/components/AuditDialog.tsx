@@ -104,50 +104,50 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg)]/80 backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-zinc-950 border border-white/10 rounded-2xl w-full max-w-5xl overflow-hidden shadow-2xl flex flex-col h-[85vh]"
+        className="bg-[var(--s2)] border border-[var(--b1)] rounded-2xl w-full max-w-5xl overflow-hidden shadow-2xl flex flex-col h-[85vh]"
       >
-        <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black">
-          <h2 className="text-lg font-medium text-white flex items-center gap-2">
+        <div className="p-6 border-b border-[var(--b1)] flex justify-between items-center bg-black">
+          <h2 className="text-lg font-medium text-[var(--t1)] flex items-center gap-2">
             <ShieldAlert size={18} className="text-red-400" /> Enterprise Audit & Compliance Console
           </h2>
           <div className="flex items-center gap-4">
             {!errorMsg && (
               <button
                 onClick={handleExport}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-semibold text-white transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-[var(--s1)] hover:bg-[var(--s2)] border border-[var(--b1)] rounded-lg text-xs font-semibold text-[var(--t1)] transition-colors"
               >
                 <Download size={16} /> Export CSV
               </button>
             )}
-            <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
+            <button onClick={onClose} className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors">
               <X size={18} />
             </button>
           </div>
         </div>
 
         {!errorMsg && !loading && (
-          <div className="px-6 py-4 border-b border-white/5 bg-zinc-900/50 flex flex-col sm:flex-row gap-4 items-center justify-between">
+          <div className="px-6 py-4 border-b border-[var(--b1)] bg-[var(--s2)] flex flex-col sm:flex-row gap-4 items-center justify-between">
             <div className="relative flex-1 w-full max-w-md">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--t4)]" />
               <input
                 type="text"
                 placeholder="Search user, payload..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="w-full bg-black border border-white/10 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none placeholder-zinc-600 transition-all"
+                className="w-full bg-black border border-[var(--b1)] rounded-lg pl-10 pr-4 py-2 text-sm text-[var(--t1)] focus:border-[var(--b2)] focus:outline-none placeholder-[var(--t4)] transition-all"
               />
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <Filter size={16} className="text-zinc-500" />
+              <Filter size={16} className="text-[var(--t4)]" />
               <select
                 value={actionFilter}
                 onChange={e => setActionFilter(e.target.value)}
-                className="bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none transition-all"
+                className="bg-black border border-[var(--b1)] rounded-lg px-3 py-2 text-sm text-[var(--t1)] focus:border-[var(--b2)] focus:outline-none transition-all"
               >
                 {uniqueActions.map(action => (
                   <option key={action} value={action}>{action}</option>
@@ -157,34 +157,34 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6 bg-zinc-950/50">
+        <div className="flex-1 overflow-y-auto p-6 bg-[var(--s2)]/50">
           {errorMsg ? (
             <div className="flex items-center justify-center h-full text-red-500 font-medium tracking-wide">
               {errorMsg}
             </div>
           ) : loading ? (
-            <div className="flex items-center justify-center h-full text-zinc-500 text-sm tracking-widest uppercase">
+            <div className="flex items-center justify-center h-full text-[var(--t4)] text-sm tracking-widest uppercase">
               Loading logs...
             </div>
           ) : filteredLogs.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-zinc-500">
+            <div className="flex items-center justify-center h-full text-[var(--t4)]">
               No audit logs match criteria.
             </div>
           ) : (
             <div className="space-y-4">
               {filteredLogs.map((log) => (
-                <div key={log.id} className="border border-white/5 bg-black rounded-xl p-4 flex flex-col gap-2 hover:border-white/10 transition-colors">
+                <div key={log.id} className="border border-[var(--b1)] bg-black rounded-xl p-4 flex flex-col gap-2 hover:border-[var(--b1)] transition-colors">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                      <Activity size={16} className="text-zinc-500" />
+                      <Activity size={16} className="text-[var(--t4)]" />
                       <span className="font-mono text-xs font-semibold uppercase tracking-wider text-emerald-400">{log.action}</span>
                     </div>
-                    <span className="text-xs font-mono text-zinc-500">{new Date(log.createdAt).toLocaleString()}</span>
+                    <span className="text-xs font-mono text-[var(--t4)]">{new Date(log.createdAt).toLocaleString()}</span>
                   </div>
-                  <div className="text-sm text-zinc-300">
-                    User: <span className="text-white font-medium">{log.email}</span>
+                  <div className="text-sm text-[var(--t3)]">
+                    User: <span className="text-[var(--t1)] font-medium">{log.email}</span>
                   </div>
-                  <div className="bg-zinc-900 border border-white/5 rounded-lg p-3 text-xs font-mono text-zinc-400 overflow-x-auto mt-2 whitespace-pre-wrap">
+                  <div className="bg-[var(--s2)] border border-[var(--b1)] rounded-lg p-3 text-xs font-mono text-[var(--t2)] overflow-x-auto mt-2 whitespace-pre-wrap">
                     {log.details ? JSON.stringify(log.details, null, 2) : 'No additional details'}
                   </div>
                 </div>

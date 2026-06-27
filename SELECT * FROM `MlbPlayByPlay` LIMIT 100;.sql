@@ -1,0 +1,1 @@
+SELECT * FROM `MlbPlayByPlay` LIMIT 100;

@@ -40,8 +40,8 @@ const MAX_CODEX_OUTPUT_TOKENS = 16_384;
 const MAX_TOTAL_RESPONSE_TOKENS = 200_000;
 const MAX_TOTAL_TOOL_CALLS = 100;
 const MAX_REPEATED_TOOL_CALLS = 10;
-const MAX_STUCK_TOOL_ONLY_TURNS = 6;
-const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 6;
+const MAX_STUCK_TOOL_ONLY_TURNS = 12;
+const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 100;
 const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 24;
 const TOOL_OUTPUT_TRUNCATE_AT = 8_000;
 const TOOL_OUTPUT_HEAD_CHARS = 4_000;
@@ -123,6 +123,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
   res.flushHeaders();
 
   const sendSSE = (event: string, data: unknown) => {
+    if (res.writableEnded) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -158,13 +159,16 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       container: { type: 'auto' as const },
     },
     // Truth platform function tools
-    ...truthToolDefs.map(t => ({
-      type: 'function' as const,
-      name: t.name,
-      description: t.description || `Tool: ${t.name}`,
-      parameters: t.inputSchema as Record<string, unknown>,
-      strict: false as const,
-    })),
+    ...truthToolDefs.map(t => {
+      const strictSchema = toStrictSchema(t.inputSchema);
+      return {
+        type: 'function' as const,
+        name: t.name,
+        description: t.description || `Tool: ${t.name}`,
+        parameters: strictSchema,
+        strict: true as const,
+      };
+    }),
   ];
 
   const systemInstructions = buildCodexSystemPrompt(userTimezone);
@@ -205,11 +209,15 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     let latestResponseId: string | null = null;
     let totalToolCalls = 0;
     let totalResponseTokens = 0;
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalReasoningTokens = 0;
     let consecutiveToolOnlyTurns = 0;
     let recoveredFromBadPreviousResponseId = false;
     let modelFallbackRetryAttempted = false;
     const repeatedToolCallCounts = new Map<string, number>();
     let endedNaturally = false;
+    let emittedAnyText = false;
     let stoppedWithTerminalError = false;
 
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -311,9 +319,10 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           }
 
           // ── Text streaming ─────────────────────────────────────────
-          case 'response.output_text.delta': {
+          case 'response.text.delta': {
             emittedUserVisibleOutput = true;
             emittedTextOutput = true;
+            emittedAnyText = true;
             hostedToolCallsWithoutText = 0;
             codexLog.debug({ connectionId, deltaLen: event.delta?.length }, 'codex_text_delta');
             sendSSE('delta', {
@@ -323,7 +332,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
             break;
           }
 
-          case 'response.output_text.done': {
+          case 'response.text.done': {
             break;
           }
 
@@ -507,6 +516,9 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
             // with function outputs. Store for potential final emission.
             latestResponseId = event.response.id;
             totalResponseTokens += extractUsageTokens(event.response?.usage);
+            totalPromptTokens += getNumericField(event.response?.usage, 'input_tokens') || 0;
+            totalCompletionTokens += getNumericField(event.response?.usage, 'output_tokens') || 0;
+            totalReasoningTokens += getNumericField(event.response?.usage?.output_tokens_details, 'reasoning_tokens') || 0;
             if (totalResponseTokens > MAX_TOTAL_RESPONSE_TOKENS) {
               turnErrored = true;
               sendSSE('error', {
@@ -529,10 +541,23 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           case 'response.incomplete': {
             turnErrored = true;
             totalResponseTokens += extractUsageTokens(event.response?.usage);
+            totalPromptTokens += getNumericField(event.response?.usage, 'input_tokens') || 0;
+            totalCompletionTokens += getNumericField(event.response?.usage, 'output_tokens') || 0;
+            totalReasoningTokens += getNumericField(event.response?.usage?.output_tokens_details, 'reasoning_tokens') || 0;
             const reason = extractIncompleteReason(event.response);
-            sendSSE('error', {
-              message: `Codex response incomplete${reason ? ` (${reason})` : ''} — context window, output budget, or safety limits may have been reached.`,
-            });
+            if (reason === 'content_filter') {
+              sendSSE('error', {
+                message: 'Codex stream was interrupted due to a compliance or safety filter violation. Please modify your prompt and try again.',
+              });
+            } else if (reason === 'length' || reason === 'max_tokens') {
+              sendSSE('error', {
+                message: 'Codex stopped because it exceeded the maximum allowed output token budget for a single turn.',
+              });
+            } else {
+              sendSSE('error', {
+                message: `Codex response incomplete${reason ? ` (${reason})` : ''} — context window, output budget, or safety limits may have been reached.`,
+              });
+            }
             break;
           }
 
@@ -789,6 +814,11 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         model: codexModel,
         chunk: `\n\n[Reached tool-call limit of ${MAX_TOTAL_TOOL_CALLS}; stopping here.]`
       });
+    } else if (endedNaturally && !emittedAnyText) {
+      sendSSE('message', {
+        model: codexModel,
+        chunk: `\n\n[Task completed successfully. Codex ended the turn without a final summary.]`
+      });
     }
 
     if (latestResponseId) {
@@ -797,6 +827,9 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         responseId: latestResponseId,
         model: codexModel,
         toolCallsCount: totalToolCalls,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        reasoningTokens: totalReasoningTokens,
       });
     }
 
@@ -843,6 +876,26 @@ async function consumeResponseStream(
       if (!retryAvailable) {
         throw error;
       }
+      
+      if (error instanceof OpenAI.RateLimitError) {
+        const headers = error.headers || (error as any).response?.headers;
+        const resetStr = headers?.['x-ratelimit-reset-requests'] || headers?.['x-ratelimit-reset-tokens'] || headers?.['x-ratelimit-reset'];
+        if (resetStr && typeof resetStr === 'string') {
+          let sleepMs = 0;
+          // Use negative lookahead so "ms" doesn't match the "m" for minutes or the "s" for seconds
+          const mMatch = resetStr.match(/(\d+(?:\.\d+)?)m(?!s)/);
+          const sMatch = resetStr.match(/(\d+(?:\.\d+)?)s/);
+          const msMatch = resetStr.match(/(\d+(?:\.\d+)?)ms/);
+          if (mMatch) sleepMs += parseFloat(mMatch[1]) * 60000;
+          if (sMatch) sleepMs += parseFloat(sMatch[1]) * 1000;
+          if (msMatch) sleepMs += parseFloat(msMatch[1]);
+          
+          if (sleepMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(sleepMs, 15000))); // Cap sleep to 15s max
+          }
+        }
+      }
+
       options.onRetry(attempt + 1, error, source.getRetryState());
     }
   }
@@ -922,53 +975,60 @@ function extractIncompleteReason(response: any): string {
 }
 
 function isBadPreviousResponseError(error: Error): boolean {
-  const text = getErrorSearchText(error);
-  return text.includes('previous_response_id')
-    && (
-      text.includes('not found')
-      || text.includes('no response')
-      || text.includes('invalid')
-      || text.includes('does not exist')
-      || text.includes('expired')
-    );
+  if (error instanceof OpenAI.BadRequestError) {
+    const code = (error as any).code || (error as any).error?.code;
+    const msg = error.message.toLowerCase();
+    return code === 'invalid_previous_response' || msg.includes('previous_response_id');
+  }
+  return false;
 }
 
 function isOversizedContextError(error: Error): boolean {
-  const text = getErrorSearchText(error);
-  return text.includes('context_length_exceeded')
-    || text.includes('maximum context')
-    || text.includes('context window')
-    || text.includes('context too large')
-    || text.includes('too many tokens')
-    || text.includes('input is too large');
+  if (error instanceof OpenAI.BadRequestError) {
+    const code = (error as any).code || (error as any).error?.code;
+    const msg = error.message.toLowerCase();
+    return code === 'context_length_exceeded' || msg.includes('context_length_exceeded');
+  }
+  return false;
 }
 
 function isModelUnavailableError(error: Error): boolean {
-  const text = getErrorSearchText(error);
-  return text.includes('model')
-    && (
-      text.includes('not found')
-      || text.includes('does not exist')
-      || text.includes('not available')
-      || text.includes('unsupported')
-      || text.includes('no access')
-      || text.includes('permission')
-    );
+  if (error instanceof OpenAI.NotFoundError) {
+    return true;
+  }
+  if (error instanceof OpenAI.BadRequestError) {
+    const code = (error as any).code || (error as any).error?.code;
+    return code === 'model_not_found' || code === 'unsupported_model';
+  }
+  return false;
 }
 
-function getErrorSearchText(error: Error): string {
-  const err = error as any;
-  return [
-    err.message,
-    err.code,
-    err.type,
-    err.status,
-    err.error?.message,
-    err.response?.data?.error?.message,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
+
+function toStrictSchema(schema: any): Record<string, unknown> {
+  if (!schema || typeof schema !== 'object') return schema;
+  const strict = { ...schema };
+  // Recurse into oneOf / anyOf / allOf branches for strict mode compliance
+  for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
+    if (Array.isArray(strict[key])) {
+      strict[key] = strict[key].map(toStrictSchema);
+    }
+  }
+  if (strict.type === 'object') {
+    strict.additionalProperties = false;
+    const properties = strict.properties || {};
+    const req = strict.required || [];
+    for (const key of Object.keys(properties)) {
+      if (!req.includes(key)) {
+        req.push(key);
+      }
+      properties[key] = toStrictSchema(properties[key]);
+    }
+    strict.required = req;
+    strict.properties = properties;
+  } else if (strict.type === 'array' && strict.items) {
+    strict.items = toStrictSchema(strict.items);
+  }
+  return strict;
 }
 
 function buildToolCallFingerprint(toolName: string, toolArgs: Record<string, unknown>): string {
@@ -1096,32 +1156,53 @@ function normalizeCitationTitle(title: string, url: string): string {
 
 /* ── Optional Conversation Persistence ──────────────────────────────────── */
 
+// Cached Spanner client — avoids creating a new gRPC channel pool per call
+let cachedSpannerDb: any | null = null;
+let cachedSpannerModule: any | null = null;
+
+async function getSpannerDb(): Promise<{ database: any; Spanner: any } | null> {
+  const projectId = env.SPANNER_PROJECT_ID || env.GCP_PROJECT;
+  if (!projectId) return null;
+
+  if (!cachedSpannerModule) {
+    cachedSpannerModule = await import('@google-cloud/spanner');
+  }
+  if (!cachedSpannerDb) {
+    const { Spanner } = cachedSpannerModule;
+    const instanceId = env.SPANNER_INSTANCE_ID || 'clearspace';
+    const databaseId = env.SPANNER_DATABASE_ID || 'sports-mlb-db';
+    const spanner = new Spanner({ projectId });
+    cachedSpannerDb = spanner.instance(instanceId).database(databaseId);
+  }
+  return { database: cachedSpannerDb, Spanner: cachedSpannerModule.Spanner };
+}
+
 async function persistCodexConversation(record: {
   conversationId?: string;
   responseId: string;
   model: string;
   toolCallsCount: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  reasoningTokens?: number;
 }): Promise<void> {
   if (!record.conversationId) {
     return;
   }
 
   try {
-    const projectId = env.SPANNER_PROJECT_ID || env.GCP_PROJECT;
-    if (!projectId) {
-      return;
-    }
-    const { Spanner } = await import('@google-cloud/spanner');
-    const instanceId = env.SPANNER_INSTANCE_ID || 'clearspace';
-    const databaseId = env.SPANNER_DATABASE_ID || 'sports-mlb-db';
-    const spanner = new Spanner({ projectId });
-    const database = spanner.instance(instanceId).database(databaseId);
+    const db = await getSpannerDb();
+    if (!db) return;
+    const { database, Spanner } = db;
     await database.table('codex_conversations').upsert([{
       conversation_id: record.conversationId,
       response_id: record.responseId,
-      created_at: Spanner.timestamp(Date.now()),
+      created_at: Spanner.timestamp(new Date().toISOString()),
       model: record.model,
       tool_calls_count: Spanner.int(record.toolCallsCount),
+      prompt_tokens: record.promptTokens ? Spanner.int(record.promptTokens) : null,
+      completion_tokens: record.completionTokens ? Spanner.int(record.completionTokens) : null,
+      reasoning_tokens: record.reasoningTokens ? Spanner.int(record.reasoningTokens) : null,
     }]);
   } catch (err: any) {
     console.warn(`[Codex] Failed to persist conversation history: ${err.message}`);
@@ -1151,6 +1232,7 @@ Current time: ${now} (${tz})
 - For deep dives, cross-check at least three materially independent sources when available; call out when fewer reliable sources exist.
 - Do not chain hosted web searches indefinitely. Once reliable evidence is gathered, stop searching and produce the answer with citations.
 - Do not ask the user to confirm routine research steps. Ask only when an action is approval-gated, destructive, blocked, or materially ambiguous.
+- ALWAYS provide a final text summary to the user explaining what you accomplished after completing your tool calls. NEVER end your turn silently without a final message to the user.
 
 ## Capabilities
 You have access to:

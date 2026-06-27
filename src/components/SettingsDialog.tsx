@@ -79,35 +79,35 @@ export default function SettingsDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg)]/80 backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-zinc-950 border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col"
+        className="bg-[var(--s2)] border border-[var(--b1)] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col"
       >
-        <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black">
-          <h2 className="text-lg font-medium text-white flex items-center gap-2 tracking-tight">
-            <Settings size={18} className="text-zinc-400" /> Settings
+        <div className="p-6 border-b border-[var(--b1)] flex justify-between items-center bg-black">
+          <h2 className="text-lg font-medium text-[var(--t1)] flex items-center gap-2 tracking-tight">
+            <Settings size={18} className="text-[var(--t2)]" /> Settings
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors">
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-6 bg-zinc-950/50 space-y-8 overflow-y-auto max-h-[60vh] custom-scrollbar">
+        <div className="p-6 bg-[var(--s2)]/50 space-y-8 overflow-y-auto max-h-[60vh] custom-scrollbar">
           <div className="space-y-4">
-            <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden border border-white/10">
+            <div className="flex items-center gap-3 border-b border-[var(--b1)] pb-4">
+              <div className="w-12 h-12 rounded-full bg-[var(--s3)] flex items-center justify-center overflow-hidden border border-[var(--b1)]">
                 {currentUser?.photoURL ? (
                   <img src={currentUser.photoURL} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  <UserIcon size={24} className="text-zinc-500" />
+                  <UserIcon size={24} className="text-[var(--t4)]" />
                 )}
               </div>
               <div>
-                <p className="text-sm font-medium text-white">{currentUser?.displayName || 'User'}</p>
-                <p className="text-xs text-zinc-500">{currentUser?.email}</p>
+                <p className="text-sm font-medium text-[var(--t1)]">{currentUser?.displayName || 'User'}</p>
+                <p className="text-xs text-[var(--t4)]">{currentUser?.email}</p>
               </div>
             </div>
           </div>
@@ -115,9 +115,9 @@ export default function SettingsDialog({
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <Shield size={16} className="text-indigo-400" />
-              <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Enterprise Role Simulation</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-[var(--t2)]">Enterprise Role Simulation</h3>
             </div>
-            <p className="text-xs text-zinc-500 font-light leading-relaxed">
+            <p className="text-xs text-[var(--t4)] font-light leading-relaxed">
               Select your simulated role. Depending on your role, different privileges are granted (e.g., Admins can view Audit Logs; Viewers are restricted to read-only views).
             </p>
             <div className="flex gap-4">
@@ -127,7 +127,7 @@ export default function SettingsDialog({
                   onClick={() => setSelectedRole(r)}
                   className={`flex-1 py-3 text-sm rounded-xl transition-all border ${selectedRole === r
                       ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30 font-medium'
-                      : 'bg-black border-white/10 text-zinc-400 hover:bg-white/5 hover:border-white/20'
+                      : 'bg-black border-[var(--b1)] text-[var(--t2)] hover:bg-[var(--s1)] hover:border-[var(--b2)]'
                     }`}
                 >
                   {r}
@@ -137,19 +137,19 @@ export default function SettingsDialog({
           </div>
 
           {/* Model Customization */}
-          <div className="space-y-6 pt-6 border-t border-white/5">
+          <div className="space-y-6 pt-6 border-t border-[var(--b1)]">
             <div className="flex items-center gap-2">
               <Settings size={16} className="text-emerald-400" />
-              <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">LLM Model Customizers</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-[var(--t2)]">LLM Model Customizers</h3>
             </div>
 
             {/* Gemini */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-zinc-400">Gemini model</span>
+                <span className="font-semibold text-[var(--t2)]">Gemini model</span>
                 <button
                   onClick={() => setGeminiCustom(!geminiCustom)}
-                  className="text-zinc-500 hover:text-white transition-colors"
+                  className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors"
                 >
                   {geminiCustom ? "Select preset" : "Set custom model ID"}
                 </button>
@@ -159,14 +159,14 @@ export default function SettingsDialog({
                   type="text"
                   value={configs.gemini}
                   onChange={(e) => handleModelChange('gemini', e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  className="w-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t3)] focus:border-[var(--b2)]"
                   placeholder="e.g. gemini-3.5-flash"
                 />
               ) : (
                 <select
                   value={configs.gemini}
                   onChange={(e) => handleModelChange('gemini', e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                  className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
                   <option value="gemini-3.5-flash">Gemini 3.5 Flash (Standard)</option>
                   <option value="gemini-3.5-flash-puppeteer">Gemini 3.5 Flash (Puppeteer)</option>
@@ -188,10 +188,10 @@ export default function SettingsDialog({
             {/* ChatGPT */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-zinc-400">ChatGPT model</span>
+                <span className="font-semibold text-[var(--t2)]">ChatGPT model</span>
                 <button
                   onClick={() => setChatgptCustom(!chatgptCustom)}
-                  className="text-zinc-500 hover:text-white transition-colors"
+                  className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors"
                 >
                   {chatgptCustom ? "Select preset" : "Set custom model ID"}
                 </button>
@@ -201,14 +201,14 @@ export default function SettingsDialog({
                   type="text"
                   value={configs.chatgpt}
                   onChange={(e) => handleModelChange('chatgpt', e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  className="w-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t3)] focus:border-[var(--b2)]"
                   placeholder="e.g. gpt-4o"
                 />
               ) : (
                 <select
                   value={configs.chatgpt}
                   onChange={(e) => handleModelChange('chatgpt', e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                  className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
                   <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
                   <option value="gpt-5.4">GPT-5.4 (Strong)</option>
@@ -221,10 +221,10 @@ export default function SettingsDialog({
             {/* Claude */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-zinc-400">Claude model</span>
+                <span className="font-semibold text-[var(--t2)]">Claude model</span>
                 <button
                   onClick={() => setClaudeCustom(!claudeCustom)}
-                  className="text-zinc-500 hover:text-white transition-colors"
+                  className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors"
                 >
                   {claudeCustom ? "Select preset" : "Set custom model ID"}
                 </button>
@@ -234,14 +234,14 @@ export default function SettingsDialog({
                   type="text"
                   value={configs.claude}
                   onChange={(e) => handleModelChange('claude', e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/20 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-100 focus:border-white/40 shadow-inner"
+                  className="w-full bg-[var(--s2)] border border-[var(--b2)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t1)] focus:border-[var(--b2)] shadow-inner"
                   placeholder="e.g. claude-opus-4-8"
                 />
               ) : (
                 <select
                   value={configs.claude}
                   onChange={(e) => handleModelChange('claude', e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                  className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
                   <option value="claude-opus-4-8">Claude Opus 4.8 (First Choice)</option>
                   <option value="claude-opus-4-6">Claude Opus 4.6</option>
@@ -253,10 +253,10 @@ export default function SettingsDialog({
             {/* Grok */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-zinc-400">Grok model</span>
+                <span className="font-semibold text-[var(--t2)]">Grok model</span>
                 <button
                   onClick={() => setGrokCustom(!grokCustom)}
-                  className="text-zinc-500 hover:text-white transition-colors"
+                  className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors"
                 >
                   {grokCustom ? "Select preset" : "Set custom model ID"}
                 </button>
@@ -266,14 +266,14 @@ export default function SettingsDialog({
                   type="text"
                   value={configs.grok}
                   onChange={(e) => handleModelChange('grok', e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  className="w-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t3)] focus:border-[var(--b2)]"
                   placeholder="e.g. grok-2-latest"
                 />
               ) : (
                 <select
                   value={configs.grok}
                   onChange={(e) => handleModelChange('grok', e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                  className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
                   <option value="grok-4.3">Grok 4.3 (Flagship)</option>
                   <option value="grok-4.20-reasoning">Grok 4.20 Reasoning</option>
@@ -286,10 +286,10 @@ export default function SettingsDialog({
             {/* DeepSeek */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-zinc-400">DeepSeek model</span>
+                <span className="font-semibold text-[var(--t2)]">DeepSeek model</span>
                 <button
                   onClick={() => setDeepseekCustom(!deepseekCustom)}
-                  className="text-zinc-500 hover:text-white transition-colors"
+                  className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors"
                 >
                   {deepseekCustom ? "Select preset" : "Set custom model ID"}
                 </button>
@@ -299,14 +299,14 @@ export default function SettingsDialog({
                   type="text"
                   value={configs.deepseek}
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  className="w-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t3)] focus:border-[var(--b2)]"
                   placeholder="e.g. deepseek-v3.2-maas"
                 />
               ) : (
                 <select
                   value={configs.deepseek}
                   onChange={(e) => handleModelChange('deepseek', e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                  className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
                   <option value="deepseek-v3.2-maas">DeepSeek V3.2 (Flagship)</option>
                   <option value="deepseek-r1-0528-maas">DeepSeek R1 0528 (Reasoning)</option>
@@ -319,10 +319,10 @@ export default function SettingsDialog({
             {/* Codex */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-zinc-400">Codex model</span>
+                <span className="font-semibold text-[var(--t2)]">Codex model</span>
                 <button
                   onClick={() => setCodexCustom(!codexCustom)}
-                  className="text-zinc-500 hover:text-white transition-colors"
+                  className="text-[var(--t4)] hover:text-[var(--t1)] transition-colors"
                 >
                   {codexCustom ? "Select preset" : "Set custom model ID"}
                 </button>
@@ -332,14 +332,14 @@ export default function SettingsDialog({
                   type="text"
                   value={configs.codex || 'gpt-5.5'}
                   onChange={(e) => handleModelChange('codex', e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-300 focus:border-white/30"
+                  className="w-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t3)] focus:border-[var(--b2)]"
                   placeholder="e.g. gpt-5.5"
                 />
               ) : (
                 <select
                   value={configs.codex || 'gpt-5.5'}
                   onChange={(e) => handleModelChange('codex', e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-300 focus:border-white/30"
+                  className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
                   <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
                   <option value="gpt-5.4">GPT-5.4 (Strong)</option>
@@ -350,17 +350,17 @@ export default function SettingsDialog({
           </div>
         </div>
 
-        <div className="p-6 border-t border-white/10 bg-black flex justify-end gap-3">
+        <div className="p-6 border-t border-[var(--b1)] bg-black flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-zinc-300 hover:bg-white/5 transition-colors"
+            className="px-5 py-2.5 rounded-xl border border-[var(--b1)] text-sm font-medium text-[var(--t3)] hover:bg-[var(--s1)] transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={loading}
-            className="px-5 py-2.5 rounded-xl bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"
+            className="px-5 py-2.5 rounded-xl bg-[var(--t1)] text-[var(--bg)] text-sm font-medium hover:bg-[var(--t-text-secondary)] transition-colors disabled:opacity-50"
           >
             {loading ? 'Saving...' : 'Save Settings'}
           </button>

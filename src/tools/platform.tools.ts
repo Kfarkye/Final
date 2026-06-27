@@ -1,17 +1,69 @@
 import { z } from 'zod';
 import { RegisteredTool } from './types.js';
 import { GoogleAuth } from 'google-auth-library';
-import { callGcpMcpTool } from './gcp-mcp-client.js';
 import { env } from '../config/env.js';
 
 const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 const PROJECT = env.GCP_PROJECT;
-const EVENTARC_MCP = 'https://eventarc.googleapis.com/mcp';
 
 async function getToken(): Promise<string> {
   const client = await auth.getClient();
   const { token } = await client.getAccessToken();
   return token || '';
+}
+
+/**
+ * Fetch with timeout using AbortController
+ */
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 20000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error('request timed out');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Poll Eventarc Long-Running Operation (LRO)
+ */
+async function pollEventarcOperation(operationName: string, token: string): Promise<any> {
+  const url = `https://eventarc.googleapis.com/v1/${operationName}`;
+  let attempts = 0;
+  const maxAttempts = 30;
+  
+  while (attempts < maxAttempts) {
+    attempts++;
+    const res = await fetchWithTimeout(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!res.ok) {
+      throw new Error(`Failed to poll operation: ${await res.text()}`);
+    }
+    
+    const op = await res.json();
+    if (op.done) {
+      if (op.error) {
+        throw new Error(`Operation failed: ${op.error.message}`);
+      }
+      return op.response;
+    }
+    
+    // Exponential backoff capped at 5 seconds
+    const delay = Math.min(1000 * Math.pow(1.5, attempts), 5000);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  
+  throw new Error('Operation pending after maximum polling attempts');
 }
 
 export const platformTools: RegisteredTool<any>[] = [
@@ -36,7 +88,6 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
       const cx = process.env.GOOGLE_SEARCH_CX || '';
 
       if (!apiKey || !cx) {
-        // Fallback: use the Google Search grounding API via Vertex AI
         return {
           error: "Custom Search not configured. Set GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX in env.",
           hint: "Create a Programmable Search Engine at https://programmablesearchengine.google.com/",
@@ -51,7 +102,7 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
       });
 
       try {
-        const res = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
+        const res = await fetchWithTimeout(`https://www.googleapis.com/customsearch/v1?${params}`);
         if (!res.ok) return { error: `Search API error (${res.status}): ${await res.text()}` };
 
         const data: any = await res.json();
@@ -89,7 +140,7 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
       });
 
       try {
-        const res = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${params}`);
+        const res = await fetchWithTimeout(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${params}`, {}, 60000);
         if (!res.ok) return { error: `PageSpeed error (${res.status}): ${await res.text()}` };
 
         const data: any = await res.json();
@@ -139,7 +190,7 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
       const url = `https://eventarc.googleapis.com/v1/projects/${PROJECT}/locations/${region}/triggers`;
 
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return { error: `Eventarc error (${res.status}): ${await res.text()}` };
@@ -166,6 +217,8 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
         triggerId: z.string().min(1).describe("Trigger name"),
         eventType: z.string().describe("Event type (e.g. 'google.cloud.pubsub.topic.v1.messagePublished')"),
         destination: z.string().describe("Destination Cloud Run service name"),
+        destinationPath: z.string().optional().describe("Optional path on the destination service"),
+        serviceAccount: z.string().describe("Service account email for the trigger identity"),
         topicId: z.string().optional().describe("Pub/Sub topic for transport"),
         region: z.string().default('us-central1'),
       })
@@ -173,7 +226,8 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
     handler: async (args) => {
       const token = await getToken();
       const region = args.region || 'us-central1';
-      const url = `https://eventarc.googleapis.com/v1/projects/${PROJECT}/locations/${region}/triggers?triggerId=${args.triggerId}`;
+      const triggerId = encodeURIComponent(args.triggerId);
+      const url = `https://eventarc.googleapis.com/v1/projects/${PROJECT}/locations/${region}/triggers?triggerId=${triggerId}`;
 
       const body: any = {
         eventFilters: [{ attribute: 'type', value: args.eventType }],
@@ -183,23 +237,37 @@ Note: Requires a Custom Search Engine ID (cx). Uses the Programmable Search API.
             region,
           },
         },
+        serviceAccount: args.serviceAccount
       };
+
+      if (args.destinationPath) {
+        body.destination.cloudRun.path = args.destinationPath;
+      }
 
       if (args.topicId) {
         body.transport = { pubsub: { topic: `projects/${PROJECT}/topics/${args.topicId}` } };
       }
 
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         if (!res.ok) return { error: `Eventarc create error (${res.status}): ${await res.text()}` };
-        return await res.json();
+        
+        const operation = await res.json();
+        
+        // Poll the LRO if it's an operation
+        if (operation.name) {
+          const finalTrigger = await pollEventarcOperation(operation.name, token);
+          return finalTrigger;
+        }
+        
+        return operation;
       } catch (err: any) {
         return { error: `Eventarc create failed: ${err.message}` };
       }
     }
-  },
+  }
 ];

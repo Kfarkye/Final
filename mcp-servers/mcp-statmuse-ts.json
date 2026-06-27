@@ -1,0 +1,40 @@
+{
+  "id": "mcp-statmuse-ts",
+  "title": "StatMuse Oracle MCP Server",
+  "description": "AI-powered sports data extraction via StatMuse. Stealth browser → DOM distillation → Gemini schema enforcement → typed JSON. Supports NBA, NFL, MLB, NHL.",
+  "tools": [
+    {
+      "name": "query_statmuse",
+      "description": "Query StatMuse for highly specific sports statistics using natural language. Returns structured JSON with stats tables, summary answers, and player art URLs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Natural language sports question" },
+          "sport": { "type": "string", "enum": ["nba", "nfl", "mlb", "nhl"], "description": "Sport domain (auto-detected if omitted)" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "compare_players",
+      "description": "Compare two players or teams by running parallel StatMuse queries.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query_a": { "type": "string" },
+          "query_b": { "type": "string" },
+          "sport": { "type": "string", "enum": ["nba", "nfl", "mlb", "nhl"] }
+        },
+        "required": ["query_a", "query_b"]
+      }
+    },
+    {
+      "name": "statmuse_cache_stats",
+      "description": "Returns cache diagnostics — entries, TTL, hit rate.",
+      "inputSchema": { "type": "object", "properties": {} }
+    }
+  ],
+  "createdAt": "2026-06-27T02:45:00.000Z",
+  "status": "staged",
+  "routePath": "/api/mcp/statmuse"
+}

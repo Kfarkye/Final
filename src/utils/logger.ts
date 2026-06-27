@@ -5,7 +5,7 @@ import { env } from "../config/env";
 export const traceContext = new AsyncLocalStorage<{ traceId: string }>();
 
 export const logger = pino({
-  level: env.LOG_LEVEL,
+  level: env.LOG_LEVEL || "info",
   formatters: {
     level: (label) => ({ level: label.toUpperCase() }),
   },

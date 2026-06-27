@@ -2,6 +2,31 @@ apiVersion: skaffold/v4beta7
 kind: Config
 metadata:
   name: truth
+
+# ── Build: use the existing Dockerfile, push to Artifact Registry ──
+build:
+  artifacts:
+    - image: us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie
+      docker:
+        dockerfile: Dockerfile
+      # Sync raw source files into the running pod WITHOUT rebuilding.
+      # This updates what the AI agent READS (readFileSync in tools),
+      # not what the server EXECUTES (the esbuild bundle). This is
+      # intentional — the AI needs current source to not be "lost".
+      sync:
+        manual:
+          - src: "src/**"
+            dest: /app
+          - src: "lib/**"
+            dest: /app
+          - src: "server.ts"
+            dest: /app
+          - src: "config/**"
+            dest: /app
+  local:
+    push: true
+
+# ── Deploy: apply K8s manifests via kubectl ──
 manifests:
   rawYaml:
     - k8s/deployment.yaml
@@ -10,3 +35,10 @@ manifests:
     - k8s/hpa.yaml
 deploy:
   kubectl: {}
+
+# ── Profiles ──
+profiles:
+  # `skaffold dev --profile=dev` — file-sync only, no full rebuilds
+  - name: dev
+    activation:
+      - command: dev

@@ -203,11 +203,47 @@ function normalizeOddsApiEvent(
 
 // ── Public API ──────────────────────────────────────────────────────
 
+async function resolveOddsApiEventId(gamePk: string, apiKey: string): Promise<string> {
+  // Odds API IDs are 32-character hex strings
+  if (/^[a-f0-9]{32}$/i.test(gamePk)) {
+    return gamePk;
+  }
+  
+  // Try to resolve gamePk -> Odds API Event ID using MlbGames
+  const { edgeDb } = await import("../db/spanner"); // lazy load to avoid circular deps if any
+  const [rows] = await edgeDb.run({
+    sql: 'SELECT HomeTeamName, AwayTeamName FROM MlbGames WHERE EventId = @gamePk LIMIT 1',
+    params: { gamePk }
+  });
+  
+  if (rows.length === 0) {
+    throw new Error(`Cannot resolve event ID: GamePk ${gamePk} not found in MlbGames.`);
+  }
+  
+  const game = rows[0].toJSON();
+  const home = (game.HomeTeamName || "").toLowerCase();
+  const away = (game.AwayTeamName || "").toLowerCase();
+
+  const eventsUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/?apiKey=${apiKey}`;
+  const { data: events } = await oddsApiFetch(eventsUrl);
+
+  const matched = events.find((e: any) => 
+    e.home_team.toLowerCase() === home || home.includes(e.home_team.toLowerCase()) ||
+    e.away_team.toLowerCase() === away || away.includes(e.away_team.toLowerCase())
+  );
+
+  if (!matched) {
+    throw new Error(`Cannot resolve Odds API Event ID for ${gamePk} (${home} vs ${away}). Event may be historical or inactive.`);
+  }
+  
+  return matched.id;
+}
+
 /**
  * Fetch the full event board for a single MLB game.
  * Makes 2 Odds API calls: one for main markets, one for props.
  */
-export async function getEventFullBoard(eventId: string): Promise<EventFullBoard> {
+export async function getEventFullBoard(rawEventId: string): Promise<EventFullBoard> {
   const apiKey = getApiKey();
   const sport = "baseball_mlb";
   const bookmakers = DEFAULT_BOOKMAKERS;
@@ -216,6 +252,24 @@ export async function getEventFullBoard(eventId: string): Promise<EventFullBoard
 
   let latestQuota = { remaining: null as number | null, used: null as number | null };
   const allMarkets: NormalizedMarket[] = [];
+  
+  let eventId = rawEventId;
+  try {
+    eventId = await resolveOddsApiEventId(rawEventId, apiKey);
+  } catch (err: any) {
+    logger.warn({ msg: "Failed to resolve Event ID. Will attempt snapshot fallback if applicable.", rawEventId, error: err.message });
+    // If we can't resolve it, the API will fail anyway. We can either throw or return an empty board.
+    return {
+      eventId: rawEventId,
+      startTime: "",
+      homeTeam: "",
+      awayTeam: "",
+      markets: [],
+      unavailableMarkets: [],
+      fetchedAt,
+      quota: latestQuota
+    };
+  }
 
   // 1. Fetch main markets (h2h, spreads, totals) — single API call
   try {

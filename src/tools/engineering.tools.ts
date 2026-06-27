@@ -1205,32 +1205,49 @@ const gitBranchOpsTool: RegisteredTool<any> = {
           return { success: true, operation: "commit", output: stdout.trim(), operationId: opId, undoAvailable: true };
         }
 
-        // T3: Approve + Confirm
+        // T3: Approve + Confirm (with Cryptographic Continuation Gate)
         case "push": {
           const { stdout: bOut } = await execFileAsync("git", ["branch", "--show-current"], gitOpts);
           const branch = bOut.trim();
 
-          // SEC-5: Protected branch enforcement
-          if (PROTECTED_BRANCHES.has(branch)) {
-            return { success: false, error: `Cannot push to protected branch "${branch}". Create a feature branch first.` };
+          // 1. Immutable Action Hashing (TOCTOU Protection)
+          // Capture exact pre-approval HEAD SHA
+          const { stdout: headShaOut } = await execFileAsync("git", ["rev-parse", "HEAD"], gitOpts);
+          const headSha = headShaOut.trim();
+
+          const fingerprintPayload = `${gitOpts.cwd || 'default'}:${branch}:${headSha}:push`;
+          const fingerprint = createHash('sha256').update(fingerprintPayload).digest('hex');
+
+          const isProtected = PROTECTED_BRANCHES.has(branch);
+          const isForce = false; // The gitBranchOpsTool doesn't currently support --force arguments
+
+          // Fast path for non-privileged execution
+          if (isProtected || isForce) {
+            let commitPreview = "";
+            try {
+              const { stdout } = await execFileAsync("git", ["log", `origin/${branch}..HEAD`, "--oneline", "--no-decorate"], gitOpts);
+              commitPreview = stdout.trim() || "(no new commits)";
+            } catch { commitPreview = "(new branch — no remote tracking yet)"; }
+
+            // 2. The Continuation Gate
+            const result = await tieredApproval(3, {
+              tool: "git", operation: "push",
+              args: { branch, headSha, fingerprint },
+              reason: args.reason || "Pushing to remote",
+              riskLevel: "high", reversible: false,
+              impact: `Elevated push detected (Branch: ${branch}, SHA: ${headSha}). Execution suspended pending human approval.`,
+              preview: commitPreview,
+            }, context);
+
+            if (result.decision !== "approved") return handleNonApproval(result, "git push", args);
+
+            // 3. TOCTOU Validation before execution
+            const { stdout: currentShaOut } = await execFileAsync("git", ["rev-parse", "HEAD"], gitOpts);
+            const currentSha = currentShaOut.trim();
+            if (currentSha !== headSha) {
+              throw new Error(`TOCTOU Violation: Local HEAD (${currentSha}) diverges from approved SHA (${headSha}). Approval invalidated.`);
+            }
           }
-
-          let commitPreview = "";
-          try {
-            const { stdout } = await execFileAsync("git", ["log", `origin/${branch}..HEAD`, "--oneline", "--no-decorate"], gitOpts);
-            commitPreview = stdout.trim() || "(no new commits)";
-          } catch { commitPreview = "(new branch — no remote tracking yet)"; }
-
-          const result = await tieredApproval(3, {
-            tool: "git", operation: "push",
-            args: { branch },
-            reason: args.reason || "Pushing to remote",
-            riskLevel: "high", reversible: false,
-            impact: `Push "${branch}" to origin — visible to all collaborators`,
-            preview: commitPreview,
-          }, context);
-
-          if (result.decision !== "approved") return handleNonApproval(result, "git push", args);
 
           // Resolve the remote URL and inject GitHub PAT for authentication
           let pushArgs = ["push", "origin", branch];

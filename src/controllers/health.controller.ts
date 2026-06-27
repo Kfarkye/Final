@@ -4,15 +4,25 @@ import { db } from "../db/index";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 
+/**
+ * Build-time SHA injected by esbuild via --define:__BUILD_SHA__='"abc1234"'
+ * Falls back to 'local-dev' when running directly from TypeScript (tsx watch).
+ * ship.sh step [4/4] polls /healthz for this value to prove the deploy is live.
+ */
+declare const __BUILD_SHA__: string;
+const BUILD_SHA = typeof __BUILD_SHA__ !== "undefined" ? __BUILD_SHA__ : "local-dev";
+
 export const healthController = {
   /**
    * 🛡️ LIVENESS PROBE (/healthz)
    * Kubelet uses this to know if the application is dead and needs a pod restart.
    * This should be fast and NEVER check external dependencies.
+   * Also surfaces the build SHA so ship.sh can verify deploys independently.
    */
   liveness(req: Request, res: Response) {
     res.status(200).json({ 
-      status: "ok", 
+      status: "ok",
+      sha: BUILD_SHA,
       uptimeSeconds: process.uptime(),
       timestamp: new Date().toISOString() 
     });

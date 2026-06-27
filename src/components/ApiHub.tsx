@@ -409,16 +409,16 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
   });
 
   return (
-    <div className="h-full flex flex-col bg-black text-zinc-100 overflow-hidden font-sans border-l border-zinc-900 selection:bg-zinc-800 selection:text-white">
+    <div className="h-full flex flex-col bg-black text-[var(--t1)] overflow-hidden font-sans border-l border-[var(--b1)] selection:bg-[var(--s3)] selection:text-[var(--t1)]">
       
       {/* Jony Ive-grade premium header: pure, uncluttered physical typography */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-900 bg-black">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--b1)] bg-black">
         <div>
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400 tracking-wider uppercase font-medium">
-            <ShieldCheck size={11} className="text-zinc-500" />
+          <div className="flex items-center gap-1.5 text-xs text-[var(--t2)] tracking-wider uppercase font-medium">
+            <ShieldCheck size={11} className="text-[var(--t4)]" />
             <span>Encrypted Integrations Gateway</span>
           </div>
-          <h2 className="text-base font-semibold text-white tracking-tight mt-1">
+          <h2 className="text-base font-semibold text-[var(--t1)] tracking-tight mt-1">
             Secure API Integrations Hub
           </h2>
         </div>
@@ -426,17 +426,17 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
         <div className="flex items-center space-x-1.5">
           <button 
             onClick={triggerRefreshAll}
-            className="p-1 px-2 text-xs bg-zinc-950 hover:bg-zinc-900 active:scale-[0.98] border border-zinc-800/80 rounded-lg text-zinc-400 transition-all flex items-center gap-1.5"
+            className="p-1 px-2 text-xs bg-[var(--s2)] hover:bg-[var(--s2)] active:scale-[0.98] border border-[var(--b2)]/80 rounded-lg text-[var(--t2)] transition-all flex items-center gap-1.5"
             disabled={syncing}
           >
-            <RefreshCw size={11} className={syncing ? 'animate-spin text-zinc-300' : 'text-zinc-500'} />
+            <RefreshCw size={11} className={syncing ? 'animate-spin text-[var(--t3)]' : 'text-[var(--t4)]'} />
             <span className="text-[10px] tracking-wide">Sync Gateway</span>
           </button>
           
           {onClose && (
             <button 
               onClick={onClose}
-              className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-950 rounded-lg transition-colors border border-transparent hover:border-zinc-900"
+              className="p-1.5 text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s2)] rounded-lg transition-colors border border-transparent hover:border-[var(--b1)]"
             >
               <X size={14} />
             </button>
@@ -446,26 +446,26 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Apple-styled search & filter bar */}
-        <div className="px-6 py-4 flex flex-col gap-3.5 border-b border-zinc-900 bg-zinc-950/20">
+        <div className="px-6 py-4 flex flex-col gap-3.5 border-b border-[var(--b1)] bg-[var(--s2)]/20">
           <div className="relative">
-            <Search className="absolute left-3.5 top-2.5 text-zinc-600 pointer-events-none" size={13} />
+            <Search className="absolute left-3.5 top-2.5 text-[var(--t4)] pointer-events-none" size={13} />
             <input 
               type="text" 
               placeholder="Search secure adapters or payment ledgers..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-900 hover:border-zinc-800 focus:border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-200 outline-none transition-all placeholder-zinc-600 font-sans"
+              className="w-full bg-[var(--s2)] border border-[var(--b1)] hover:border-[var(--b2)] focus:border-[var(--b2)] rounded-xl pl-10 pr-4 py-2.5 text-xs text-[var(--t1)] outline-none transition-all placeholder-[var(--t4)] font-sans"
             />
           </div>
 
           {/* Segmented Category Selection */}
           <div className="flex items-center overflow-x-auto no-scrollbar py-0.5 max-w-full">
-            <div className="flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-900 text-[9px] uppercase font-bold tracking-wider space-x-0.5 flex-shrink-0">
+            <div className="flex bg-[var(--s2)] rounded-lg p-0.5 border border-[var(--b1)] text-[9px] uppercase font-bold tracking-wider space-x-0.5 flex-shrink-0">
               {(['all', 'ai', 'productivity', 'payments', 'dev', 'markets'] as const).map(cat => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-2.5 py-1.5 rounded-md transition-all font-sans whitespace-nowrap ${activeCategory === cat ? 'bg-zinc-100 text-black font-extrabold' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  className={`px-2.5 py-1.5 rounded-md transition-all font-sans whitespace-nowrap ${activeCategory === cat ? 'bg-[var(--t-text-primary)] text-[var(--bg)] font-extrabold' : 'text-[var(--t4)] hover:text-[var(--t3)]'}`}
                 >
                   {cat === 'all' ? 'All' 
                    : cat === 'ai' ? 'AI / LLM' 
@@ -480,10 +480,10 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
         </div>
 
         {/* Secure Ledger warning */}
-        <div className="mx-6 mt-4 p-3 bg-zinc-950/80 border border-zinc-900/60 rounded-xl flex items-start gap-2.5 text-[11px] text-zinc-400">
-          <Lock size={12} className="text-zinc-500 mt-0.5 flex-shrink-0" />
+        <div className="mx-6 mt-4 p-3 bg-[var(--s2)] border border-[var(--b1)]/60 rounded-xl flex items-start gap-2.5 text-[11px] text-[var(--t2)]">
+          <Lock size={12} className="text-[var(--t4)] mt-0.5 flex-shrink-0" />
           <p className="leading-normal font-light">
-            Connections are processed with client-side sandbox environments. Key secrets are masked and stored inside local storage under <span className="font-mono bg-black px-1 py-0.5 text-zinc-300 rounded">AES-256</span> device locks.
+            Connections are processed with client-side sandbox environments. Key secrets are masked and stored inside local storage under <span className="font-mono bg-black px-1 py-0.5 text-[var(--t3)] rounded">AES-256</span> device locks.
           </p>
         </div>
 
@@ -497,22 +497,22 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
               <div 
                 key={item.id}
                 onClick={() => handleCardClick(item)}
-                className={`p-4.5 rounded-2xl bg-zinc-950 border transition-all cursor-pointer select-none relative overflow-hidden group ${isSelected ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-900/60 hover:border-zinc-800 hover:bg-zinc-900/10'}`}
+                className={`p-4.5 rounded-2xl bg-[var(--s2)] border transition-all cursor-pointer select-none relative overflow-hidden group ${isSelected ? 'border-[var(--b2)] bg-[var(--s2)]' : 'border-[var(--b1)]/60 hover:border-[var(--b2)] hover:bg-[var(--s2)]/10'}`}
               >
                 {/* Visual highlight on connected systems */}
                 {isActive && (
-                  <div className="absolute top-0 left-0 w-[3px] h-full bg-zinc-200" />
+                  <div className="absolute top-0 left-0 w-[3px] h-full bg-[var(--t-text-secondary)]" />
                 )}
 
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <h4 className="text-xs font-semibold text-white tracking-tight">{item.name}</h4>
-                      <span className="text-[8px] px-1.5 py-0.5 bg-zinc-900 text-zinc-400 font-bold uppercase tracking-wider rounded">
+                      <h4 className="text-xs font-semibold text-[var(--t1)] tracking-tight">{item.name}</h4>
+                      <span className="text-[8px] px-1.5 py-0.5 bg-[var(--s2)] text-[var(--t2)] font-bold uppercase tracking-wider rounded">
                         {item.category}
                       </span>
                     </div>
-                    <p className="text-[10px] text-zinc-500 mt-0.5 font-sans">
+                    <p className="text-[10px] text-[var(--t4)] mt-0.5 font-sans">
                       Encryption locks: Secure • {item.keyFields.length} key {item.keyFields.length > 1 ? 'fields' : 'field'}
                     </p>
                   </div>
@@ -520,33 +520,33 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
                   {/* Micro pill status indicator resembling physical gear */}
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {isActive ? (
-                      <div className="flex items-center gap-1.5 bg-zinc-900 rounded-full py-1 pl-2.5 pr-2.5 border border-zinc-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-100 shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-300">Active</span>
+                      <div className="flex items-center gap-1.5 bg-[var(--s2)] rounded-full py-1 pl-2.5 pr-2.5 border border-[var(--b2)]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--t-text-primary)] shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)]">Active</span>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 bg-zinc-950 rounded-full py-1 px-2.5 border border-zinc-900">
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-800" />
-                        <span className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">Idle</span>
+                      <div className="flex items-center gap-1.5 bg-[var(--s2)] rounded-full py-1 px-2.5 border border-[var(--b1)]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--s3)]" />
+                        <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--t4)]">Idle</span>
                       </div>
                     )}
                   </div>
                 </div>
 
-                <p className="text-zinc-400 text-xs font-light tracking-normal leading-relaxed mt-2.5 max-w-[95%]">
+                <p className="text-[var(--t2)] text-xs font-light tracking-normal leading-relaxed mt-2.5 max-w-[95%]">
                   {item.description}
                 </p>
 
                 {/* Foot indicators for initialized state */}
                 {isActive && (
-                  <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 mt-3 pt-2 border-t border-zinc-900/60">
+                  <div className="flex items-center justify-between text-[9px] font-mono text-[var(--t4)] mt-3 pt-2 border-t border-[var(--b1)]/60">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-zinc-600">LATENCY:</span>
+                      <span className="text-[var(--t4)]">LATENCY:</span>
                       <span>{item.latency || 18}ms</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-zinc-600">CALLS:</span>
-                      <span className="text-zinc-300 font-bold">{item.callsCount} times</span>
+                      <span className="text-[var(--t4)]">CALLS:</span>
+                      <span className="text-[var(--t3)] font-bold">{item.callsCount} times</span>
                     </div>
                   </div>
                 )}
@@ -558,13 +558,13 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      className="mt-4 pt-4 border-t border-zinc-900 space-y-4 overflow-hidden"
+                      className="mt-4 pt-4 border-t border-[var(--b1)] space-y-4 overflow-hidden"
                       onClick={e => e.stopPropagation()} 
                     >
                       <form onSubmit={(e) => handleConnect(item.id, e)} className="space-y-3">
-                        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--t4)]">
                           <span>Connection credentials</span>
-                          <a href={item.docUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-zinc-400 hover:text-white transition-colors">
+                          <a href={item.docUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[var(--t2)] hover:text-[var(--t1)] transition-colors">
                             <span>Get Docs API</span>
                             <ExternalLink size={10} />
                           </a>
@@ -572,25 +572,25 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
 
                         {item.keyFields.map(field => (
                           <div key={field.key} className="space-y-1">
-                            <label className="block text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{field.label}</label>
+                            <label className="block text-[9px] text-[var(--t2)] font-bold uppercase tracking-wider">{field.label}</label>
                             <input 
                               type={field.isSecret ? 'password' : 'text'} 
                               placeholder={field.placeholder}
                               required
                               value={formCredentials[field.key] || ''}
                               onChange={(e) => setFormCredentials(prev => ({ ...prev, [field.key]: e.target.value }))}
-                              className="w-full bg-black border border-zinc-900 hover:border-zinc-800 focus:border-zinc-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-700 outline-none transition-colors font-mono"
+                              className="w-full bg-black border border-[var(--b1)] hover:border-[var(--b2)] focus:border-[var(--b2)] rounded-xl px-3.5 py-2 text-xs text-[var(--t1)] placeholder-[var(--t4)] outline-none transition-colors font-mono"
                             />
                           </div>
                         ))}
 
                         <div className="grid grid-cols-2 gap-3.5">
                           <div className="space-y-1">
-                            <label className="block text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Access Scope</label>
+                            <label className="block text-[9px] text-[var(--t2)] font-bold uppercase tracking-wider">Access Scope</label>
                             <select 
                               value={formScope}
                               onChange={(e) => setFormScope(e.target.value as any)}
-                              className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-white outline-none cursor-pointer"
+                              className="w-full bg-black border border-[var(--b1)] rounded-xl px-3 py-1.5 text-xs text-[var(--t1)] outline-none cursor-pointer"
                             >
                               <option value="read-only">Read Only Access</option>
                               <option value="full">Read & Write Access (Full)</option>
@@ -598,18 +598,18 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
                           </div>
                           
                           <div className="space-y-1">
-                            <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Auth Method</label>
-                            <div className="bg-zinc-950 p-2 border border-zinc-900/60 rounded-xl text-[9px] text-zinc-400 text-center uppercase tracking-widest font-mono font-bold pt-2.5">
+                            <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Auth Method</label>
+                            <div className="bg-[var(--s2)] p-2 border border-[var(--b1)]/60 rounded-xl text-[9px] text-[var(--t2)] text-center uppercase tracking-widest font-mono font-bold pt-2.5">
                               On-Device Key
                             </div>
                           </div>
                         </div>
 
                         <div className="space-y-1.5 pt-1">
-                          <span className="block text-[8.5px] font-bold uppercase tracking-widest text-zinc-600">Authorized capability nodes:</span>
+                          <span className="block text-[8.5px] font-bold uppercase tracking-widest text-[var(--t4)]">Authorized capability nodes:</span>
                           <div className="flex flex-wrap gap-1">
                             {item.scopes.map(sc => (
-                              <span key={sc} className="text-[8px] font-mono px-2 py-0.5 bg-black border border-zinc-900/65 text-zinc-500 rounded lowercase">
+                              <span key={sc} className="text-[8px] font-mono px-2 py-0.5 bg-black border border-[var(--b1)]/65 text-[var(--t4)] rounded lowercase">
                                 {sc}
                               </span>
                             ))}
@@ -620,7 +620,7 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
                           <button 
                             type="submit"
                             disabled={testingId === item.id}
-                            className="flex-1 bg-zinc-100 hover:bg-white text-black py-2 rounded-xl text-xs font-semibold tracking-wide transition-colors flex items-center justify-center gap-1.5"
+                            className="flex-1 bg-[var(--t-text-primary)] hover:bg-[var(--t1)] text-[var(--bg)] py-2 rounded-xl text-xs font-semibold tracking-wide transition-colors flex items-center justify-center gap-1.5"
                           >
                             {testingId === item.id ? (
                               <>
@@ -636,7 +636,7 @@ export default function ApiHub({ onInsertContext, onClose }: ApiHubProps) {
                             <button 
                               type="button"
                               onClick={(e) => handleDisconnect(item.id, e)}
-                              className="p-2 border border-zinc-900 hover:border-zinc-800 text-zinc-500 hover:text-white bg-zinc-950/60 hover:bg-zinc-900/40 rounded-xl transition-all"
+                              className="p-2 border border-[var(--b1)] hover:border-[var(--b2)] text-[var(--t4)] hover:text-[var(--t1)] bg-[var(--s2)]/60 hover:bg-[var(--s2)] rounded-xl transition-all"
                               title="Revoke Adapter Access"
                             >
                               <Trash2 size={13} />

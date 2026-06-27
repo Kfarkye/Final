@@ -51,7 +51,7 @@ export const TruthDropdownMenuShowcase: React.FC = () => {
         <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2.5 py-1 rounded-full font-mono tracking-wider uppercase">
           Accessible Component Spec
         </span>
-        <h1 className="text-3xl font-extrabold tracking-tight text-white font-sans">
+        <h1 className="text-3xl font-extrabold tracking-tight text-[var(--t1)] font-sans">
           Truth Workspace Controller
         </h1>
         <p className="text-sm text-slate-400 max-w-md mx-auto">
@@ -69,7 +69,7 @@ export const TruthDropdownMenuShowcase: React.FC = () => {
               group flex items-center space-x-2.5 px-5 py-3 
               bg-gradient-to-r from-slate-900 to-slate-900/90 
               border border-slate-800/80 hover:border-slate-700/90 
-              text-sm font-semibold text-white rounded-xl shadow-lg 
+              text-sm font-semibold text-[var(--t1)] rounded-xl shadow-lg 
               hover:shadow-cyan-500/5 focus:outline-none focus:ring-2 
               focus:ring-cyan-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F19] 
               transition-all duration-200 cursor-pointer
@@ -101,7 +101,7 @@ export const TruthDropdownMenuShowcase: React.FC = () => {
             <div className="px-3 py-2.5 mb-1.5 border-b border-slate-800/60">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Context Session</span>
               <div className="flex items-center space-x-2.5 mt-1">
-                <div className="w-6 h-6 rounded-md bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center font-bold text-[10px] text-white">
+                <div className="w-6 h-6 rounded-md bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center font-bold text-[10px] text-[var(--t1)]">
                   TR
                 </div>
                 <div>
@@ -135,7 +135,7 @@ export const TruthDropdownMenuShowcase: React.FC = () => {
                   <GitBranch className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 transition" />
                   <span>Switch Workspace</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-white transition" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-[var(--t1)] transition" />
               </DropdownMenu.SubTrigger>
               
               <DropdownMenu.Portal>
@@ -254,7 +254,7 @@ export const TruthDropdownMenuShowcase: React.FC = () => {
         }
         .dropdown-item:focus {
           background-color: rgba(6, 182, 212, 0.08); /* bg-cyan-500/10 */
-          color: #ffffff; /* text-white */
+          color: #ffffff; /* text-[var(--t1)] */
         }
         .shortcut-tag {
           font-family: monospace;

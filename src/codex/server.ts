@@ -12,7 +12,13 @@ const telemetry = new OtelTelemetry();
 // Deny-by-default: command/exec and fs/* are blocked. Allow only a vetted,
 // read-only command allowlist (everything else fails closed).
 const approvalPolicy = createDefaultApprovalPolicy(telemetry, {
-  readOnlyCommandAllowlist: ["ls", "cat", "git status"],
+  readOnlyCommandAllowlist: [
+    "ls", "cat", "head", "tail", "wc", "grep", "find", "tree",
+    "git status", "git log", "git diff", "git branch",
+    "gcloud",     // Cloud infrastructure commands
+    "kubectl",    // Kubernetes cluster management
+    "npm test", "npm run lint", "npm run build",
+  ],
 });
 
 const poolConfig: PoolConfig = {

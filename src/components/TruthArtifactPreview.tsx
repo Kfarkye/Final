@@ -37,27 +37,27 @@ import type { GateLogEntry } from './SecureRenderHost';
 
 const truthTheme: SandpackTheme = {
   colors: {
-    surface1: '#0B0F19',
-    surface2: '#131825',
-    surface3: '#1A2332',
-    clickable: '#64748B',
-    base: '#F1F5F9',
-    disabled: '#475569',
-    hover: '#94A3B8',
-    accent: '#06B6D4',
-    error: '#F43F5E',
-    errorSurface: '#1A1020',
+    surface1: '#000000',
+    surface2: '#080808',
+    surface3: '#0F0F0F',
+    clickable: '#555555',
+    base: '#FFFFFF',
+    disabled: '#333333',
+    hover: '#A0A0A0',
+    accent: '#7BAFD4',
+    error: '#ef4444',
+    errorSurface: '#0F0F0F',
   },
   syntax: {
-    plain: '#F1F5F9',
-    comment: { color: '#64748B', fontStyle: 'italic' },
-    keyword: '#A855F7',
-    tag: '#06B6D4',
-    punctuation: '#94A3B8',
-    definition: '#10B981',
-    property: '#3B82F6',
-    static: '#F59E0B',
-    string: '#06B6D4',
+    plain: '#A0A0A0',
+    comment: { color: '#333333', fontStyle: 'italic' },
+    keyword: '#7BAFD4',
+    tag: '#7BAFD4',
+    punctuation: '#555555',
+    definition: '#7BAFD4',
+    property: '#7BAFD4',
+    static: '#7BAFD4',
+    string: '#7BAFD4',
   },
   font: {
     body: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
@@ -169,82 +169,85 @@ function ArtifactInner({
   }, [getCurrentHtml, resolvedTitle]);
 
   const previewHeight = expanded ? 800 : 480;
-  const btnBase = "text-[10px] px-2.5 py-1 rounded-md font-medium tracking-wide transition-all duration-200 flex items-center gap-1.5 cursor-pointer active:scale-95";
-  const btnGhost = `${btnBase} bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border border-white/[0.06]`;
+  const btnBase = "text-[10px] px-2 py-1 rounded-md font-mono font-medium tracking-wide transition-all duration-150 flex items-center gap-1.5 cursor-pointer active:scale-95";
+  const btnGhost = `${btnBase} bg-black/60 text-[var(--t3)] hover:text-[var(--t2)] border border-[var(--b2)] hover:border-[var(--t4)] backdrop-blur-sm`;
+  const btnActive = `${btnBase} bg-[rgba(123,175,212,0.15)] text-[var(--nc)] border border-[rgba(123,175,212,0.25)] backdrop-blur-sm`;
 
   return (
     <>
-      {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1117] border-b border-white/[0.06]">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex gap-1.5 shrink-0">
-            <div className="w-[10px] h-[10px] rounded-full bg-[#FF5F57]" style={{ boxShadow: '0 0 6px rgba(255,95,87,0.25)' }} />
-            <div className="w-[10px] h-[10px] rounded-full bg-[#FEBC2E]" style={{ boxShadow: '0 0 6px rgba(254,188,46,0.25)' }} />
-            <div className="w-[10px] h-[10px] rounded-full bg-[#28C840]" style={{ boxShadow: '0 0 6px rgba(40,200,64,0.25)' }} />
-          </div>
-          <span className="text-[11px] font-medium text-white/50 tracking-wide truncate">
-            {resolvedTitle}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0">
+      {/* ── Floating Toolbar — hidden until hover ── */}
+      <div
+        className="artifact-toolbar"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          padding: '8px 12px',
+          gap: '4px',
+          opacity: 0,
+          transition: 'opacity 0.2s ease',
+          pointerEvents: 'none',
+          background: 'linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%)',
+        }}
+      >
           {/* Deploy */}
           {deploy.state === 'deployed' && deploy.url ? (
             <a href={deploy.url} target="_blank" rel="noopener noreferrer"
-              className={`${btnBase} bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 hover:border-emerald-500/40 no-underline`}>
-              <span>🌐</span><span>Open Page</span>
+              className={`${btnBase} no-underline backdrop-blur-sm`}
+              style={{ background: 'rgba(16,185,129,0.15)', color: '#34D399', border: '1px solid rgba(16,185,129,0.25)' }}>
+              <span>Live</span>
             </a>
           ) : (
             <button
               onClick={deploy.state === 'idle' || deploy.state === 'error' ? handleDeploy : undefined}
               disabled={deploy.state === 'deploying'}
-              className={`${btnBase} ${
-                deploy.state === 'deploying' ? 'bg-amber-500/10 text-amber-400/70 border border-amber-500/15 cursor-wait'
-                : deploy.state === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border border-blue-500/20 hover:border-blue-500/40'
-              }`}>
-              <span>{deploy.state === 'deploying' ? '⏳' : deploy.state === 'error' ? '⚠️' : '🚀'}</span>
+              className={btnGhost}
+              style={deploy.state === 'deploying' ? { opacity: 0.5, cursor: 'wait' } : deploy.state === 'error' ? { color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)' } : {}}>
               <span>{deploy.state === 'deploying' ? 'Deploying…' : deploy.state === 'error' ? 'Retry' : 'Deploy'}</span>
             </button>
           )}
 
           <button onClick={handleCopy} className={btnGhost}>
-            <span>{copied ? '✓' : '📋'}</span><span>{copied ? 'Copied' : 'Copy'}</span>
+            <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
 
           <button onClick={handleDownload} className={btnGhost}>
-            <span>⬇️</span><span>Download</span>
+            <span>Download</span>
           </button>
 
           <button
             onClick={() => setShowSource(!showSource)}
-            className={`${btnBase} border ${showSource ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'}`}>
-            <span>{'</>'}</span><span>Source</span>
+            className={showSource ? btnActive : btnGhost}>
+            <span>Source</span>
           </button>
 
           {/* Gate log toggle */}
           {gateLog.length > 0 && (
             <button
               onClick={() => setShowGateLog(!showGateLog)}
-              className={`${btnBase} border ${showGateLog ? 'bg-purple-500/15 text-purple-400 border-purple-500/20' : 'bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] border-white/[0.06]'}`}>
-              <span>🔒</span><span>Gate ({gateLog.filter(e => e.verdict === 'ask').length})</span>
+              className={showGateLog ? btnActive : btnGhost}>
+              <span>Gate ({gateLog.filter(e => e.verdict === 'ask').length})</span>
             </button>
           )}
 
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-[10px] px-2 py-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.06] transition-all duration-200 cursor-pointer active:scale-95"
+            className={btnGhost}
             title={expanded ? 'Collapse' : 'Expand'}>
             {expanded ? '⊟' : '⊞'}
           </button>
-        </div>
       </div>
 
       {/* ── Editor + Preview ── */}
       <div className={`flex ${showSource ? '' : ''}`} style={{ flexDirection: showSource ? 'row' : 'column' }}>
         {/* Sandpack Code Editor — the editing DX */}
         {showSource && (
-          <div style={{ width: '50%', minWidth: 0, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ width: '50%', minWidth: 0, borderRight: '1px solid var(--b1)' }}>
             <SandpackCodeEditor
               showLineNumbers
               showTabs={false}
@@ -287,7 +290,7 @@ function ArtifactInner({
             justifyContent: 'space-between',
           }}>
             <span>THE GATE — every artifact request, every verdict</span>
-            <span style={{ color: '#c6a3ff', fontWeight: 700 }}>{gateLog.filter(e => e.verdict === 'ask').length}</span>
+            <span style={{ color: '#7BAFD4', fontWeight: 700 }}>{gateLog.filter(e => e.verdict === 'ask').length}</span>
           </div>
           {gateLog.map((entry, i) => (
             <div key={i} style={{
@@ -301,7 +304,7 @@ function ArtifactInner({
                 flex: '0 0 48px',
                 fontWeight: 700,
                 fontSize: '10px',
-                color: entry.verdict === 'ask' ? '#7df2ff' : entry.verdict === 'ok' ? '#5eead4' : entry.verdict === 'push' ? '#c6a3ff' : '#ff8a9b',
+                color: entry.verdict === 'ask' ? '#7BAFD4' : entry.verdict === 'ok' ? '#10b981' : entry.verdict === 'push' ? '#7BAFD4' : '#ef4444',
               }}>
                 {entry.verdict.toUpperCase()}
               </span>
@@ -309,7 +312,7 @@ function ArtifactInner({
                 {entry.verdict === 'ask' && <>artifact → <em style={{ color: '#7e879d' }}>{entry.action}</em> {entry.payload ? JSON.stringify(entry.payload) : ''}</>}
                 {entry.verdict === 'ok' && <>gate → granted <em style={{ color: '#7e879d' }}>{entry.action}</em> → {JSON.stringify(entry.data)}</>}
                 {entry.verdict === 'deny' && <>gate → DENIED <em style={{ color: '#7e879d' }}>{entry.action}</em> — {entry.error}</>}
-                {entry.verdict === 'push' && <>parent → pushed <em style={{ color: '#c6a3ff' }}>{entry.action}</em> → {JSON.stringify(entry.data)}</>}
+                {entry.verdict === 'push' && <>parent → pushed <em style={{ color: '#7BAFD4' }}>{entry.action}</em> → {JSON.stringify(entry.data)}</>}
               </span>
             </div>
           ))}
@@ -330,8 +333,16 @@ export const TruthArtifactPreview: React.FC<TruthArtifactPreviewProps> = ({ html
   }), [html]);
 
   return (
-    <div className="my-6 w-full rounded-2xl overflow-hidden border border-white/[0.06]"
-         style={{ boxShadow: '0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03)' }}>
+    <div
+      className="truth-artifact-seamless"
+      style={{ position: 'relative', margin: '24px 0', width: '100%', borderRadius: 'var(--t-radius-lg, 14px)', overflow: 'hidden' }}
+    >
+      <style>{`
+        .truth-artifact-seamless:hover .artifact-toolbar {
+          opacity: 1 !important;
+          pointer-events: auto !important;
+        }
+      `}</style>
       <SandpackProvider
         template="static"
         theme={truthTheme}
@@ -349,9 +360,6 @@ export const TruthArtifactPreview: React.FC<TruthArtifactPreviewProps> = ({ html
           setExpanded={setExpanded}
         />
       </SandpackProvider>
-
-      {/* Bottom accent */}
-      <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent" />
     </div>
   );
 }

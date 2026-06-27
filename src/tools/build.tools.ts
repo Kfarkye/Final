@@ -188,6 +188,11 @@ Input: imageTag (git short SHA).
 Returns: buildId, logUrl, status.`,
       schema: z.object({
         imageTag: z.string().min(1).describe("Git short SHA or tag for the image (e.g. '1f25cb5')"),
+        mode: z.enum(['async', 'blocking']).default('async').describe(
+          "async (default): returns buildId + logUrl immediately — SSE-safe, for chat. " +
+          "blocking: polls the build until terminal (SUCCESS/FAILURE/etc.) — for agent workflows that gate on deploy success. " +
+          "Max wait 30 min; falls back to async result if the build outlives the poll window."
+        ),
       })
     },
     handler: async (args, context) => {
@@ -316,7 +321,7 @@ Returns: buildId, logUrl, status.`,
         const buildId = (operation.metadata as any)?.build?.id;
         const logUrl = (operation.metadata as any)?.build?.logUrl;
 
-        return {
+        const asyncResult = {
           success: true,
           buildId,
           logUrl,
@@ -326,6 +331,51 @@ Returns: buildId, logUrl, status.`,
           source: `gs://${bucket}/${objectName}`,
           message: `Build submitted. Tag: ${imageTag}. Monitor at: ${logUrl}`,
           nextStep: `Use get_build_log({ buildId: "${buildId}" }) to check progress.`,
+        };
+
+        if (args.mode !== 'blocking') return asyncResult;
+
+        // Blocking mode: poll the build to a terminal state.
+        // Terminal Cloud Build statuses: SUCCESS, FAILURE, INTERNAL_ERROR, TIMEOUT, CANCELLED, EXPIRED.
+        const TERMINAL = new Set(['SUCCESS', 'FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED', 'EXPIRED']);
+        const deadline = Date.now() + 30 * 60 * 1000; // 30 min cap
+        let delayMs = 5000;
+        let lastStatus = 'QUEUED';
+
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, delayMs));
+          delayMs = Math.min(delayMs * 1.5, 20000); // capped backoff
+          try {
+            const [build] = await client.getBuild({ projectId, id: buildId });
+            lastStatus = build.status as string;
+            if (TERMINAL.has(lastStatus)) {
+              return {
+                ...asyncResult,
+                status: lastStatus,
+                success: lastStatus === 'SUCCESS',
+                finishTime: build.finishTime?.seconds
+                  ? new Date(Number(build.finishTime.seconds) * 1000).toISOString()
+                  : null,
+                failureInfo: build.failureInfo || null,
+                message:
+                  lastStatus === 'SUCCESS'
+                    ? `Deploy succeeded. Tag: ${imageTag}.`
+                    : `Deploy ended with status ${lastStatus}. See logs: ${logUrl}`,
+              };
+            }
+          } catch (pollErr: any) {
+            // Transient poll error — keep trying until the deadline.
+            lastStatus = `POLL_ERROR: ${pollErr.message}`;
+          }
+        }
+
+        // Outlived the poll window — degrade gracefully to the async contract.
+        return {
+          ...asyncResult,
+          status: 'IN_PROGRESS',
+          timedOutWaiting: true,
+          lastObservedStatus: lastStatus,
+          message: `Build still running after 30 min. Last status: ${lastStatus}. Monitor at: ${logUrl}`,
         };
       } catch (err: any) {
         return { error: `Cloud Build submit failed: ${err.message}` };
