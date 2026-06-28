@@ -14,8 +14,8 @@ const spanner = new Spanner();
 const db = spanner
   .instance('clearspace')
   .database('sports-mlb-db', {
-    minSessions: 5,
-    maxSessions: 25, // Hard cap to prevent Spanner exhaustion during KEDA spikes
+    min: 5,
+    max: 25, // Hard cap to prevent Spanner exhaustion during KEDA spikes
   });
 
 const performancesTable = db.table('MlbPlayerPerformances');
@@ -75,7 +75,7 @@ const messageHandler = async (message: Message) => {
         Hits: getStat('H'),
         HomeRuns: getStat('HR'),
         Strikeouts: getStat('K'),
-        IngestedAt: Spanner.commitTimestamp(),
+        IngestedAt: Spanner.COMMIT_TIMESTAMP,
       };
     });
 
