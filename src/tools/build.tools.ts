@@ -4,6 +4,8 @@ import { CloudBuildClient } from '@google-cloud/cloudbuild';
 import { env } from '../config/env.js';
 import { sseManager } from '../../lib/sse/sse-manager.js';
 import { waitForApproval } from '../utils/approval.js';
+import { gkeTools } from './gke.tools.js';
+import { execSync } from 'child_process';
 
 let buildClient: CloudBuildClient | null = null;
 function getBuildClient() {
@@ -198,6 +200,24 @@ Returns: buildId, logUrl, status.`,
     handler: async (args, context) => {
       // Require human approval — this is a production deploy
       if (context.connectionId) {
+        // PHASE 0: PRE-FLIGHT SYNC AUDIT (Root cause fix for environment drift)
+        // If local is out of sync with remote, DO NOT DEPLOY.
+        try {
+          const status = execSync('git status --porcelain').toString().trim();
+          if (status.length > 0) {
+            return { error: 'SYNC AUDIT FAILED: You have uncommitted changes locally. You must commit and push all changes before deploying, otherwise the remote tarball will not match your local environment.' };
+          }
+          
+          // Check if ahead/behind remote
+          execSync('git fetch');
+          const branchStatus = execSync('git status -uno').toString();
+          if (branchStatus.includes('is ahead of') || branchStatus.includes('is behind') || branchStatus.includes('have diverged')) {
+            return { error: 'SYNC AUDIT FAILED: Your local branch is out of sync with the remote branch. You must push your commits so the GitHub archive used for deployment matches your local state.' };
+          }
+        } catch (err: any) {
+          return { error: `SYNC AUDIT ERROR: Failed to verify git status: ${err.message}` };
+        }
+
         const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
         sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
           approvalId,
@@ -349,18 +369,55 @@ Returns: buildId, logUrl, status.`,
             const [build] = await client.getBuild({ projectId, id: buildId });
             lastStatus = build.status as string;
             if (TERMINAL.has(lastStatus)) {
+              if (lastStatus === 'SUCCESS') {
+                // PHASE 3: SECOND-PASS AUDIT
+                // Do not trust EXECUTE. Re-derive truth from the live system.
+                const listDeploymentsTool = gkeTools.find(t => t.definition.name === 'list_deployments');
+                if (!listDeploymentsTool) {
+                  return { ...asyncResult, status: lastStatus, success: false, message: 'AUDIT FAILED: list_deployments tool missing.' };
+                }
+                
+                try {
+                  const auditRes = await listDeploymentsTool.handler({ namespace: 'default' }, context);
+                  if (auditRes.error) {
+                    return { ...asyncResult, status: lastStatus, success: false, message: `Cloud Build SUCCESS, but AUDIT FAILED: ${auditRes.error}` };
+                  }
+                  
+                  const reverie = auditRes.deployments?.find((d: any) => d.name === 'reverie');
+                  if (!reverie) {
+                    return { ...asyncResult, status: lastStatus, success: false, message: 'Cloud Build SUCCESS, but AUDIT FAILED: reverie deployment not found in GKE.' };
+                  }
+                  
+                  if (!reverie.image?.includes(imageTag)) {
+                    return { ...asyncResult, status: lastStatus, success: false, message: `Cloud Build SUCCESS, but AUDIT FAILED: GKE running image ${reverie.image} instead of ${imageTag}.` };
+                  }
+                  
+                  if (reverie.readyReplicas === 0) {
+                    return { ...asyncResult, status: lastStatus, success: false, message: 'Cloud Build SUCCESS, but AUDIT FAILED: Deployment has 0 ready replicas.' };
+                  }
+                  
+                  return {
+                    ...asyncResult,
+                    status: lastStatus,
+                    success: true,
+                    finishTime: build.finishTime?.seconds ? new Date(Number(build.finishTime.seconds) * 1000).toISOString() : null,
+                    message: `Deploy and SECOND-PASS AUDIT succeeded. Live image: ${reverie.image} (${reverie.readyReplicas}/${reverie.replicas} ready)`,
+                  };
+                } catch (auditErr: any) {
+                  return { ...asyncResult, status: lastStatus, success: false, message: `Cloud Build SUCCESS, but AUDIT ERROR: ${auditErr.message}` };
+                }
+              }
+
+              // Failure path
               return {
                 ...asyncResult,
                 status: lastStatus,
-                success: lastStatus === 'SUCCESS',
+                success: false,
                 finishTime: build.finishTime?.seconds
                   ? new Date(Number(build.finishTime.seconds) * 1000).toISOString()
                   : null,
                 failureInfo: build.failureInfo || null,
-                message:
-                  lastStatus === 'SUCCESS'
-                    ? `Deploy succeeded. Tag: ${imageTag}.`
-                    : `Deploy ended with status ${lastStatus}. See logs: ${logUrl}`,
+                message: `Deploy ended with status ${lastStatus}. See logs: ${logUrl}`,
               };
             }
           } catch (pollErr: any) {
