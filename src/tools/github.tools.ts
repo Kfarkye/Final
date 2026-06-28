@@ -374,4 +374,165 @@ export const githubTools: RegisteredTool<any>[] = [
       }
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  READ FILE VIA GITHUB API
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_read_file",
+      description: "Read the exact source code of a file from a GitHub repository. Use this to inspect the codebase since you cannot access the local filesystem in production.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        path: z.string().describe("The file path inside the repository to read (e.g., 'src/tools/index.ts')"),
+        branch: z.string().optional().describe("The branch to read from. Defaults to the repository's default branch."),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        let url = `https://api.github.com/repos/${args.repoFullName}/contents/${args.path}`;
+        if (args.branch) url += `?ref=${encodeURIComponent(args.branch)}`;
+
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `token ${pat}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Truth-Platform',
+          },
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          if (res.status === 404) return { error: `File not found: ${args.path}` };
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        if (data.type !== 'file' && data.type !== 'symlink') {
+          return { error: `Path ${args.path} is a ${data.type}, not a file.` };
+        }
+
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        return {
+          path: data.path,
+          sha: data.sha,
+          sizeBytes: data.size,
+          htmlUrl: data.html_url,
+          content: content,
+        };
+      } catch (err: any) {
+        return { error: `Failed to read file: ${err.message}` };
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  LIST DIRECTORY VIA GITHUB API
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_list_directory",
+      description: "List files and folders in a specific directory of a GitHub repository.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        path: z.string().optional().describe("The directory path to list (e.g., 'src/tools'). Omit to list the root directory."),
+        branch: z.string().optional().describe("The branch to read from. Defaults to the repository's default branch."),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        const dirPath = args.path ? args.path.replace(/^\/+/, '') : '';
+        let url = `https://api.github.com/repos/${args.repoFullName}/contents/${dirPath}`;
+        if (args.branch) url += `?ref=${encodeURIComponent(args.branch)}`;
+
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `token ${pat}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Truth-Platform',
+          },
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          if (res.status === 404) return { error: `Directory not found: ${dirPath || 'root'}` };
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        if (!Array.isArray(data)) {
+          return { error: `Path ${dirPath} is a file, not a directory. Use github_read_file instead.` };
+        }
+
+        return {
+          path: dirPath || '/',
+          entries: data.map((item: any) => ({
+            name: item.name,
+            path: item.path,
+            type: item.type, // 'file' or 'dir'
+            size: item.size,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to list directory: ${err.message}` };
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  SEARCH CODE VIA GITHUB API
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_search_code",
+      description: "Search for specific code, text, or functions across a GitHub repository. Use this to find where things are defined.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        query: z.string().describe("The search query (e.g., 'function MlbGames' or 'import { toolRegistry }')"),
+        perPage: z.number().int().positive().default(10).describe("Number of results to return (max 30)"),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        // Ensure the query is restricted to the specific repo
+        const searchQuery = `${args.query} repo:${args.repoFullName}`;
+        const url = `https://api.github.com/search/code?q=${encodeURIComponent(searchQuery)}&per_page=${Math.min(args.perPage || 10, 30)}`;
+
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `token ${pat}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Truth-Platform',
+          },
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        return {
+          totalCount: data.total_count,
+          results: (data.items || []).map((item: any) => ({
+            name: item.name,
+            path: item.path,
+            htmlUrl: item.html_url,
+            repository: item.repository?.full_name,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to search code: ${err.message}` };
+      }
+    },
+  },
 ];

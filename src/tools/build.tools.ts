@@ -202,18 +202,25 @@ Returns: buildId, logUrl, status.`,
       if (context.connectionId) {
         // PHASE 0: PRE-FLIGHT SYNC AUDIT (Root cause fix for environment drift)
         // If local is out of sync with remote, DO NOT DEPLOY.
+        // We only run this audit if we are in a local development environment with a .git folder.
+        // In GKE production, there is no .git folder, and the source of truth is always GitHub.
         try {
-          const status = execSync('git status --porcelain').toString().trim();
-          if (status.length > 0) {
-            return { error: 'SYNC AUDIT FAILED: You have uncommitted changes locally. You must commit and push all changes before deploying, otherwise the remote tarball will not match your local environment.' };
+          const fs = require('fs');
+          const path = require('path');
+          if (fs.existsSync(path.join(process.cwd(), '.git'))) {
+            const status = execSync('git status --porcelain').toString().trim();
+            if (status.length > 0) {
+              return { error: 'SYNC AUDIT FAILED: You have uncommitted changes locally. You must commit and push all changes before deploying, otherwise the remote tarball will not match your local environment.' };
+            }
+            
+            // Check if ahead/behind remote
+            execSync('git fetch');
+            const branchStatus = execSync('git status -uno').toString();
+            if (branchStatus.includes('is ahead of') || branchStatus.includes('is behind') || branchStatus.includes('have diverged')) {
+              return { error: 'SYNC AUDIT FAILED: Your local branch is out of sync with the remote branch. You must push your commits so the GitHub archive used for deployment matches your local state.' };
+            }
           }
-          
-          // Check if ahead/behind remote
-          execSync('git fetch');
-          const branchStatus = execSync('git status -uno').toString();
-          if (branchStatus.includes('is ahead of') || branchStatus.includes('is behind') || branchStatus.includes('have diverged')) {
-            return { error: 'SYNC AUDIT FAILED: Your local branch is out of sync with the remote branch. You must push your commits so the GitHub archive used for deployment matches your local state.' };
-          }
+
         } catch (err: any) {
           return { error: `SYNC AUDIT ERROR: Failed to verify git status: ${err.message}` };
         }

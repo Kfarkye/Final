@@ -810,6 +810,26 @@ contracts:
       - view_operations
 
   # ═══════════════════════════════════════════════════════════════════════
+  # GITHUB WORKSPACE (Autonomous Agent Swe)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: github-workspace
+    name: GitHub Workspace
+    always: true
+    keywords:
+      - github
+      - repo
+      - pull request
+      - commit
+      - source code
+      - read code
+    tools:
+      - github_read_file
+      - github_list_directory
+      - github_search_code
+      - github_commit_file
+      - github_create_pr
+
+  # ═══════════════════════════════════════════════════════════════════════
   # KNOWLEDGE SYSTEM
   # ═══════════════════════════════════════════════════════════════════════
   - id: knowledge-system

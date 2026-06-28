@@ -222,7 +222,7 @@ router.post("/api/deploy-html", async (req: Request, res: Response) => {
       contentType: "text/html; charset=utf-8"
     });
 
-    const publicUrl = `https://storage.googleapis.com/${ARTIFACT_BUCKET}/${encodeURIComponent(objectName)}`;
+    const publicUrl = `https://storage.googleapis.com/${ARTIFACT_BUCKET}/${objectName.split('/').map(encodeURIComponent).join('/')}`;
     
     // HEAD request verification
     let verified = false;

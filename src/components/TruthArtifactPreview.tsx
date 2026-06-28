@@ -204,6 +204,7 @@ function ArtifactInner({
             </a>
           ) : (
             <button
+              type="button"
               onClick={deploy.state === 'idle' || deploy.state === 'error' ? handleDeploy : undefined}
               disabled={deploy.state === 'deploying'}
               className={btnGhost}
@@ -212,15 +213,16 @@ function ArtifactInner({
             </button>
           )}
 
-          <button onClick={handleCopy} className={btnGhost}>
+          <button type="button" onClick={handleCopy} className={btnGhost}>
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
 
-          <button onClick={handleDownload} className={btnGhost}>
+          <button type="button" onClick={handleDownload} className={btnGhost}>
             <span>Download</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setShowSource(!showSource)}
             className={showSource ? btnActive : btnGhost}>
             <span>Source</span>
@@ -229,6 +231,7 @@ function ArtifactInner({
           {/* Gate log toggle */}
           {gateLog.length > 0 && (
             <button
+              type="button"
               onClick={() => setShowGateLog(!showGateLog)}
               className={showGateLog ? btnActive : btnGhost}>
               <span>Gate ({gateLog.filter(e => e.verdict === 'ask').length})</span>
@@ -236,6 +239,7 @@ function ArtifactInner({
           )}
 
           <button
+            type="button"
             onClick={() => setExpanded(!expanded)}
             className={btnGhost}
             title={expanded ? 'Collapse' : 'Expand'}>
