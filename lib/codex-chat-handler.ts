@@ -32,19 +32,19 @@ const codexLog = logger.child({ component: 'codex-chat' });
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
-const MAX_CODEX_TOOLS = 80;
+const MAX_CODEX_TOOLS = 100;
 const MAX_TOOL_TURNS = 100;
-const MAX_STREAM_RECONNECTS = 3;
-const STREAM_IDLE_TIMEOUT_MS = 60_000;
-const MAX_CODEX_OUTPUT_TOKENS = 16_384;
-const MAX_TOTAL_RESPONSE_TOKENS = 200_000;
+const MAX_STREAM_RECONNECTS = 10;
+const STREAM_IDLE_TIMEOUT_MS = 300_000;
+const MAX_CODEX_OUTPUT_TOKENS = 100_000;
+const MAX_TOTAL_RESPONSE_TOKENS = Number(process.env.CODEX_MAX_TOTAL_RESPONSE_TOKENS ?? 200_000);
 const MAX_TOTAL_TOOL_CALLS = 100;
-const MAX_REPEATED_TOOL_CALLS = 10;
-const MAX_STUCK_TOOL_ONLY_TURNS = 12;
-const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 100;
-const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 24;
-const TOOL_OUTPUT_TRUNCATE_AT = 8_000;
-const TOOL_OUTPUT_HEAD_CHARS = 4_000;
+const MAX_REPEATED_TOOL_CALLS = 50;
+const MAX_STUCK_TOOL_ONLY_TURNS = 200;
+const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 500;
+const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 200;
+const TOOL_OUTPUT_TRUNCATE_AT = 128_000;
+const TOOL_OUTPUT_HEAD_CHARS = 64_000;
 
 /* ── OpenAI Client ───────────────────────────────────────────────────────── */
 
@@ -319,7 +319,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           }
 
           // ── Text streaming ─────────────────────────────────────────
-          case 'response.text.delta': {
+          case 'response.output_text.delta': {
             emittedUserVisibleOutput = true;
             emittedTextOutput = true;
             emittedAnyText = true;
@@ -332,7 +332,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
             break;
           }
 
-          case 'response.text.done': {
+          case 'response.output_text.done': {
             break;
           }
 
@@ -1007,12 +1007,42 @@ function isModelUnavailableError(error: Error): boolean {
 function toStrictSchema(schema: any): Record<string, unknown> {
   if (!schema || typeof schema !== 'object') return schema;
   const strict = { ...schema };
+  
   // Recurse into oneOf / anyOf / allOf branches for strict mode compliance
   for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
     if (Array.isArray(strict[key])) {
       strict[key] = strict[key].map(toStrictSchema);
     }
   }
+
+  // Strip unsupported keywords and append to description
+  const hints: string[] = [];
+  if (strict.format) {
+    hints.push(`Format: ${strict.format}`);
+    delete strict.format;
+  }
+  if (strict.default !== undefined) {
+    hints.push(`Default: ${strict.default}`);
+    delete strict.default;
+  }
+  if (strict.minimum !== undefined) {
+    hints.push(`Minimum: ${strict.minimum}`);
+    delete strict.minimum;
+  }
+  if (strict.maximum !== undefined) {
+    hints.push(`Maximum: ${strict.maximum}`);
+    delete strict.maximum;
+  }
+  if (strict.multipleOf !== undefined) {
+    delete strict.multipleOf; // Not super useful in desc, but stripped
+  }
+
+  if (hints.length > 0) {
+    strict.description = strict.description 
+      ? `${strict.description} (${hints.join(', ')})`
+      : hints.join(', ');
+  }
+
   if (strict.type === 'object') {
     strict.additionalProperties = false;
     const properties = strict.properties || {};
@@ -1028,6 +1058,7 @@ function toStrictSchema(schema: any): Record<string, unknown> {
   } else if (strict.type === 'array' && strict.items) {
     strict.items = toStrictSchema(strict.items);
   }
+  
   return strict;
 }
 
