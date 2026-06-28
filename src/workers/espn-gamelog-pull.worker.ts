@@ -76,6 +76,7 @@ const messageHandler = async (message: Message) => {
         HomeRuns: getStat('HR'),
         Strikeouts: getStat('K'),
         IngestedAt: Spanner.COMMIT_TIMESTAMP,
+        CreatedAt: Spanner.COMMIT_TIMESTAMP,
       };
     });
 

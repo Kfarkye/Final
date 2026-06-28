@@ -91,6 +91,7 @@ function parseBoxscores(gameId: number, boxscoreData: any[]): any[] {
               Walks: bb, Strikeouts: k, InningsPitched: Spanner.float(ipFloat),
               EarnedRuns: er, PitchesThrown: pc, StatsJson: JSON.stringify(stats),
               IngestedAt: Spanner.COMMIT_TIMESTAMP,
+              CreatedAt: Spanner.COMMIT_TIMESTAMP,
             });
           } else {
             // [AB, R, H, RBI, BB, K, LOB, AVG, OBP, SLG]
@@ -110,6 +111,7 @@ function parseBoxscores(gameId: number, boxscoreData: any[]): any[] {
               Walks: bb, Strikeouts: k, InningsPitched: null,
               EarnedRuns: null, PitchesThrown: null, StatsJson: JSON.stringify(stats),
               IngestedAt: Spanner.COMMIT_TIMESTAMP,
+              CreatedAt: Spanner.COMMIT_TIMESTAMP,
             });
           }
         }
@@ -140,6 +142,7 @@ function parsePlayByPlay(gameId: number, playsData: any[]): any[] {
       AwayScore: play.awayScore || 0,
       HomeScore: play.homeScore || 0,
       IngestedAt: Spanner.COMMIT_TIMESTAMP,
+      CreatedAt: Spanner.COMMIT_TIMESTAMP,
     });
   }
 
@@ -203,6 +206,7 @@ export async function ingestHistoricalDate(dateString: string): Promise<Ingestio
             Status: "Final",
             SeasonType: parseInt(header.season?.type || "2", 10),
             IngestedAt: Spanner.COMMIT_TIMESTAMP,
+            CreatedAt: Spanner.COMMIT_TIMESTAMP,
           };
 
           // Extract Boxscore Info

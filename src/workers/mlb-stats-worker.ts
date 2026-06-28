@@ -311,6 +311,7 @@ async function writeToSpanner(games: ParsedBoxScore[]): Promise<{ boxScoreRows: 
               SavePitcherId: game.decisions.savePitcher?.id || null,
               SavePitcherName: game.decisions.savePitcher?.name || null,
               IngestedAt: Spanner.COMMIT_TIMESTAMP,
+              CreatedAt: Spanner.COMMIT_TIMESTAMP,
             });
             boxScoreRows++;
 
@@ -345,6 +346,7 @@ async function writeToSpanner(games: ParsedBoxScore[]): Promise<{ boxScoreRows: 
                 Errors: player.errors,
                 GameStarted: player.gameStarted,
                 IngestedAt: Spanner.COMMIT_TIMESTAMP,
+                CreatedAt: Spanner.COMMIT_TIMESTAMP,
               });
               playerRows++;
             }
