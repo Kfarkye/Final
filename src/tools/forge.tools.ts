@@ -18,6 +18,8 @@ import { sseManager } from '../../lib/sse/sse-manager';
 import { waitForApproval } from '../utils/approval';
 import { Spanner } from '@google-cloud/spanner';
 import { env } from '../config/env';
+import { runPreplan, runAudit } from '../../scripts/deploy-validator';
+import { ensurePromotedSourceSnapshot, materializeSourceSnapshot, recordSourceSnapshotEvent } from '../services/source-snapshot.service';
 
 const STORAGE_MCP = 'https://storage.googleapis.com/storage/mcp';
 const FORGE_BUCKET = 'clearspace-artifacts';
@@ -208,21 +210,59 @@ export const forgeTools: RegisteredTool<any>[] = [
       }
 
       try {
+        const { execSync } = require('child_process');
+        const fs = require('fs');
+        const archivePath = '/tmp/source.tar.gz';
+        const tarPath = '/tmp/source.tar';
+
+        // 0. Resolve and materialize the canonical source snapshot FIRST.
+        // The mutable runtime cwd can be incomplete; deploy validation must run
+        // against SourceSnapshots, which is the deploy source of truth.
+        const sourceSnapshot = await ensurePromotedSourceSnapshot({ branch: 'kfarkye/final', rootDir: process.cwd() });
+        const deployDir = `/tmp/deploy-src-${sourceSnapshot.snapshotId}`;
+        await materializeSourceSnapshot(sourceSnapshot.snapshotId, deployDir);
+
+        // 1. PREPLAN — capture baseline and verify invariants from the materialized snapshot.
+        // P1: GKE baseline, P2: live route baseline, P3: git ref, P4: files+imports+env+manifest
+        const originalCwd = process.cwd();
+        process.chdir(deployDir);
+        let preplanned;
+        try {
+          preplanned = await runPreplan();
+        } finally {
+          process.chdir(originalCwd);
+        }
+        if (!preplanned.passed) {
+          return {
+            success: false,
+            status: 'preplan_failed',
+            sourceSnapshot,
+            message: `Deploy BLOCKED by PREPLAN against canonical snapshot ${sourceSnapshot.snapshotId}. Fix all blockers before deploying.`,
+            blockers: preplanned.errors,
+          };
+        }
+        const baseline = preplanned.baseline!;
+
         const { GoogleAuth } = await import('google-auth-library');
         const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
         const client = await auth.getClient();
         const token = await client.getAccessToken();
         const projectId = env.GCP_PROJECT;
 
-        // 1. Archive the current workspace
-        const { execSync } = require('child_process');
-        const archivePath = '/tmp/source.tar.gz';
-        // Compress everything in the current directory except node_modules and .git to save time
-        // Actually, we must include .git if kaniko needs it for git hash, but kaniko uses local files here.
-        execSync(`tar --exclude=node_modules --exclude=.git -czf ${archivePath} .`, { stdio: 'ignore' });
+        // Hard source gate: validate the materialized tree, not the mutable runtime cwd.
+        execSync(`node scripts/verify-workspace.mjs --only app`, { cwd: deployDir, stdio: 'inherit' });
+        execSync(`npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=/tmp/server-verify-${sourceSnapshot.snapshotId}.cjs`, { cwd: deployDir, stdio: 'inherit' });
+        await recordSourceSnapshotEvent(sourceSnapshot.snapshotId, 'validated_for_deploy', 'Materialized snapshot passed preplan, workspace, and server bundle validation.', [
+          `deployDir=${deployDir}`,
+          `manifest=${sourceSnapshot.manifestSha256}`,
+        ]);
+
+        // Compress the materialized snapshot only. This is the deployable source of truth.
+        execSync(`tar --exclude=node_modules --exclude=.git -cf ${tarPath} .`, { cwd: deployDir, stdio: 'ignore' });
+        execSync(`mkdir -p /tmp/empty-git/.git && tar -rf ${tarPath} -C /tmp/empty-git .git`, { stdio: 'ignore' });
+        execSync(`gzip -f ${tarPath}`, { stdio: 'ignore' });
         
-        // 2. Upload to Cloud Storage
-        const fs = require('fs');
+        // 2. Upload canonical source snapshot archive to Cloud Storage
         const archiveStream = fs.createReadStream(archivePath);
         const objectName = `${FORGE_PREFIX}/source-${Date.now()}.tar.gz`;
         
@@ -303,25 +343,34 @@ export const forgeTools: RegisteredTool<any>[] = [
            throw new Error(`Cloud Build failed with status ${buildResponse.status}`);
         }
 
-        // 5. Post-deploy verification (Spanner check)
-        // Check if working memory tools are registered in Spanner
-        const database = spanner.instance('clearspace').database('core-db');
-        const [rows] = await database.run({
-          sql: "SELECT COUNT(*) as count FROM AgentWorkingMemory"
-        });
-        const workingMemoryCount = rows[0]?.toJSON()?.count ?? 0;
-        
+        // 5. SECOND-PASS AUDIT — independent re-verification from live system
+        // Does NOT trust the Cloud Build SUCCESS status. Re-derives truth from
+        // GKE pod state, live HTTP canary, and Spanner functional receipts.
+        const auditSpannerDb = spanner.instance('clearspace').database('sports-mlb-db');
+        const buildRef = { buildId: buildResponse.id ?? '', shortSha, pushedDigest: null };
+        const auditVerdict = await runAudit(baseline, buildRef, auditSpannerDb);
+
+        if (!auditVerdict.passed) {
+          return {
+            success: false,
+            status: 'audit_failed',
+            projectId,
+            buildId: buildResponse.id,
+            revisionId: shortSha,
+            message: `Cloud Build reported SUCCESS for source snapshot ${sourceSnapshot.snapshotId} but SECOND-PASS AUDIT FAILED. Deploy is NOT DONE.`,
+            audit: auditVerdict,
+          };
+        }
+
         return {
           success: true,
           status: 'rollout_complete',
           projectId,
           buildId: buildResponse.id,
           revisionId: shortSha,
-          message: `Deployment ${shortSha} fully rolled out to GKE truth-cluster.`,
-          verification: {
-            workingMemoryRowCount: Number(workingMemoryCount),
-            status: "verified"
-          }
+          sourceSnapshot,
+          message: `Deployment ${shortSha} from source snapshot ${sourceSnapshot.snapshotId} fully rolled out and independently verified.`,
+          audit: auditVerdict,
         };
       } catch (err: any) {
         return { error: `Deploy execution failed: ${err.message}` };
