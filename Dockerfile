@@ -85,6 +85,7 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/k8s ./k8s
 COPY --from=builder /app/data ./data
 COPY --from=builder /app/Dockerfile ./Dockerfile
+COPY --from=builder /app/firebase-applet-config.json ./firebase-applet-config.json
 
 # Copy compiled MCP servers to the expected location
 RUN mkdir -p /opt/truth/mcp-servers && cp -r mcp-servers/* /opt/truth/mcp-servers/
