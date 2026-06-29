@@ -1006,7 +1006,7 @@ function isModelUnavailableError(error: Error): boolean {
 }
 
 
-function toStrictSchema(schema: any): Record<string, unknown> {
+export function toStrictSchema(schema: any): Record<string, unknown> {
   if (!schema || typeof schema !== 'object') return schema;
   const strict = { ...schema };
   

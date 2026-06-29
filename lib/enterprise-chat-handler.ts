@@ -4,6 +4,7 @@ import { EnterpriseGovernanceService } from './governance/enterprise-governance'
 import { ChatLogger } from './observability/chat-logger';
 import { knowledgeManager } from '../src/services/knowledge-manager';
 import { skillRouter } from '../src/services/skill-router';
+import { toStrictSchema } from './codex-chat-handler';
 
 function lowercaseSchemaTypes(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
@@ -1133,7 +1134,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
             function: {
               name: canonical.name,
               description: canonical.description,
-              parameters: lowercaseSchemaTypes(canonical.parameters)
+              parameters: toStrictSchema(canonical.parameters),
+              strict: true
             }
           });
         }
@@ -1146,7 +1148,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 function: {
                   name: d.name,
                   description: d.description,
-                  parameters: lowercaseSchemaTypes(d.parameters)
+                  parameters: toStrictSchema(d.parameters),
+                  strict: true
                 }
               });
             }
