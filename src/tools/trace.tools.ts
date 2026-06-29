@@ -30,31 +30,44 @@ export const traceTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "list_cloud_traces",
-      description: "List recent Cloud Traces. Use to find a trace ID for a failing hop or performance bottleneck.",
+      description: "Lists Cloud Trace traces.",
       schema: z.object({
-        projectId: z.string().optional().describe("GCP Project ID"),
-        pageSize: z.number().int().positive().default(10).describe("Number of traces to return"),
-        filter: z.string().optional().describe("Filter string (e.g. '+root:\"/api/v1/query\"' or 'error:true')")
+        projectId: z.string(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        filter: z.string().optional(),
+        pageSize: z.number().optional(),
+        pageToken: z.string().optional(),
+        options: z.record(z.unknown()).optional()
       })
     },
     handler: async (args) => {
       try {
-        const projectId = args.projectId || env.GCP_PROJECT || 'reverie';
         const queryParams = new URLSearchParams();
-        if (args.pageSize) queryParams.set('pageSize', args.pageSize.toString());
+        if (args.startTime) queryParams.set('startTime', args.startTime);
+        if (args.endTime) queryParams.set('endTime', args.endTime);
         if (args.filter) queryParams.set('filter', args.filter);
+        if (args.pageSize) queryParams.set('pageSize', args.pageSize.toString());
+        if (args.pageToken) queryParams.set('pageToken', args.pageToken);
         
         const path = `traces?${queryParams.toString()}`;
-        const data = await traceRequest(projectId, path);
+        const data = await traceRequest(args.projectId, path);
         
         return {
-          project: projectId,
-          count: (data.traces || []).length,
+          projectId: args.projectId,
           traces: (data.traces || []).map((t: any) => ({
             traceId: t.traceId,
-            rootSpanName: t.displayName?.value || 'unknown',
-            spansCount: (t.spans || []).length,
-          }))
+            projectId: t.projectId,
+            spans: (t.spans || []).map((s: any) => ({
+              spanId: s.spanId,
+              parentSpanId: s.parentSpanId,
+              name: s.displayName?.value,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              labels: s.attributes?.attributeMap || {}
+            }))
+          })),
+          nextPageToken: data.nextPageToken
         };
       } catch (err: any) {
         return { error: `Failed to list traces: ${err.message}` };
@@ -64,26 +77,26 @@ export const traceTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "get_cloud_trace",
-      description: "Get detailed span information for a specific Cloud Trace by ID. Shows exactly which hop failed or took too long.",
+      description: "Gets one Cloud Trace trace.",
       schema: z.object({
-        projectId: z.string().optional().describe("GCP Project ID"),
-        traceId: z.string().describe("The Trace ID to fetch")
+        projectId: z.string(),
+        traceId: z.string(),
+        options: z.record(z.unknown()).optional()
       })
     },
     handler: async (args) => {
       try {
-        const projectId = args.projectId || env.GCP_PROJECT || 'reverie';
-        const data = await traceRequest(projectId, `traces/${args.traceId}`);
+        const data = await traceRequest(args.projectId, `traces/${args.traceId}`);
         return {
+          projectId: args.projectId,
           traceId: data.traceId,
           spans: (data.spans || []).map((s: any) => ({
             spanId: s.spanId,
             parentSpanId: s.parentSpanId,
-            displayName: s.displayName?.value,
+            name: s.displayName?.value,
             startTime: s.startTime,
             endTime: s.endTime,
-            status: s.status,
-            attributes: s.attributes?.attributeMap || {}
+            labels: s.attributes?.attributeMap || {}
           }))
         };
       } catch (err: any) {

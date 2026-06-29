@@ -12,9 +12,6 @@ const auth = new GoogleAuth({
 async function iamRequest(projectId: string, method: 'POST', body?: any): Promise<any> {
   const client = await auth.getClient();
   const token = await client.getAccessToken();
-  const url = `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:getIamPolicy`;
-  
-  // Note: For setIamPolicy, the URL is the same but the body contains the policy.
   const reqUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:${method === 'POST' && body ? 'setIamPolicy' : 'getIamPolicy'}`;
   
   const res = await fetch(reqUrl, {
@@ -38,20 +35,20 @@ export const iamTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "get_project_iam_policy",
-      description: "Get the IAM policy (role bindings) for a GCP project. Use this to audit who has access to what.",
+      description: "Gets project IAM policy.",
       schema: z.object({
-        projectId: z.string().optional().describe("GCP Project ID (defaults to environment project)"),
+        projectId: z.string(),
+        options: z.record(z.unknown()).optional()
       })
     },
     handler: async (args) => {
       try {
-        const projectId = args.projectId || env.GCP_PROJECT || 'reverie';
-        const policy = await iamRequest(projectId, 'POST');
+        const policy = await iamRequest(args.projectId, 'POST', args.options ? { options: args.options } : undefined);
         return {
-          project: projectId,
-          bindings: policy.bindings || [],
+          projectId: args.projectId,
           version: policy.version,
-          etag: policy.etag
+          etag: policy.etag,
+          bindings: policy.bindings || []
         };
       } catch (err: any) {
         return { error: `Failed to get IAM policy: ${err.message}` };
@@ -61,14 +58,19 @@ export const iamTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "set_project_iam_policy",
-      description: "Set the IAM policy for a GCP project. Requires human approval as this is extremely dangerous. You must provide the FULL policy including the etag from get_project_iam_policy to prevent concurrent modification.",
+      description: "Sets full project IAM policy.",
       schema: z.object({
-        projectId: z.string().optional().describe("GCP Project ID"),
+        projectId: z.string(),
         policy: z.object({
-          bindings: z.array(z.any()),
-          etag: z.string(),
-          version: z.number().optional()
-        }).describe("The complete IAM policy object")
+          version: z.number().optional(),
+          etag: z.string().optional(),
+          bindings: z.array(z.object({
+            role: z.string(),
+            members: z.array(z.string()),
+            condition: z.unknown().optional()
+          }))
+        }),
+        options: z.record(z.unknown()).optional()
       })
     },
     handler: async (args, context) => {
@@ -77,22 +79,99 @@ export const iamTools: RegisteredTool<any>[] = [
         sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
           approvalId,
           tool: "set_project_iam_policy",
-          args: { projectId: args.projectId, policyUpdate: "Full IAM Policy Update" }
+          args: { projectId: args.projectId }
         });
         const approved = await waitForApproval(approvalId, "set_project_iam_policy", args);
-        if (!approved) return { error: "Permission Denied: User did not approve IAM policy change." };
+        if (!approved) return { ok: false, error: "Permission Denied" };
       }
 
       try {
-        const projectId = args.projectId || env.GCP_PROJECT || 'reverie';
-        const result = await iamRequest(projectId, 'POST', { policy: args.policy });
+        const result = await iamRequest(args.projectId, 'POST', { policy: args.policy });
         return {
-          success: true,
-          message: "IAM policy updated successfully",
-          newEtag: result.etag
+          ok: true,
+          projectId: args.projectId,
+          policy: {
+            version: result.version,
+            etag: result.etag,
+            bindings: result.bindings || []
+          }
         };
       } catch (err: any) {
-        return { error: `Failed to set IAM policy: ${err.message}` };
+        return { ok: false, error: err.message };
+      }
+    }
+  },
+  {
+    definition: {
+      name: "set_project_iam_policy_binding",
+      description: "Applies a role/member IAM binding operation.",
+      schema: z.object({
+        projectId: z.string(),
+        action: z.string(), // e.g. "add" or "remove"
+        role: z.string(),
+        member: z.string(),
+        condition: z.unknown().optional(),
+        policyOptions: z.record(z.unknown()).optional()
+      })
+    },
+    handler: async (args, context) => {
+      if (context.connectionId) {
+        const approvalId = `approve_${Math.random().toString(36).substring(2, 11)}`;
+        sseManager.sendEvent(context.connectionId, 'tool_approval_required', {
+          approvalId,
+          tool: "set_project_iam_policy_binding",
+          args: { projectId: args.projectId, role: args.role, member: args.member }
+        });
+        const approved = await waitForApproval(approvalId, "set_project_iam_policy_binding", args);
+        if (!approved) return { ok: false, error: "Permission Denied" };
+      }
+
+      try {
+        const currentPolicy = await iamRequest(args.projectId, 'POST');
+        let bindings: any[] = currentPolicy.bindings || [];
+
+        let binding = bindings.find((b: any) => b.role === args.role && !b.condition && !args.condition);
+        
+        if (args.action === 'add') {
+          if (!binding) {
+            binding = { role: args.role, members: [] };
+            if (args.condition) binding.condition = args.condition;
+            bindings.push(binding);
+          }
+          if (!binding.members.includes(args.member)) {
+            binding.members.push(args.member);
+          }
+        } else if (args.action === 'remove') {
+          if (binding) {
+            binding.members = binding.members.filter((m: string) => m !== args.member);
+            if (binding.members.length === 0) {
+              bindings = bindings.filter((b: any) => b !== binding);
+            }
+          }
+        }
+
+        const result = await iamRequest(args.projectId, 'POST', {
+          policy: {
+            etag: currentPolicy.etag,
+            version: currentPolicy.version,
+            bindings
+          }
+        });
+
+        return {
+          ok: true,
+          projectId: args.projectId,
+          action: args.action,
+          role: args.role,
+          member: args.member,
+          policy: {
+            version: result.version,
+            etag: result.etag,
+            bindings: result.bindings || []
+          }
+        };
+      } catch (err: any) {
+        return { ok: false, error: err.message };
       }
     }
   }
