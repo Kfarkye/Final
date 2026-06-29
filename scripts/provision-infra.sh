@@ -20,7 +20,7 @@ echo "=== 1. Spanner DDL Preflight ==="
 EXISTING_TABLES=$(gcloud spanner databases execute-sql sports-mlb-db \
   --instance=clearspace \
   --sql="SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '' AND TABLE_NAME IN ('MlbPipelineSchemaRegistry', 'MlbOddsBackfillRuns', 'MlbLiveMonitors')" \
-  --format="value(table_name)")
+  --format="value(TABLE_NAME)")
 
 if [ -n "$EXISTING_TABLES" ]; then
   echo "WARNING: The following Spanner tables already exist: $EXISTING_TABLES"
