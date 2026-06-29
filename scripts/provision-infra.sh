@@ -20,17 +20,18 @@ echo "=== 1. Spanner DDL Preflight ==="
 EXISTING_TABLES=$(gcloud spanner databases execute-sql sports-mlb-db \
   --instance=clearspace \
   --sql="SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('MlbPipelineSchemaRegistry', 'MlbOddsBackfillRuns', 'MlbLiveMonitors')" \
-  --format="value(TABLE_NAME)")
+  --format="json")
 
-if [ -n "$EXISTING_TABLES" ]; then
-  echo "WARNING: The following Spanner tables already exist: $EXISTING_TABLES"
-  echo "Proceeding with caution. DDL update will only apply missing elements."
+if [[ "$EXISTING_TABLES" == *'"rows"'* ]]; then
+  echo "WARNING: The v1.2 control-plane tables already exist in Spanner."
+  SKIP_DDL=true
 else
   echo "Preflight clean. No conflicting v1.2 control-plane tables found."
+  SKIP_DDL=false
 fi
 
 echo "=== 2. Applying Spanner DDL Migration ==="
-if [ -z "$EXISTING_TABLES" ]; then
+if [ "$SKIP_DDL" = "false" ]; then
   gcloud spanner databases ddl update sports-mlb-db \
     --instance=clearspace \
     --ddl-file=src/db/migrations/002_mlb_pubsub_pipeline_v1_2.ddl
