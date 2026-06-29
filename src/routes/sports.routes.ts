@@ -576,10 +576,10 @@ router.get("/mlb/covers/team-stats", async (req: Request, res: Response) => {
           RunLineMoney,
           OverUnderWins,
           OverUnderLosses,
-          HittingAvg,
-          HittingOps,
-          PitchingEra,
-          BullpenEra
+          AVG AS HittingAvg,
+          OPS AS HittingOps,
+          ERA AS PitchingEra,
+          BullpenERA AS BullpenEra
         FROM CoversMlbTeamStatSnapshot
         WHERE SnapshotDate = (SELECT MAX(SnapshotDate) FROM CoversMlbTeamStatSnapshot)
       `
@@ -625,4 +625,3 @@ router.get("/mlb/covers/team-stats", async (req: Request, res: Response) => {
 });
 
 export default router;
-

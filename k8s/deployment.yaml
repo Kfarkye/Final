@@ -39,6 +39,16 @@ spec:
               value: "gen-lang-client-0281999829"
             - name: GCP_LOCATION
               value: "global"
+            - name: SPANNER_PROJECT_ID
+              value: "gen-lang-client-0281999829"
+            - name: SPANNER_INSTANCE_ID
+              value: "clearspace"
+            - name: SPANNER_DATABASE_ID
+              value: "sports-mlb-db"
+            - name: MODEL_REGISTRY_SPANNER_INSTANCE_ID
+              value: "clearspace"
+            - name: MODEL_REGISTRY_SPANNER_DATABASE_ID
+              value: "core-db"
           envFrom:
             - secretRef:
                 name: truth-secrets
@@ -52,7 +62,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10

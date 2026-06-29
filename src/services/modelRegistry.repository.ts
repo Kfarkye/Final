@@ -20,10 +20,10 @@ import type {
 const spanner = new Spanner({ projectId: env.SPANNER_PROJECT_ID });
 
 function getDatabase() {
-  const instanceId = env.SPANNER_INSTANCE_ID;
-  const databaseId = env.SPANNER_DATABASE_ID;
+  const instanceId = env.MODEL_REGISTRY_SPANNER_INSTANCE_ID || env.SPANNER_INSTANCE_ID || 'clearspace';
+  const databaseId = env.MODEL_REGISTRY_SPANNER_DATABASE_ID || 'core-db';
   if (!instanceId || !databaseId) {
-    throw new Error('SPANNER_INSTANCE_ID and SPANNER_DATABASE_ID must be configured for Model Registry');
+    throw new Error('Model Registry Spanner instance and database must be configured');
   }
   return spanner.instance(instanceId).database(databaseId);
 }

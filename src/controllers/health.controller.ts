@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "../db/index";
+import { edgeDb } from "../db/spanner";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 
@@ -36,7 +37,15 @@ export const healthController = {
   async readiness(req: Request, res: Response) {
     try {
       // 1. Verify Database Connection
-      await db.execute(sql`SELECT 1`);
+      const hasSqlConfig = Boolean(
+        config.DATABASE_URL ||
+        (config.SQL_HOST && config.SQL_USER && config.SQL_DB_NAME)
+      );
+      if (hasSqlConfig) {
+        await db.execute(sql`SELECT 1`);
+      } else {
+        await edgeDb.run("SELECT 1");
+      }
 
       // 2. Verify AI configuration is loaded (do NOT make an actual API call)
       const isAiConfigured = 
@@ -51,7 +60,7 @@ export const healthController = {
 
       res.status(200).json({ 
         status: "ready", 
-        db: "connected",
+        db: hasSqlConfig ? "sql-connected" : "spanner-connected",
         ai: "configured",
         timestamp: new Date().toISOString() 
       });

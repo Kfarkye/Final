@@ -34,6 +34,8 @@ const envSchema = z.object({
   SPANNER_PROJECT_ID: z.string().optional(),
   SPANNER_INSTANCE_ID: z.string().optional(),
   SPANNER_DATABASE_ID: z.string().optional(),
+  MODEL_REGISTRY_SPANNER_INSTANCE_ID: z.string().optional(),
+  MODEL_REGISTRY_SPANNER_DATABASE_ID: z.string().optional(),
 
   // ── Serverless Ingestion (Pub/Sub + Cloud Run) ──────────────────────────────
   PUBSUB_TOPIC_STATS: z.string().default("mlb.stats.ingest"),
@@ -74,6 +76,8 @@ const configWithAliases = {
   SPANNER_PROJECT_ID: parsedEnv.data.SPANNER_PROJECT_ID || parsedEnv.data.GCP_PROJECT,
   SPANNER_INSTANCE_ID: parsedEnv.data.SPANNER_INSTANCE_ID || "",
   SPANNER_DATABASE_ID: parsedEnv.data.SPANNER_DATABASE_ID || "",
+  MODEL_REGISTRY_SPANNER_INSTANCE_ID: parsedEnv.data.MODEL_REGISTRY_SPANNER_INSTANCE_ID || "",
+  MODEL_REGISTRY_SPANNER_DATABASE_ID: parsedEnv.data.MODEL_REGISTRY_SPANNER_DATABASE_ID || "",
 };
 
 // Export a frozen, strictly-typed configuration object (Object.freeze prevents runtime mutations)
