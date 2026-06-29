@@ -257,7 +257,7 @@ CREATE TABLE MlbPipelineMessageLedger (
   TenantId,
   Environment,
   IdempotencyKey
-) ROW DELETION POLICY (OLDER_THAN(LastSeenAt, INTERVAL 90 DAY));
+), ROW DELETION POLICY (OLDER_THAN(LastSeenAt, INTERVAL 90 DAY));
 
 CREATE INDEX MlbPipelineMessageLedgerByMessageId
 ON MlbPipelineMessageLedger (
@@ -324,7 +324,7 @@ CREATE TABLE MlbPipelineOutbox (
   TenantId,
   Environment,
   OutboxId
-) ROW DELETION POLICY (OLDER_THAN(CreatedAt, INTERVAL 30 DAY));
+), ROW DELETION POLICY (OLDER_THAN(CreatedAt, INTERVAL 30 DAY));
 
 CREATE INDEX MlbPipelineOutboxPending
 ON MlbPipelineOutbox (
@@ -509,7 +509,7 @@ CREATE TABLE MlbLiveMonitorEvaluations (
   MonitorId,
   EvaluationBucket,
   EventKey
-) ROW DELETION POLICY (OLDER_THAN(EvaluationBucket, INTERVAL 30 DAY));
+), ROW DELETION POLICY (OLDER_THAN(EvaluationBucket, INTERVAL 30 DAY));
 
 CREATE INDEX MlbLiveMonitorEvaluationsByStatus
 ON MlbLiveMonitorEvaluations (
@@ -583,7 +583,7 @@ CREATE TABLE MlbLiveGameStateSnapshots (
   GamePk,
   ObservedAt,
   SourceSetHash
-) ROW DELETION POLICY (OLDER_THAN(ObservedAt, INTERVAL 180 DAY));
+), ROW DELETION POLICY (OLDER_THAN(ObservedAt, INTERVAL 180 DAY));
 
 CREATE INDEX MlbLiveGameStateSnapshotsLatestByGame
 ON MlbLiveGameStateSnapshots (
@@ -646,7 +646,7 @@ CREATE TABLE MlbLiveMonitorAlerts (
   Environment,
   MonitorId,
   AlertId
-) ROW DELETION POLICY (OLDER_THAN(TriggeredAt, INTERVAL 365 DAY));
+), ROW DELETION POLICY (OLDER_THAN(TriggeredAt, INTERVAL 365 DAY));
 
 CREATE UNIQUE INDEX MlbLiveMonitorAlertsByDedupe
 ON MlbLiveMonitorAlerts (
@@ -705,7 +705,7 @@ CREATE TABLE MlbNotificationDeliveries (
   TenantId,
   Environment,
   DeliveryId
-) ROW DELETION POLICY (OLDER_THAN(CreatedAt, INTERVAL 365 DAY));
+), ROW DELETION POLICY (OLDER_THAN(CreatedAt, INTERVAL 365 DAY));
 
 CREATE INDEX MlbNotificationDeliveriesPending
 ON MlbNotificationDeliveries (
