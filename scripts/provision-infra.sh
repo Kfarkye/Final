@@ -30,9 +30,13 @@ else
 fi
 
 echo "=== 2. Applying Spanner DDL Migration ==="
-gcloud spanner databases ddl update sports-mlb-db \
-  --instance=clearspace \
-  --ddl-file=src/db/migrations/002_mlb_pubsub_pipeline_v1_2.ddl
+if [ -z "$EXISTING_TABLES" ]; then
+  gcloud spanner databases ddl update sports-mlb-db \
+    --instance=clearspace \
+    --ddl-file=src/db/migrations/002_mlb_pubsub_pipeline_v1_2.ddl
+else
+  echo "Tables already exist. Skipping DDL update."
+fi
 
 echo "=== 3. Verifying Spanner Tables Table-by-Table ==="
 VERIFY_TABLES=$(gcloud spanner databases execute-sql sports-mlb-db \
