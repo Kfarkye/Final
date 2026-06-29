@@ -4,6 +4,45 @@ import { ValidationError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { deriveRenderContract } from "../hub/render-contract";
 
+function cleanSchemaForGemini(schema: any, isPropertiesMap = false): any {
+  if (schema === null || typeof schema !== "object") {
+    return schema;
+  }
+
+  if (Array.isArray(schema)) {
+    return schema.map(item => cleanSchemaForGemini(item, false));
+  }
+
+  const cleaned: Record<string, any> = {};
+
+  if (isPropertiesMap) {
+    // In a properties map, keys are user-defined property names (e.g., 'filePath').
+    // Do not filter them; just clean their values (which are schema objects).
+    for (const key of Object.keys(schema)) {
+      cleaned[key] = cleanSchemaForGemini(schema[key], false);
+    }
+    return cleaned;
+  }
+
+  const allowedKeys = new Set([
+    "type",
+    "properties",
+    "required",
+    "items",
+    "description",
+    "enum",
+    "nullable"
+  ]);
+
+  for (const key of Object.keys(schema)) {
+    if (allowedKeys.has(key)) {
+      cleaned[key] = cleanSchemaForGemini(schema[key], key === "properties");
+    }
+  }
+
+  return cleaned;
+}
+
 class ToolRegistry {
   private tools = new Map<string, RegisteredTool<any>>();
   /** Tools registered at boot time. Cannot be unregistered. */
@@ -68,7 +107,7 @@ class ToolRegistry {
     const schemas: Record<string, CanonicalTool> = {};
     for (const [name, tool] of this.tools.entries()) {
       const jsonSchema = zodToJsonSchema(tool.definition.schema, "toolArgs") as any;
-      const toolSchema = jsonSchema.definitions?.toolArgs || {};
+      const toolSchema = cleanSchemaForGemini(jsonSchema.definitions?.toolArgs || {});
       
       schemas[name] = {
         name: tool.definition.name,
