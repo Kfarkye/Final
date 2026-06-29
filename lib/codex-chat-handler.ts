@@ -66,6 +66,7 @@ interface CodexChatRequest {
   previousResponseId?: string;
   userTimezone?: string;
   modelVersion?: string;
+  workspaceRoot?: string;
 }
 
 interface PendingFunctionCall {
@@ -97,6 +98,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     previousResponseId,
     userTimezone,
     modelVersion,
+    workspaceRoot: requestedWorkspaceRoot,
   } = req.body as CodexChatRequest;
 
   if (!prompt?.trim()) {
@@ -153,6 +155,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
 
   // ── Build tools ────────────────────────────────────────────────────────
   const truthToolDefs = getCodexToolDefinitions().slice(0, MAX_CODEX_TOOLS);
+  const workspaceRoot = resolveSessionWorkspaceRoot(requestedWorkspaceRoot);
 
   const tools: OpenAI.Responses.Tool[] = [
     // Built-in: grounded web search (current identifier, not legacy preview)
@@ -185,6 +188,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     defaultedModel: Boolean(requestedModel && requestedModel !== codexModel),
     timestamp: new Date().toISOString(),
     realCodex: true,
+    workspaceRoot,
   });
 
   if (requestedModel && requestedModel !== codexModel) {
@@ -762,12 +766,14 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
               toolResult = await executeCodexToolCall(call.name, toolArgs, {
                 connectionId,
                 userTimezone,
+                workspaceRoot,
               });
             }
           } else {
             toolResult = await executeCodexToolCall(call.name, toolArgs, {
               connectionId,
               userTimezone,
+              workspaceRoot,
             });
           }
         } catch (err: any) {
@@ -1113,6 +1119,10 @@ function resolveCodexModel(modelVersion?: string): string {
     return requested;
   }
   return DEFAULT_CODEX_MODEL;
+}
+
+function resolveSessionWorkspaceRoot(requestedWorkspaceRoot?: string): string {
+  return requestedWorkspaceRoot?.trim() || process.env.WORKSPACE_ROOT || process.cwd();
 }
 
 /* ── Tool Output Safety ─────────────────────────────────────────────────── */

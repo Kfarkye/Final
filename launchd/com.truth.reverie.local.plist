@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.truth.reverie.local</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/opt/homebrew/lib/node_modules/npm/bin/npm-cli.js</string>
+    <string>run</string>
+    <string>dev</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/k.far.88/Developer/reverie</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/k.far.88/Developer/reverie/data/local-execution/truth-local-service.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/k.far.88/Developer/reverie/data/local-execution/truth-local-service.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>WORKSPACE_ROOT</key>
+    <string>/Users/k.far.88/Developer/reverie</string>
+    <key>ENGINEERING_WRITE_MODE</key>
+    <string>audit</string>
+    <key>GCP_PROJECT</key>
+    <string>gen-lang-client-0281999829</string>
+    <key>OPENAI_API_KEY_SECRET</key>
+    <string>OPENAI_API_KEY</string>
+    <key>PORT</key>
+    <string>3000</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>

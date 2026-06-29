@@ -40,6 +40,7 @@ import { waitForApproval, ApprovalDecision } from "../utils/approval";
 import { logger } from "../utils/logger";
 import fs from "fs";
 import path from "path";
+import { getToolWorkspaceRoot, resolveWorkspacePath } from "./workspace-root";
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -98,6 +99,10 @@ function safePath(requestedPath: string): string {
   }
 
   return realPath;
+}
+
+function safePathForRoot(workspaceRoot: string, requestedPath: string): string {
+  return resolveWorkspacePath(workspaceRoot, requestedPath);
 }
 
 // ── Security: Command Allowlist ──────────────────────────────────────────────
@@ -744,9 +749,10 @@ const execCommandTool: RegisteredTool<any> = {
     }
 
     // Resolve CWD
-    let cwd = WORKSPACE_ROOT;
+    const workspaceRoot = getToolWorkspaceRoot(context);
+    let cwd = workspaceRoot;
     if (args.cwd) {
-      cwd = safePath(args.cwd);
+      cwd = safePathForRoot(workspaceRoot, args.cwd);
       if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
         return { success: false, error: `Directory not found: ${args.cwd}` };
       }

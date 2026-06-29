@@ -12,7 +12,7 @@
  *   - run_tsc: Run TypeScript compiler diagnostics (tsc --noEmit)
  *
  * Security:
- *   - All paths resolved against PROJECT_ROOT with traversal prevention
+ *   - All paths resolved against the session workspace root with traversal prevention
  *   - No write operations
  *   - No access to .env, node_modules, or .git internals
  */
@@ -23,12 +23,11 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs";
 import path from "path";
+import { getToolWorkspaceRoot, resolveWorkspacePath } from "./workspace-root";
 
 const execFileAsync = promisify(execFile);
 
 // ── Security: Path Sandboxing ────────────────────────────────────────────────
-
-const PROJECT_ROOT = process.cwd();
 
 const BLOCKED_PATTERNS = [
   /\.env/i,
@@ -41,15 +40,8 @@ const BLOCKED_PATTERNS = [
   /secrets?\./i,
 ];
 
-function safePath(requestedPath: string): string {
-  // Resolve relative to project root, then verify it's within bounds
-  const resolved = path.resolve(PROJECT_ROOT, requestedPath);
-
-  if (!resolved.startsWith(PROJECT_ROOT)) {
-    throw new Error(`Path traversal blocked: "${requestedPath}" resolves outside project root`);
-  }
-
-  return resolved;
+function safePath(workspaceRoot: string, requestedPath: string): string {
+  return resolveWorkspacePath(workspaceRoot, requestedPath);
 }
 
 // ── Tool: read_file ──────────────────────────────────────────────────────────
@@ -71,8 +63,9 @@ const readFileTool: RegisteredTool<any> = {
         .describe("Last line to return (1-indexed, inclusive). Omit to read to end."),
     }),
   },
-  handler: async (args) => {
-    const filePath = safePath(args.path);
+  handler: async (args, context) => {
+    const workspaceRoot = getToolWorkspaceRoot(context);
+    const filePath = safePath(workspaceRoot, args.path);
 
     if (!fs.existsSync(filePath)) {
       return { exists: false, path: args.path, error: `File not found: ${args.path}` };
@@ -140,8 +133,9 @@ const listDirectoryTool: RegisteredTool<any> = {
       includeHidden: z.boolean().default(false).describe("Include hidden files/directories"),
     }),
   },
-  handler: async (args) => {
-    const dirPath = safePath(args.path);
+  handler: async (args, context) => {
+    const workspaceRoot = getToolWorkspaceRoot(context);
+    const dirPath = safePath(workspaceRoot, args.path);
 
     if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
       return { path: args.path, error: "Directory not found or not a directory" };
@@ -167,7 +161,7 @@ const listDirectoryTool: RegisteredTool<any> = {
         if (item === "node_modules" || item === "dist" || item === ".git") continue;
 
         const fullPath = path.join(dir, item);
-        const relativePath = path.relative(PROJECT_ROOT, fullPath);
+        const relativePath = path.relative(workspaceRoot, fullPath);
 
         try {
           // Skip blocked patterns
@@ -231,8 +225,9 @@ const grepTool: RegisteredTool<any> = {
       contextLines: z.number().int().default(0).describe("Lines of context before/after each match"),
     }),
   },
-  handler: async (args) => {
-    const searchPath = safePath(args.path);
+  handler: async (args, context) => {
+    const workspaceRoot = getToolWorkspaceRoot(context);
+    const searchPath = safePath(workspaceRoot, args.path);
 
     // Build grep arguments — use Node's built-in search for portability
     const matches: GrepMatch[] = [];
@@ -281,7 +276,7 @@ const grepTool: RegisteredTool<any> = {
       for (let i = 0; i < lines.length && matches.length < maxMatches; i++) {
         if (regex.test(lines[i])) {
           const match: GrepMatch = {
-            path: path.relative(PROJECT_ROOT, filePath),
+            path: path.relative(workspaceRoot, filePath),
             line: i + 1,
             text: lines[i].trimEnd(),
           };
@@ -372,7 +367,8 @@ const runTscTool: RegisteredTool<any> = {
         .describe("Use --strict mode (may produce more diagnostics)"),
     }),
   },
-  handler: async (args) => {
+  handler: async (args, context) => {
+    const workspaceRoot = getToolWorkspaceRoot(context);
     const startMs = Date.now();
     const tscArgs = ["--noEmit", "--pretty", "false"];
 
@@ -380,7 +376,7 @@ const runTscTool: RegisteredTool<any> = {
 
     if (args.files && args.files.length > 0) {
       for (const f of args.files) {
-        const resolved = safePath(f);
+        const resolved = safePath(workspaceRoot, f);
         if (!fs.existsSync(resolved)) {
           return { success: false, error: `File not found: ${f}` };
         }
@@ -390,9 +386,9 @@ const runTscTool: RegisteredTool<any> = {
 
     try {
       const { stdout, stderr } = await execFileAsync(
-        path.join(PROJECT_ROOT, "node_modules", ".bin", "tsc"),
+        path.join(workspaceRoot, "node_modules", ".bin", "tsc"),
         tscArgs,
-        { cwd: PROJECT_ROOT, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 }
+        { cwd: workspaceRoot, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 }
       );
 
       return {
@@ -418,7 +414,7 @@ const runTscTool: RegisteredTool<any> = {
 
       // tsc exits non-zero when there are errors — parse stdout
       const output = (err.stdout || "") + (err.stderr || "");
-      const diagnostics = parseTscOutput(output);
+      const diagnostics = parseTscOutput(output, workspaceRoot);
 
       return {
         success: false, // exited non-zero with compile errors
@@ -433,7 +429,7 @@ const runTscTool: RegisteredTool<any> = {
   },
 };
 
-function parseTscOutput(output: string): TscDiagnostic[] {
+function parseTscOutput(output: string, workspaceRoot: string): TscDiagnostic[] {
   const diagnostics: TscDiagnostic[] = [];
   // tsc --pretty false format: file(line,col): category TScode: message
   const regex = /^(.+?)\((\d+),(\d+)\):\s+(error|warning|message)\s+(TS\d+):\s+(.+)$/gm;
@@ -441,7 +437,7 @@ function parseTscOutput(output: string): TscDiagnostic[] {
 
   while ((match = regex.exec(output)) !== null) {
     diagnostics.push({
-      file: path.relative(PROJECT_ROOT, match[1]),
+      file: path.relative(workspaceRoot, match[1]),
       line: parseInt(match[2], 10),
       column: parseInt(match[3], 10),
       category: match[4] as "error" | "warning" | "message",

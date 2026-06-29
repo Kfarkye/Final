@@ -27,6 +27,7 @@ export interface ToolContext {
   connectionId?: string;
   signal?: AbortSignal;
   userTimezone?: string;
+  workspaceRoot?: string;
 }
 
 // ── Render Contract ─────────────────────────────────────────────────

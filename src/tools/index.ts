@@ -52,6 +52,7 @@ import { bigqueryTools } from './bigquery.tools';
 import { firestoreTools } from './firestore.tools';
 import { iamTools } from './iam.tools';
 import { traceTools } from './trace.tools';
+import { localExecutionTools } from './local-execution.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -108,6 +109,7 @@ toolRegistry.registerMany([
   ...firestoreTools,
   ...iamTools,
   ...traceTools,
+  ...localExecutionTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.

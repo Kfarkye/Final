@@ -6,6 +6,13 @@ contracts:
     name: Core System
     always: true
     tools:
+      - local_service_status
+      - local_shell
+      - local_file_write
+      - local_file_delete
+      - local_file_move
+      - local_git
+      - local_process
       - get_current_time
       - run_script
       - execute_javascript
@@ -893,4 +900,3 @@ contracts:
     tools:
       - resolve_youtube_media
     system_prompt_file: youtube-media.md
-

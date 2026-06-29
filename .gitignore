@@ -44,3 +44,6 @@ server.js
 .skaffold/
 logs/
 .external/
+
+# Truth local execution plane runtime state
+data/local-execution/

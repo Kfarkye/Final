@@ -36,6 +36,23 @@ const APPROVAL_REQUIRED_TOOLS = new Set<string>([
   'github_create_branch',
 ]);
 
+const CODEX_PRIORITY_TOOLS = [
+  'local_service_status',
+  'local_shell',
+  'local_file_write',
+  'local_file_delete',
+  'local_file_move',
+  'local_git',
+  'local_process',
+  'list_directory',
+  'read_file',
+  'grep',
+  'exec_command',
+  'run_git_status',
+  'get_git_diff',
+  'view_git_commits',
+];
+
 /* ── Discovery ───────────────────────────────────────────────────────────── */
 
 /**
@@ -43,7 +60,12 @@ const APPROVAL_REQUIRED_TOOLS = new Set<string>([
  * Every tool is visible to Codex — approval is checked at execution time.
  */
 export function getCodexAllowedTools(): string[] {
-  return Object.keys(toolRegistry.getSchemas());
+  const names = Object.keys(toolRegistry.getSchemas());
+  const priority = CODEX_PRIORITY_TOOLS.filter(name => names.includes(name));
+  return [
+    ...priority,
+    ...names.filter(name => !priority.includes(name)),
+  ];
 }
 
 /**
@@ -115,6 +137,7 @@ export async function executeCodexToolCall(
     openai?: any;
     signal?: AbortSignal;
     userTimezone?: string;
+    workspaceRoot?: string;
   },
 ): Promise<unknown> {
   return toolRegistry.execute(toolName, args, context);

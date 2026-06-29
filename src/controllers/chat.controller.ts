@@ -7,6 +7,12 @@ import { catchAsync } from '../middleware/catchAsync';
 import { env } from '../config/env';
 import { getAlwaysOnToolNames, generateToolCatalog, resolveContracts, PrefetchSpec } from '../../lib/contract-router';
 
+function resolveWorkspaceRoot(requestWorkspaceRoot?: unknown): string {
+  return typeof requestWorkspaceRoot === 'string' && requestWorkspaceRoot.trim()
+    ? requestWorkspaceRoot.trim()
+    : process.env.WORKSPACE_ROOT || process.cwd();
+}
+
 export const chatController = {
   handleChat: catchAsync(async (req: Request, res: Response) => {
     const PORT = env.PORT || 3000;
@@ -20,6 +26,7 @@ export const chatController = {
     // while keeping ALL tools accessible via `call_tool`.
 
     const allSchemas = toolRegistry.getSchemas();
+    const workspaceRoot = resolveWorkspaceRoot(req.body.workspaceRoot);
     const alwaysOnNames = getAlwaysOnToolNames();
     
     // Build native declarations: only always-on tools + the call_tool meta-tool
@@ -69,7 +76,13 @@ export const chatController = {
           const start = Date.now();
           try {
             const result = await toolRegistry.execute(spec.tool, spec.args, {
-              googleAccessToken: req.body.googleAccessToken, ai, openai, anthropic, xai, deepseek
+              googleAccessToken: req.body.googleAccessToken,
+              ai,
+              openai,
+              anthropic,
+              xai,
+              deepseek,
+              workspaceRoot,
             });
             console.log(`[Prefetch] ✅ ${spec.tool} completed in ${Date.now() - start}ms`);
             return { tool: spec.tool, result, ok: true };
@@ -123,6 +136,7 @@ export const chatController = {
           return toolRegistry.execute(realToolName, realArgs, { 
             googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal,
             userTimezone: req.body.userTimezone,
+            workspaceRoot,
           });
         }
         
@@ -130,6 +144,7 @@ export const chatController = {
         return toolRegistry.execute(name, args, { 
           googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal,
           userTimezone: req.body.userTimezone,
+          workspaceRoot,
         });
       },
       workspaceDecls,

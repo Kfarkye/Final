@@ -12,7 +12,7 @@ mirror. The AI container (GKE pod) is a live *execution* mirror that converges o
 
 | Plane | What it physically is | Authority | Converges when |
 |---|---|---|---|
-| **Local** `/Users/k.far.88/Downloads/reverie/` | Real disk, raw `.ts` | **SSOT** | you save |
+| **Local** `/Users/k.far.88/Developer/reverie/` | Real disk, raw `.ts` | **SSOT** | you save |
 | **GitHub** | Remote git refs | downstream mirror (backup) | `./scripts/backup.sh` or `git push` |
 | **AI container** (GKE pod) | esbuild bundle `dist/server.cjs`, single-replica `:latest`, gVisor | execution mirror | `./scripts/ship.sh` (rebuild + rollout) |
 

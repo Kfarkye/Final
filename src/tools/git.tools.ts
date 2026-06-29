@@ -4,12 +4,13 @@ import { promisify } from "util";
 import { RegisteredTool } from "./types";
 import fs from "fs";
 import path from "path";
+import { getToolWorkspaceRoot } from "./workspace-root";
 
 // Promisify execFile so we can use async/await cleanly
 const execFileAsync = promisify(execFile);
 
-const checkGit = () => {
-  if (!fs.existsSync(path.join(process.cwd(), '.git'))) {
+const checkGit = (workspaceRoot: string) => {
+  if (!fs.existsSync(path.join(workspaceRoot, '.git'))) {
     throw new Error("Git tools are only available in local development environments (no .git repository found in the current runtime environment).");
   }
 };
@@ -28,10 +29,11 @@ export const gitTools: RegisteredTool<any>[] = [
       description: "Gets the current git status of the repository.",
       schema: z.object({}), 
     },
-    handler: async () => {
+    handler: async (_args, context) => {
       try {
-        checkGit();
-        const { stdout } = await execFileAsync("git", ["status", "--short"], EXEC_OPTS);
+        const workspaceRoot = getToolWorkspaceRoot(context);
+        checkGit(workspaceRoot);
+        const { stdout } = await execFileAsync("git", ["status", "--short"], { ...EXEC_OPTS, cwd: workspaceRoot });
         return { status: stdout.trim() || "No changes, working tree clean." };
       } catch (e: any) {
         return { error: `Git status failed: ${e.message}` };
@@ -46,14 +48,15 @@ export const gitTools: RegisteredTool<any>[] = [
         filePaths: z.array(z.string()).default([])
       })
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       try {
-        checkGit();
+        const workspaceRoot = getToolWorkspaceRoot(context);
+        checkGit(workspaceRoot);
         // SECURITY: Array arguments bypass the bash shell entirely.
         // The "--" separator guarantees that everything following it is treated 
         // strictly as a file path, even if an attacker passes a path like "-rf"
         const gitArgs = ["diff", "--", ...args.filePaths];
-        const { stdout } = await execFileAsync("git", gitArgs, EXEC_OPTS);
+        const { stdout } = await execFileAsync("git", gitArgs, { ...EXEC_OPTS, cwd: workspaceRoot });
         
         return { diff: stdout.trim() || "No active diff in selected files." };
       } catch (e: any) {
@@ -69,12 +72,13 @@ export const gitTools: RegisteredTool<any>[] = [
         limit: z.number().int().min(1).max(100).default(5)
       })
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       try {
-        checkGit();
+        const workspaceRoot = getToolWorkspaceRoot(context);
+        checkGit(workspaceRoot);
         // Zod guarantees limit is a safe integer
         const gitArgs = ["log", "-n", String(args.limit), "--oneline"];
-        const { stdout } = await execFileAsync("git", gitArgs, EXEC_OPTS);
+        const { stdout } = await execFileAsync("git", gitArgs, { ...EXEC_OPTS, cwd: workspaceRoot });
         return { commits: stdout.trim().split('\n') || [] };
       } catch (e: any) {
         return { error: `Failed to retrieve git log: ${e.message}` };

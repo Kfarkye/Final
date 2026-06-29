@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "local:service": "WORKSPACE_ROOT=/Users/k.far.88/Developer/reverie ENGINEERING_WRITE_MODE=audit GCP_PROJECT=${GCP_PROJECT:-gen-lang-client-0281999829} OPENAI_API_KEY_SECRET=${OPENAI_API_KEY_SECRET:-OPENAI_API_KEY} tsx server.ts",
     "scrape:espn": "ts-node src/scraper/espn.ts",
     "fetch:repo": "bash scripts/fetch-public-repo.sh",
     "git:audit-large": "bash scripts/git-audit-large-files.sh 25 all",

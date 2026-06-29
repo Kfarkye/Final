@@ -6,6 +6,7 @@ import { getBackfillStatus } from "../workers/odds-backfill-worker";
 import { callGcpMcpTool } from "../tools/gcp-mcp-client";
 import { handleApprovalResponse, acknowledgeApproval } from "../utils/approval";
 import { logger } from "../utils/logger";
+import { localExecutionPlane } from "../services/local-execution-plane";
 
 const router = Router();
 const SERVER_START_TIME = Date.now();
@@ -49,6 +50,7 @@ router.get("/api/system/status", (_req: Request, res: Response) => {
     workers: {
       oddsBackfill: getBackfillStatus(),
     },
+    localExecution: localExecutionPlane.getStatus({ workspaceRoot: process.env.WORKSPACE_ROOT || process.cwd() }),
     cloudRun: {
       revision: process.env.K_REVISION || "local",
       service: process.env.K_SERVICE || "local",
@@ -60,6 +62,10 @@ router.get("/api/system/status", (_req: Request, res: Response) => {
     region: "us-central1",
     timestamp: new Date().toISOString(),
   });
+});
+
+router.get("/api/local-execution/status", (_req: Request, res: Response) => {
+  res.json(localExecutionPlane.getStatus({ workspaceRoot: process.env.WORKSPACE_ROOT || process.cwd() }));
 });
 
 // --- Debug Tools List ---
