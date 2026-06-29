@@ -397,21 +397,37 @@ const runTscTool: RegisteredTool<any> = {
 
       return {
         success: true,
+        ran: true,
         diagnosticCount: 0,
         diagnostics: [],
         durationMs: Date.now() - startMs,
       };
     } catch (err: any) {
+      // Check if it's an execution/spawn failure (e.g., tsc binary not found or timed out)
+      const isSpawnFailure = err.code === "ENOENT" || (!err.stdout && !err.stderr);
+      if (isSpawnFailure) {
+        return {
+          success: false,
+          ran: false,
+          diagnosticCount: -1,
+          diagnostics: [],
+          message: `run_tsc FAILED to execute the TypeScript compiler: ${err.message || String(err)}. This is NOT a clean compile.`,
+          durationMs: Date.now() - startMs,
+        };
+      }
+
       // tsc exits non-zero when there are errors — parse stdout
       const output = (err.stdout || "") + (err.stderr || "");
       const diagnostics = parseTscOutput(output);
 
       return {
-        success: diagnostics.length === 0,
+        success: false, // exited non-zero with compile errors
+        ran: true,
         diagnosticCount: diagnostics.length,
         diagnostics: diagnostics.slice(0, 50), // Cap at 50 diagnostics
         durationMs: Date.now() - startMs,
         truncated: diagnostics.length > 50,
+        message: `tsc reported ${diagnostics.length} diagnostic(s) (exit ${err.code || 'non-zero'}).`,
       };
     }
   },

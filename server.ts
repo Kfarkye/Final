@@ -45,6 +45,9 @@ import sourceRoutes from "./src/routes/source.routes";
 import artifactRoutes from "./src/routes/artifacts.routes";
 import statmuseRoutes from "./src/routes/statmuse.routes";
 import bindExternalServiceRoute from "./src/routes/workers/bind-external-service.route";
+import extractionRoute from "./src/routes/workers/extraction.route";
+import uploadRoutes from "./src/routes/upload.routes";
+import { pubsubWorkersRouter } from "./src/routes/pubsub-workers.routes";
 
 const app = express();
 const PORT = env.PORT;
@@ -55,6 +58,7 @@ app.use(express.json({ limit: "10mb" }));
 
 // ── Mount Routes ──
 app.use(systemRoutes); // DevOps probes, system status, artifacts, human approval
+app.use(pubsubWorkersRouter); // Mount Pub/Sub worker endpoints
 app.use("/api/edge", edgeRoutes);
 app.use("/api/news", newsRoutes);
 app.use("/api/truth", chatRoutes);
@@ -73,6 +77,8 @@ app.use("/api/source", sourceRoutes);
 app.use("/api/statmuse", statmuseRoutes); // Shadow API — AI-powered sports data extraction
 app.use(artifactRoutes); // SSR artifacts + sitemap.xml (indexable by construction)
 app.use(bindExternalServiceRoute);
+app.use("/api/upload", uploadRoutes);
+app.use("/internal/workers", extractionRoute);
 
 // --- Google Drive Save Route ---
 app.post("/api/drive/save", (req, res) => driveSaveHandler(req, res, { executeWorkspaceTool }));
