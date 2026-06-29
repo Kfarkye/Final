@@ -4,12 +4,12 @@ import { X, ShieldAlert, Activity, Download, Search, Filter } from 'lucide-react
 import { logAuditAction } from '../lib/audit';
 
 interface AuditLog {
-  id: number;
+  id: string | number;
   userId: string;
   email: string;
   action: string;
   details: any;
-  createdAt: string;
+  createdAt: string | null;
 }
 
 export default function AuditDialog({ onClose, currentUser }: { onClose: () => void, currentUser: any }) {
@@ -38,7 +38,9 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
         return res.json();
       })
       .then(data => {
-        setLogs(data);
+        // Defensive: the API must yield an array. A non-array body (error
+        // object, null) would otherwise blow up logs.filter on the next render.
+        setLogs(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch(err => {
@@ -49,15 +51,18 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
   }, [currentUser]);
 
   const uniqueActions = useMemo(() => {
-    const actions = new Set(logs.map(l => l.action));
+    const actions = new Set(logs.map(l => l?.action ?? 'UNKNOWN'));
     return ['ALL', ...Array.from(actions)];
   }, [logs]);
 
   const filteredLogs = useMemo(() => {
+    const term = searchTerm.toLowerCase();
     return logs.filter(log => {
-      const matchesSearch = log.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        JSON.stringify(log.details || {}).toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesAction = actionFilter === 'ALL' || log.action === actionFilter;
+      // Null-safe: never call a string method on a possibly-undefined field.
+      const email = (log?.email ?? '').toLowerCase();
+      const details = JSON.stringify(log?.details ?? {}).toLowerCase();
+      const matchesSearch = email.includes(term) || details.includes(term);
+      const matchesAction = actionFilter === 'ALL' || log?.action === actionFilter;
       return matchesSearch && matchesAction;
     });
   }, [logs, searchTerm, actionFilter]);
@@ -75,13 +80,19 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
       return escaped;
     };
 
+    const formatDate = (value: string | null): string => {
+      if (!value) return '';
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? '' : d.toISOString();
+    };
+
     const headers = ["ID", "Date", "User", "Action", "Details"];
     const rows = filteredLogs.map(log => [
-      log.id.toString(),
-      new Date(log.createdAt).toISOString(),
-      log.email,
-      log.action,
-      log.details
+      log?.id != null ? String(log.id) : '',
+      formatDate(log?.createdAt ?? null),
+      log?.email ?? '',
+      log?.action ?? '',
+      log?.details ?? ''
     ]);
 
     // Build standard-compliant double-quoted CSV payload
@@ -101,6 +112,12 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
     URL.revokeObjectURL(url);
 
     logAuditAction(currentUser, 'EXPORT_AUDIT', { format: 'CSV', count: filteredLogs.length });
+  };
+
+  const formatTimestamp = (value: string | null): string => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString();
   };
 
   return (
@@ -172,20 +189,20 @@ export default function AuditDialog({ onClose, currentUser }: { onClose: () => v
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredLogs.map((log) => (
-                <div key={log.id} className="border border-white/5 bg-black rounded-xl p-4 flex flex-col gap-2 hover:border-white/10 transition-colors">
+              {filteredLogs.map((log, idx) => (
+                <div key={log?.id ?? idx} className="border border-white/5 bg-black rounded-xl p-4 flex flex-col gap-2 hover:border-white/10 transition-colors">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
                       <Activity size={16} className="text-zinc-500" />
-                      <span className="font-mono text-xs font-semibold uppercase tracking-wider text-emerald-400">{log.action}</span>
+                      <span className="font-mono text-xs font-semibold uppercase tracking-wider text-emerald-400">{log?.action ?? 'UNKNOWN'}</span>
                     </div>
-                    <span className="text-xs font-mono text-zinc-500">{new Date(log.createdAt).toLocaleString()}</span>
+                    <span className="text-xs font-mono text-zinc-500">{formatTimestamp(log?.createdAt ?? null)}</span>
                   </div>
                   <div className="text-sm text-zinc-300">
-                    User: <span className="text-white font-medium">{log.email}</span>
+                    User: <span className="text-white font-medium">{log?.email ?? '—'}</span>
                   </div>
                   <div className="bg-zinc-900 border border-white/5 rounded-lg p-3 text-xs font-mono text-zinc-400 overflow-x-auto mt-2 whitespace-pre-wrap">
-                    {log.details ? JSON.stringify(log.details, null, 2) : 'No additional details'}
+                    {log?.details ? JSON.stringify(log.details, null, 2) : 'No additional details'}
                   </div>
                 </div>
               ))}
