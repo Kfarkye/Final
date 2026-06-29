@@ -99,7 +99,7 @@ async function handlePubsubMessage(
       });
 
       if (existing && existing.length > 0) {
-        const status = existing[0].Status;
+        const status = (existing[0] as any).Status;
         if (status === "COMPLETED") {
           logger.info({ msg: "Message already successfully processed", idempotencyKey });
           return;
