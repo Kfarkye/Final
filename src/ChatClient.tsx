@@ -15,7 +15,8 @@ import { logAuditAction } from './lib/audit';
 import ExportDialog from './components/ExportDialog';
 import AuditDialog from './components/AuditDialog';
 import SettingsDialog from './components/SettingsDialog';
-import { MimeRenderer } from './components/MimeRenderer';
+
+import { AssistantBlockRenderer } from './components/AssistantBlockRenderer';
 import { ToolTrace, ToolTraceEntry } from './components/ToolTrace';
 import { ModelSelector } from './components/ModelSelector';
 import SuggestedPrompts from './components/SuggestedPrompts';
@@ -1168,7 +1169,7 @@ export default function ChatClient() {
               
             </div>
           ) : (
-            content ? <MimeRenderer content={content} /> : "No response."
+            content ? <AssistantBlockRenderer content={content} /> : "No response."
           )}
         </div>
       </div>

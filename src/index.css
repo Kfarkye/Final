@@ -586,6 +586,29 @@ html {
   color: inherit;
 }
 
+.t-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5em 0;
+  font-size: 13px;
+}
+
+.t-prose th, .t-prose td {
+  padding: 0.75em;
+  border: 1px solid var(--b1);
+  text-align: left;
+}
+
+.t-prose th {
+  background-color: var(--s2);
+  font-weight: 600;
+  color: var(--t1);
+}
+
+.t-prose tr:nth-child(even) {
+  background-color: var(--s1);
+}
+
 /* Mobile Chat Animations */
 @keyframes blink { 50% { opacity: 0; } }
 
