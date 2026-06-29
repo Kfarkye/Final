@@ -122,12 +122,12 @@
 The current local time is: 2026-06-18T12:03:50-07:00.
 
 The user's current state is as follows:
-Active Document: /Users/k.far.88/Downloads/reverie/thedrip/player-page-schema.json (LANGUAGE_JSON)
+Active Document: /Users/k.far.88/Developer/reverie/thedrip/player-page-schema.json (LANGUAGE_JSON)
 Cursor is on line: 246
 Other open documents:
-- /Users/k.far.88/Downloads/reverie/server.ts (LANGUAGE_TYPESCRIPT)
-- /Users/k.far.88/Downloads/reverie/thedrip/player-page-schema.json (LANGUAGE_JSON)
-- /Users/k.far.88/Downloads/reverie/Dockerfile (LANGUAGE_DOCKERFILE)
-- /Users/k.far.88/Downloads/reverie/src/components/McpRegistry.tsx (LANGUAGE_TSX)
-- /Users/k.far.88/Downloads/reverie/src/components/dashboard/dashboard.css (LANGUAGE_CSS)
+- /Users/k.far.88/Developer/reverie/server.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Developer/reverie/thedrip/player-page-schema.json (LANGUAGE_JSON)
+- /Users/k.far.88/Developer/reverie/Dockerfile (LANGUAGE_DOCKERFILE)
+- /Users/k.far.88/Developer/reverie/src/components/McpRegistry.tsx (LANGUAGE_TSX)
+- /Users/k.far.88/Developer/reverie/src/components/dashboard/dashboard.css (LANGUAGE_CSS)
 </ADDITIONAL_METADATA>

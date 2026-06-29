@@ -5,26 +5,29 @@
 
 /* ---- the invocation log container ---- */
 .trace-log {
-  padding: 16px 16px 10px 16px;
-  background: var(--s1);
+  padding: 8px 16px 10px 16px;
+  background: transparent;
   border-radius: var(--t-radius-md, 10px);
-  border: 1px solid var(--b1);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* ---- individual turn (one tool call) ---- */
 .trace-turn {
   position: relative;
-  padding-left: 26px;
-  padding-bottom: 20px;
+  padding: 4px 8px 16px 26px;
+  margin-left: -8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+.trace-turn:hover {
+  background: rgba(128, 128, 128, 0.04);
 }
 
 /* vertical connector line */
 .trace-turn::before {
   content: '';
   position: absolute;
-  left: 5px;
-  top: 7px;
+  left: 13px; /* adjusted for the margin-left: -8px */
+  top: 11px;
   bottom: -3px;
   width: 1px;
   background: var(--b1);
@@ -38,8 +41,8 @@
 /* ---- timeline node dot ---- */
 .trace-turn .trace-node {
   position: absolute;
-  left: 0;
-  top: 4px;
+  left: 8px; /* adjusted for margin-left: -8px */
+  top: 8px;
   width: 11px;
   height: 11px;
   border-radius: 50%;
@@ -62,28 +65,29 @@
   animation: trace-pulse 1.6s ease-in-out infinite;
 }
 
-/* success state — solid green */
+/* success state — subtle */
 .trace-turn.trace-done .trace-node {
-  border-color: #10b981;
+  border-color: var(--t4);
 }
 .trace-turn.trace-done .trace-node::after {
   content: '';
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--t4);
+  opacity: 0.5;
 }
 
-/* error state — solid red */
+/* error state — muted red */
 .trace-turn.trace-error .trace-node {
-  border-color: #ef4444;
+  border-color: #dc2626; /* more muted red */
 }
 .trace-turn.trace-error .trace-node::after {
   content: '';
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: #ef4444;
+  background: #dc2626;
 }
 
 /* subtle hover glow on node */
@@ -110,10 +114,7 @@
   user-select: none;
   line-height: 1.5;
   min-height: 19px;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.trace-turn .trace-tool:hover {
-  transform: translateX(2px);
+  transition: color 0.2s ease;
 }
 
 /* two-tier label: dim action verb + bright concrete object */
@@ -135,46 +136,12 @@
 .trace-turn:hover .trace-verb { color: var(--t1); }
 .trace-turn:hover .trace-object { color: #fff; }
 .trace-turn.trace-running .trace-verb { color: var(--nc); }
-.trace-turn.trace-error .trace-verb { color: #ef4444; }
+.trace-turn.trace-error .trace-verb { color: #dc2626; }
+.trace-turn.trace-error .trace-object { color: #dc2626; }
 
 /* pushes status/metric/duration to the right edge */
 .trace-turn .trace-spacer { flex: 1 1 auto; min-width: 8px; }
 
-/* ---- right-edge status / result metric pills ---- */
-.trace-turn .trace-pill {
-  flex-shrink: 0;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  font-variant-numeric: tabular-nums;
-  padding: 1.5px 7px;
-  border-radius: 999px;
-  line-height: 1.5;
-  border: 1px solid transparent;
-  transition: all 0.2s ease;
-}
-.trace-turn .trace-pill-ok {
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.08);
-  border-color: rgba(16, 185, 129, 0.18);
-}
-.trace-turn .trace-pill-err {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.2);
-}
-.trace-turn .trace-pill-live {
-  color: var(--nc);
-  background: rgba(123, 175, 212, 0.08);
-  border-color: rgba(123, 175, 212, 0.18);
-  animation: trace-pill-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes trace-pill-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
 
 .trace-turn .trace-link {
   color: var(--nc);
@@ -317,9 +284,9 @@
 .trace-error-msg {
   margin-top: 8px;
   font-size: 12px;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.04);
+  border: 1px solid rgba(220, 38, 38, 0.15);
   border-radius: 6px;
   padding: 8px 12px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;

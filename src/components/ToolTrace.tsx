@@ -331,10 +331,7 @@ const ToolTraceItem: React.FC<{ entry: ToolTraceEntry }> = memo(({ entry }) => {
 
         <span className="trace-spacer" />
 
-        {/* live status / result metric on the right edge */}
-        {entry.status === 'running' && <span className="trace-pill trace-pill-live">working</span>}
-        {entry.status === 'success' && metric && <span className="trace-pill trace-pill-ok">{metric}</span>}
-        {entry.status === 'error' && <span className="trace-pill trace-pill-err">failed</span>}
+        {/* status is now implicit or conveyed via the node indicator; no pills rendered here */}
 
         {entry.elapsedMs != null && (
           <span className="trace-dur">{formatDuration(entry.elapsedMs)}</span>
@@ -350,11 +347,11 @@ const ToolTraceItem: React.FC<{ entry: ToolTraceEntry }> = memo(({ entry }) => {
           <div className="trace-error-msg">{entry.error}</div>
         )}
 
-        {entry.status === 'success' && entry.resultPreview && (
+        {entry.status === 'success' && (metric || entry.resultPreview) && (
           <div className="trace-result-preview" title={entry.resultPreview}>
-            → {entry.resultPreview.length > 160
+            → {metric ? `[${metric}] ` : ''}{entry.resultPreview ? (entry.resultPreview.length > 160
               ? entry.resultPreview.slice(0, 160) + '…'
-              : entry.resultPreview}
+              : entry.resultPreview) : ''}
           </div>
         )}
 

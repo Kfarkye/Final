@@ -12,15 +12,15 @@ Gemini has instructions to go to the database the exact DDL and schema SQLs.  Fi
 The current local time is: 2026-06-19T00:52:24-07:00.
 
 The user's current state is as follows:
-Active Document: /Users/k.far.88/Downloads/reverie/lib/gemini-schemas.ts (LANGUAGE_TYPESCRIPT)
+Active Document: /Users/k.far.88/Developer/reverie/lib/gemini-schemas.ts (LANGUAGE_TYPESCRIPT)
 Cursor is on line: 251
 Other open documents:
-- /Users/k.far.88/Downloads/reverie/src/tools/types.ts (LANGUAGE_TYPESCRIPT)
-- /Users/k.far.88/Downloads/reverie/src/routes/drip.routes.ts (LANGUAGE_TYPESCRIPT)
-- /Users/k.far.88/Downloads/reverie/src/routes/sports.routes.ts (LANGUAGE_TYPESCRIPT)
-- /Users/k.far.88/Downloads/reverie/src/db/mlb-team-profile.sql (LANGUAGE_SQL)
-- /Users/k.far.88/Downloads/reverie/src/db/schema.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Developer/reverie/src/tools/types.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Developer/reverie/src/routes/drip.routes.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Developer/reverie/src/routes/sports.routes.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Developer/reverie/src/db/mlb-team-profile.sql (LANGUAGE_SQL)
+- /Users/k.far.88/Developer/reverie/src/db/schema.ts (LANGUAGE_TYPESCRIPT)
 Browser State:
-  Page 9DEF47FA3AA41F1C1062E435FB3C9397 (LIVE: NYY 3, BOS 1 — T5 | The Drip) - file:///Users/k.far.88/Downloads/reverie/thedrip/live-game.html [ACTIVE]
+  Page 9DEF47FA3AA41F1C1062E435FB3C9397 (LIVE: NYY 3, BOS 1 — T5 | The Drip) - file:///Users/k.far.88/Developer/reverie/thedrip/live-game.html [ACTIVE]
     Viewport: 2240x1172, Page Height: 1172
 </ADDITIONAL_METADATA>

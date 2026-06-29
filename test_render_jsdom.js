@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { JSDOM } from 'jsdom';
 
-const html = fs.readFileSync('/Users/k.far.88/Downloads/reverie/thedrip/live-game.html', 'utf8');
+const html = fs.readFileSync('/Users/k.far.88/Developer/reverie/thedrip/live-game.html', 'utf8');
 
 const good = {
   gameState:{inning:5,inningHalf:'top',leader:'NYY',margin:2,runsScored:4},

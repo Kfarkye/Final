@@ -72,12 +72,12 @@ ything else supports at different update rhythms.",
 The current local time is: 2026-06-18T12:55:41-07:00.
 
 The user's current state is as follows:
-Active Document: /Users/k.far.88/Downloads/reverie/package.json (LANGUAGE_JSON)
+Active Document: /Users/k.far.88/Developer/reverie/package.json (LANGUAGE_JSON)
 Cursor is on line: 82
 Other open documents:
-- /Users/k.far.88/Downloads/reverie/thedrip/player-page.html (LANGUAGE_HTML)
-- /Users/k.far.88/Downloads/reverie/Dockerfile (LANGUAGE_DOCKERFILE)
-- /Users/k.far.88/Downloads/reverie/src/scripts/seed-teams.ts (LANGUAGE_TYPESCRIPT)
-- /Users/k.far.88/Downloads/reverie/src/db/mlb-team-profile.sql (LANGUAGE_SQL)
-- /Users/k.far.88/Downloads/reverie/src/db/mlb-first-score.sql (LANGUAGE_SQL)
+- /Users/k.far.88/Developer/reverie/thedrip/player-page.html (LANGUAGE_HTML)
+- /Users/k.far.88/Developer/reverie/Dockerfile (LANGUAGE_DOCKERFILE)
+- /Users/k.far.88/Developer/reverie/src/scripts/seed-teams.ts (LANGUAGE_TYPESCRIPT)
+- /Users/k.far.88/Developer/reverie/src/db/mlb-team-profile.sql (LANGUAGE_SQL)
+- /Users/k.far.88/Developer/reverie/src/db/mlb-first-score.sql (LANGUAGE_SQL)
 </ADDITIONAL_METADATA>

@@ -47,3 +47,13 @@ logs/
 
 # Truth local execution plane runtime state
 data/local-execution/
+
+# macOS AppleDouble sidecar files
+._*
+**/._*
+
+# Local database/runtime snapshots
+*.db
+
+# Generated source snapshots
+*.canonical

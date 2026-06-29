@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LIMIT_MB="${GIT_LARGE_FILE_LIMIT_MB:-25}"
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then
+  echo "Error: not inside a Git repository." >&2
+  exit 1
+fi
+
+cd "$ROOT"
+
+echo "Checking staged files for oversized Git blobs..."
+bash scripts/git-audit-large-files.sh "$LIMIT_MB" staged
