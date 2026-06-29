@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { copyToClipboard } from './utils/clipboard';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, getAccessToken, initAuth } from './lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -214,6 +214,24 @@ export default function ChatClient() {
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
   const [codexResponseId, setCodexResponseId] = useState<string | null>(null);
+  const [truthStatus, setTruthStatus] = useState<"READY" | "WARNING">("READY");
+
+  useEffect(() => {
+    const checkTruthStatus = async () => {
+      try {
+        const res = await fetch("/api/control-plane/status");
+        if (res.ok) {
+          const data = await res.json();
+          setTruthStatus(data.status === "READY" ? "READY" : "WARNING");
+        }
+      } catch {
+        // Silently ignore status fetch errors in chat client
+      }
+    };
+    checkTruthStatus();
+    const interval = setInterval(checkTruthStatus, 30000); // Poll every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Approval notification effects ──────────────────────────────────────────
 
@@ -1181,6 +1199,12 @@ export default function ChatClient() {
               </h2>
             </div>
           </div>
+          <Link to="/admin/control-plane" className="flex items-center gap-1.5 px-3 py-1 bg-white/5 border border-[var(--t-border)] rounded-full hover:bg-white/10 transition-colors">
+            <span className={`w-1.5 h-1.5 rounded-full ${truthStatus === 'READY' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+            <span className="text-[9px] font-bold tracking-wider uppercase text-[var(--t2)]">
+              Truth: {truthStatus}
+            </span>
+          </Link>
         </div>
 
         <div className="hidden md:flex t-card-glass p-1 rounded-full text-[var(--t2)]">
@@ -1542,6 +1566,7 @@ export default function ChatClient() {
                       {turn.targeted.includes("claude") && renderModelCard("claude", "Claude 3.7 Sonnet", turn.responses?.claude || null, turn.targeted.length > 1)}
                       {turn.targeted.includes("grok") && renderModelCard("grok", "Grok (xAI)", turn.responses?.grok || null, turn.targeted.length > 1)}
                       {turn.targeted.includes("deepseek") && renderModelCard("deepseek", "DeepSeek", turn.responses?.deepseek || null, turn.targeted.length > 1)}
+                      {turn.targeted.includes("codex") && renderModelCard("codex", "Codex Autonomy", turn.responses?.codex || null, turn.targeted.length > 1)}
                     </div>
                   </div>
 

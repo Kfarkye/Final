@@ -48,6 +48,7 @@ import bindExternalServiceRoute from "./src/routes/workers/bind-external-service
 import extractionRoute from "./src/routes/workers/extraction.route";
 import uploadRoutes from "./src/routes/upload.routes";
 import { pubsubWorkersRouter } from "./src/routes/pubsub-workers.routes";
+import { controlPlaneRouter } from "./src/routes/control-plane.routes";
 
 const app = express();
 const PORT = env.PORT;
@@ -59,6 +60,7 @@ app.use(express.json({ limit: "10mb" }));
 // ── Mount Routes ──
 app.use(systemRoutes); // DevOps probes, system status, artifacts, human approval
 app.use(pubsubWorkersRouter); // Mount Pub/Sub worker endpoints
+app.use(controlPlaneRouter); // Mount Control Plane endpoints
 app.use("/api/edge", edgeRoutes);
 app.use("/api/news", newsRoutes);
 app.use("/api/truth", chatRoutes);
