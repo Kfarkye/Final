@@ -85,7 +85,7 @@ for svc in "${SERVICES[@]}"; do
     --region="$REGION" \
     --platform=managed \
     --no-allow-unauthenticated \
-    --service-account="${PROJECT_ID}-compute@developer.gserviceaccount.com" \
+    --service-account="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
     --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},NODE_ENV=production"
 
   echo "Granting Pub/Sub invoker access to $svc..."
