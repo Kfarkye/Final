@@ -49,6 +49,8 @@ spec:
               value: "clearspace"
             - name: MODEL_REGISTRY_SPANNER_DATABASE_ID
               value: "core-db"
+            - name: CODEX_MAX_TOTAL_RESPONSE_TOKENS
+              value: "10000000"
           envFrom:
             - secretRef:
                 name: truth-secrets

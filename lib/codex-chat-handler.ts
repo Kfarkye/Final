@@ -37,7 +37,11 @@ const MAX_TOOL_TURNS = 100;
 const MAX_STREAM_RECONNECTS = 10;
 const STREAM_IDLE_TIMEOUT_MS = 300_000;
 const MAX_CODEX_OUTPUT_TOKENS = 16_384;
-const MAX_TOTAL_RESPONSE_TOKENS = Number(process.env.CODEX_MAX_TOTAL_RESPONSE_TOKENS ?? 2_000_000);
+const DEFAULT_MAX_TOTAL_RESPONSE_TOKENS = 10_000_000;
+const MAX_TOTAL_RESPONSE_TOKENS = parsePositiveIntegerEnv(
+  'CODEX_MAX_TOTAL_RESPONSE_TOKENS',
+  DEFAULT_MAX_TOTAL_RESPONSE_TOKENS,
+);
 const MAX_TOTAL_TOOL_CALLS = 100;
 const MAX_REPEATED_TOOL_CALLS = 50;
 const MAX_STUCK_TOOL_ONLY_TURNS = 50;
@@ -45,6 +49,13 @@ const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 50;
 const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 200;
 const TOOL_OUTPUT_TRUNCATE_AT = 128_000;
 const TOOL_OUTPUT_HEAD_CHARS = 64_000;
+
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
 
 /* ── OpenAI Client ───────────────────────────────────────────────────────── */
 

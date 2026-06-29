@@ -31,6 +31,8 @@
     <string>gen-lang-client-0281999829</string>
     <key>OPENAI_API_KEY_SECRET</key>
     <string>OPENAI_API_KEY</string>
+    <key>CODEX_MAX_TOTAL_RESPONSE_TOKENS</key>
+    <string>10000000</string>
     <key>PORT</key>
     <string>3000</string>
     <key>PATH</key>
