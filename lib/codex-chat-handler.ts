@@ -40,7 +40,7 @@ const MAX_CODEX_OUTPUT_TOKENS = 16_384;
 const MAX_TOTAL_RESPONSE_TOKENS = Number(process.env.CODEX_MAX_TOTAL_RESPONSE_TOKENS ?? 2_000_000);
 const MAX_TOTAL_TOOL_CALLS = 100;
 const MAX_REPEATED_TOOL_CALLS = 50;
-const MAX_STUCK_TOOL_ONLY_TURNS = 20;
+const MAX_STUCK_TOOL_ONLY_TURNS = 50;
 const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 50;
 const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 200;
 const TOOL_OUTPUT_TRUNCATE_AT = 128_000;
@@ -48,9 +48,13 @@ const TOOL_OUTPUT_HEAD_CHARS = 64_000;
 
 /* ── OpenAI Client ───────────────────────────────────────────────────────── */
 
-const openaiClient = new OpenAI({
-  apiKey: env.OPENAI_API_KEY,
-});
+let _openaiClient: OpenAI | null = null;
+function getOpenAIClient(): OpenAI {
+  if (!_openaiClient) {
+    _openaiClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  }
+  return _openaiClient;
+}
 
 /* ── Types ───────────────────────────────────────────────────────────────── */
 
@@ -287,14 +291,14 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       try {
         await consumeResponseStream(
           {
-            createStream: () => openaiClient.responses.create(createParams),
+            createStream: () => getOpenAIClient().responses.create(createParams),
             resumeStream: (state) => {
               const retrieveParams: OpenAI.Responses.ResponseRetrieveParamsStreaming = {
                 stream: true,
                 include: createParams.include,
                 ...(state.startingAfter ? { starting_after: state.startingAfter } : {}),
               };
-              return openaiClient.responses.retrieve(state.responseId, retrieveParams);
+              return getOpenAIClient().responses.retrieve(state.responseId, retrieveParams);
             },
             getRetryState: () => ({
               responseId: latestResponseId,
