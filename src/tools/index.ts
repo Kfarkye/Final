@@ -48,6 +48,10 @@ import { visionTools } from './vision.tools';
 import { platformTools } from './platform.tools';
 import { statmuseTools } from './statmuse.tools';
 import { mlbTablesTools } from './mlb-tables.tools';
+import { bigqueryTools } from './bigquery.tools';
+import { firestoreTools } from './firestore.tools';
+import { iamTools } from './iam.tools';
+import { traceTools } from './trace.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -100,6 +104,10 @@ toolRegistry.registerMany([
   ...platformTools,
   ...statmuseTools,
   ...mlbTablesTools,
+  ...bigqueryTools,
+  ...firestoreTools,
+  ...iamTools,
+  ...traceTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.
