@@ -1,54 +1,9 @@
-import fs from 'fs';
-import path from 'path';
 import { Request, Response } from 'express';
 import { sseManager } from './sse/sse-manager';
 import { EnterpriseGovernanceService } from './governance/enterprise-governance';
-import { toolRegistry } from '../src/tools';
-import { getSchemaSnapshot } from '../src/tools/spanner.tools';
 import { ChatLogger } from './observability/chat-logger';
 import { knowledgeManager } from '../src/services/knowledge-manager';
 import { skillRouter } from '../src/services/skill-router';
-import {
-  resolveExecutionMode,
-  createState,
-  executeDelegation,
-  emitSummary,
-  resolveTaskPolicy,
-  createEventLog,
-  type SpecialistCaller,
-  type ActivityEmitter,
-} from './orchestration-runtime.js';
-import {
-  DELEGATE_TASK_TOOL,
-  isRenderReady,
-  type OrchestrationState,
-  type DelegationRole,
-  type OrchestrationEvent,
-  type SchemaName,
-} from './orchestration-schemas.js';
-import { GEMINI_SCHEMAS } from './gemini-schemas.js';
-import { z } from 'zod';
-import { SchemaStream } from 'schema-stream';
-
-const zGeminiStructuredSchema = z.object({
-  thought_process: z.string().optional(),
-  user_message: z.string().optional()
-});
-
-const geminiStructuredSchema = {
-  type: "object",
-  properties: {
-    thought_process: {
-      type: "string",
-      description: "Internal reasoning, planning, and analysis before finalizing the response."
-    },
-    user_message: {
-      type: "string",
-      description: "The final, sanitized response that will be rendered directly to the user in Markdown."
-    }
-  },
-  required: ["thought_process", "user_message"]
-};
 
 function lowercaseSchemaTypes(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
@@ -56,28 +11,6 @@ function lowercaseSchemaTypes(schema: any): any {
   if (typeof newSchema.type === 'string') {
     newSchema.type = newSchema.type.toLowerCase();
   }
-
-  // ── Gemini-incompatible JSON Schema fields ──────────────────────────
-  // zodToJsonSchema emits these but Gemini's functionDeclarations rejects them.
-  // The API explicitly errors on: minimum/maximum bounds, formats like date-time, etc.
-  delete newSchema.exclusiveMinimum;
-  delete newSchema.exclusiveMaximum;
-  delete newSchema.minimum;
-  delete newSchema.maximum;
-  delete newSchema.format;
-  delete newSchema.pattern;
-  delete newSchema.minLength;
-  delete newSchema.maxLength;
-  delete newSchema.minItems;
-  delete newSchema.maxItems;
-  
-  delete newSchema.$schema;
-  delete newSchema.$defs;
-  delete newSchema.definitions;
-  delete newSchema.additionalProperties;
-  delete newSchema.$ref;
-  delete newSchema.default;  // Gemini uses defaultValue or ignores defaults
-
   if (newSchema.properties) {
     const newProps: any = {};
     for (const key of Object.keys(newSchema.properties)) {
@@ -87,12 +20,6 @@ function lowercaseSchemaTypes(schema: any): any {
   }
   if (newSchema.items) {
     newSchema.items = lowercaseSchemaTypes(newSchema.items);
-  }
-  // Recurse into anyOf/oneOf/allOf if present
-  for (const combiner of ['anyOf', 'oneOf', 'allOf']) {
-    if (Array.isArray(newSchema[combiner])) {
-      newSchema[combiner] = newSchema[combiner].map((s: any) => lowercaseSchemaTypes(s));
-    }
   }
   return newSchema;
 }
@@ -110,19 +37,19 @@ function isAbortLikeError(err: any): boolean {
 function withDeadline<T>(p: Promise<T>, ms: number, signal: AbortSignal, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Tool ${label} timed out after ${ms}ms`)), ms);
-
+    
     const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException('Aborted', 'AbortError'));
     };
-
+    
     if (signal.aborted) {
       onAbort();
       return;
     }
-
+    
     signal.addEventListener('abort', onAbort, { once: true });
-
+    
     p.then(
       (v) => {
         clearTimeout(timer);
@@ -163,28 +90,11 @@ function truncateToolResult(result: any, maxLen = 30000): any {
     }
     return sliced;
   }
-  // For objects: find and truncate the largest string field(s) to fit within maxLen.
-  // This avoids the old bug of spreading the full object + adding another 30KB copy.
-  const truncated: any = {};
-  const entries = Object.entries(result);
-  // Sort by value size descending — truncate largest fields first
-  const sorted = entries
-    .map(([k, v]) => ({ k, v, size: JSON.stringify(v).length }))
-    .sort((a, b) => b.size - a.size);
-
-  let budget = maxLen - 100; // leave room for wrapper
-  for (const { k, v, size } of sorted) {
-    if (typeof v === 'string' && size > budget / 2) {
-      // Truncate large strings to fit budget
-      const allowedChars = Math.max(200, Math.floor(budget / 2));
-      truncated[k] = v.substring(0, allowedChars) + `\n[TRUNCATED: ${v.length} chars total, showing first ${allowedChars}]`;
-    } else {
-      truncated[k] = v;
-    }
-    budget -= JSON.stringify(truncated[k]).length;
-  }
-  truncated._truncated = true;
-  return truncated;
+  return {
+    ...result,
+    _truncated_notice: "This object's content was too large and has been trimmed.",
+    _truncated_data: jsonStr.substring(0, maxLen) + `... [Truncated after ${maxLen} chars]`
+  };
 }
 
 const TOOL_TIMEOUTS: Record<string, number> = {
@@ -256,38 +166,7 @@ const TOOL_TIMEOUTS: Record<string, number> = {
 };
 
 function getToolTimeoutMs(toolName: string): number {
-  if (toolName.startsWith('browser_')) return 120_000;
-  return TOOL_TIMEOUTS[toolName] ?? 60_000;
-}
-
-// Tools whose raw results should be forwarded to the frontend in the
-// `tool_result` SSE event as `data`. The frontend uses these to render
-// deterministic display cards — no LLM involvement in the rendering.
-//
-// Legacy set kept for backward compatibility. New tools should declare
-// a `render` property on their RegisteredTool definition instead.
-const LEGACY_CARD_TOOLS = new Set([
-  'get_espn_scoreboard',
-  'get_espn_live_games',
-  'get_espn_final_scores',
-  'find_espn_game',
-  'get_espn_game',
-  'get_mlb_slate_overview',
-  'get_mlb_schedule',
-]);
-
-/** Check if a tool should forward its data to the frontend for card rendering. */
-function getToolRenderMeta(toolName: string): { isCardEligible: boolean; render?: any } {
-  // Check for render contract on the tool definition (new path)
-  const toolDef = toolRegistry.get(toolName);
-  if (toolDef?.render) {
-    return { isCardEligible: true, render: toolDef.render };
-  }
-  // Fallback to legacy hardcoded set
-  if (LEGACY_CARD_TOOLS.has(toolName)) {
-    return { isCardEligible: true };
-  }
-  return { isCardEligible: false };
+  return TOOL_TIMEOUTS[toolName] ?? 30_000;
 }
 
 function summarizeArgs(args: any): string {
@@ -336,49 +215,6 @@ async function executeToolForModel({
   deps: any;
 }) {
   const startedAt = Date.now();
-
-  // ── Orchestration intercept: delegate_task goes to the runtime, not tool dispatch ──
-  if (toolName === 'delegate_task' && deps._orchestrationState && deps._specialistCaller) {
-    const orchState = deps._orchestrationState as OrchestrationState;
-    const policy = resolveTaskPolicy(deps._taskComplexity || 'factual');
-    const eventLog = deps._eventLog || createEventLog();
-
-    sendSse('tool_start', { model, tool: 'delegate_task', argsPreview: `${args.role}: ${(args.objective || '').slice(0, 60)}`, timeoutMs: 30000 });
-
-    try {
-      const { state: newState, result } = await executeDelegation(
-        orchState,
-        {
-          role: args.role as DelegationRole,
-          model_preference: args.model_preference,
-          objective: args.objective,
-          required_output_schema: args.required_output_schema as SchemaName,
-          inputs: args.inputs,
-        },
-        policy,
-        deps._specialistCaller as SpecialistCaller,
-        deps._activityEmitter as ActivityEmitter,
-        eventLog,
-        signal,
-      );
-
-      // Update shared orchestration state
-      deps._orchestrationState = newState;
-
-      sendSse('tool_result', { model, tool: 'delegate_task', elapsedMs: Date.now() - startedAt, resultPreview: `${args.role}: ${result?.error ? 'FAILED' : 'OK'}` });
-
-      // If all delegations done, emit summary
-      if (isRenderReady(newState)) {
-        emitSummary(newState, deps._activityEmitter as ActivityEmitter);
-      }
-
-      return result;
-    } catch (err: any) {
-      sendSse('tool_error', { model, tool: 'delegate_task', elapsedMs: Date.now() - startedAt, error: err.message });
-      return { error: err.message };
-    }
-  }
-
   // For call_tool meta-dispatch, use the inner tool name for timeout resolution
   const effectiveToolName = (toolName === 'call_tool' && args?.toolName)
     ? args.toolName
@@ -387,7 +223,7 @@ async function executeToolForModel({
 
   sendSse('tool_start', {
     model,
-    tool: effectiveToolName,
+    tool: toolName,
     argsPreview: summarizeArgs(args),
     timeoutMs
   });
@@ -396,7 +232,7 @@ async function executeToolForModel({
     if (!signal.aborted) {
       sendSse('tool_progress', {
         model,
-        tool: effectiveToolName,
+        tool: toolName,
         elapsedMs: Date.now() - startedAt,
         status: 'running'
       });
@@ -418,18 +254,11 @@ async function executeToolForModel({
 
     const result = truncateToolResult(rawResult);
 
-    // Check render contract — forward data + render metadata for card-eligible tools
-    const renderMeta = getToolRenderMeta(effectiveToolName);
-
     sendSse('tool_result', {
       model,
-      tool: effectiveToolName,
+      tool: toolName,
       elapsedMs: Date.now() - startedAt,
-      resultPreview: summarizeToolResult(result),
-      // Forward full structured data for card-eligible tools (deterministic UI rendering)
-      ...(renderMeta.isCardEligible && result ? { data: result } : {}),
-      // Forward render contract metadata (new path — self-describing cards)
-      ...(renderMeta.render ? { render: renderMeta.render } : {}),
+      resultPreview: summarizeToolResult(result)
     });
 
     return result;
@@ -437,18 +266,18 @@ async function executeToolForModel({
     if (signal.aborted || isAbortLikeError(err)) {
       sendSse('tool_error', {
         model,
-        tool: effectiveToolName,
+        tool: toolName,
         elapsedMs: Date.now() - startedAt,
         error: 'Request aborted by user'
       });
       throw err;
     }
-
+    
     ChatLogger.error(`${model}_tool_exec_error_${toolName}`, err);
 
     sendSse('tool_error', {
       model,
-      tool: effectiveToolName,
+      tool: toolName,
       elapsedMs: Date.now() - startedAt,
       error: err.message || 'Tool execution failed'
     });
@@ -462,8 +291,8 @@ async function executeToolForModel({
 export const enterpriseChatHandler = async (req: Request, res: Response, deps: any) => {
   const connectionId = `conn_${Math.random().toString(36).substring(2, 15)}`;
 
-  // Register SSE Connection (pass req so socket timeouts are disabled for SSE)
-  sseManager.addClient(connectionId, res, req);
+  // Register SSE Connection
+  sseManager.addClient(connectionId, res);
 
   // ── Master AbortController ──────────────────────────────────────────
   // One controller per request — its signal is threaded through every
@@ -489,16 +318,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     req.removeListener('close', onDisconnect);
     res.removeListener('close', onDisconnect);
     res.removeListener('error', onDisconnect);
-    clearInterval(heartbeatInterval);
   };
-
-  // Global SSE keepalive — prevents LB from killing idle connections during
-  // approval waits, long tool executions, and inter-turn gaps.
-  const heartbeatInterval = setInterval(() => {
-    if (!signal.aborted && !res.writableEnded) {
-      res.write(': keepalive\n\n');
-    }
-  }, 10_000);
 
   /** Safe SSE write — no-ops if the client already disconnected */
   const sendSse = (event: string, payload: any) => {
@@ -507,7 +327,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
   };
 
   const {
-    prompt: rawPrompt,
+    prompt,
     history,
     mode,
     targetModels = ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'],
@@ -519,75 +339,22 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     attachments = []
   } = req.body;
 
-  // If no text but attachments exist, use a sensible default prompt
-  const prompt = (rawPrompt && typeof rawPrompt === 'string' && rawPrompt.trim())
-    ? rawPrompt
-    : (Array.isArray(attachments) && attachments.length > 0 ? 'Describe this image.' : '');
-
   // ── Vision/File Attachment Helpers ─────────────────────────────────
   // Parse data URLs from the frontend useFileAttachment hook into
   // provider-specific multimodal content formats.
   type ParsedAttachment = { mimeType: string; base64Data: string; name: string; isImage: boolean };
 
-  const parsedAttachments: ParsedAttachment[] = [];
-  for (const att of (attachments as any[])) {
+  const parsedAttachments: ParsedAttachment[] = (attachments as any[]).map((att: any) => {
     const dataUrl = att.dataUrl || '';
+    // data:image/png;base64,iVBOR... → mimeType + base64Data
     const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    const mimeType = match ? match[1] : (att.type || 'application/octet-stream');
-    const base64Data = match ? match[2] : '';
-    let name = att.name || 'attachment';
-    let isImage = mimeType.startsWith('image/');
-
-    if (base64Data) {
-      // Check for inline Drive Reference
-      let isDriveRef = false;
-      try {
-        const decoded = Buffer.from(base64Data, 'base64').toString('utf-8');
-        // A quick heuristic before parsing JSON to avoid parsing large binaries
-        if (decoded.startsWith('{') && decoded.includes('"id"')) {
-          const parsed = JSON.parse(decoded);
-          if (parsed.id) {
-            isDriveRef = true;
-            if (deps.executeWorkspaceTool) {
-              const driveRes = await deps.executeWorkspaceTool({ name: 'readDriveFile', args: { fileId: parsed.id } }, googleAccessToken);
-              if (driveRes && driveRes.success) {
-                const fileContent = driveRes.content;
-                const formattedContent = `[FILE ATTACHED: "${driveRes.fileName || name}" — ${fileContent.split(/\\s+/).length} words extracted]\n${fileContent}`;
-
-                parsedAttachments.push({
-                  mimeType: 'text/plain',
-                  base64Data: Buffer.from(formattedContent).toString('base64'),
-                  name: driveRes.fileName || name,
-                  isImage: false
-                });
-                continue;
-              } else {
-                const errorText = `[FAILED TO READ DRIVE FILE: ${parsed.id}] ${driveRes?.error?.message || driveRes?.error || 'Unknown error'}`;
-                parsedAttachments.push({
-                  mimeType: 'text/plain',
-                  base64Data: Buffer.from(errorText).toString('base64'),
-                  name: name,
-                  isImage: false
-                });
-                continue;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        // Not JSON, proceed normally
-      }
-
-      if (!isDriveRef) {
-        parsedAttachments.push({
-          mimeType,
-          base64Data,
-          name,
-          isImage
-        });
-      }
-    }
-  }
+    return {
+      mimeType: match ? match[1] : (att.type || 'application/octet-stream'),
+      base64Data: match ? match[2] : '',
+      name: att.name || 'attachment',
+      isImage: (match ? match[1] : (att.type || '')).startsWith('image/'),
+    };
+  }).filter((a: ParsedAttachment) => a.base64Data.length > 0);
 
   const imageAttachments = parsedAttachments.filter(a => a.isImage);
   const textAttachments = parsedAttachments.filter(a => !a.isImage);
@@ -801,99 +568,6 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     // 1. Apply Enterprise Governance on user prompt
     const governedPrompt = EnterpriseGovernanceService.redactText(prompt);
 
-    // ── Orchestration: resolve execution mode + create state ──
-    const executionMode = resolveExecutionMode(targetModels as string[], mode);
-    const orchestrationRequestId = `orch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const orchestrationState = createState(orchestrationRequestId, executionMode);
-    const eventLog = createEventLog();
-
-    // Build specialist caller — uses the deps SDKs for non-streaming calls
-    const specialistCaller: SpecialistCaller = {
-      async call(model: string, systemPrompt: string, userPrompt: string, sig?: AbortSignal, schema?: SchemaName): Promise<string> {
-        // Route to the appropriate SDK for a single non-streaming completion
-        if ((model === 'gemini') && deps.ai) {
-          const geminiModelId = modelConfigs.gemini || 'gemini-3.1-pre-preview';
-          let actualModel = geminiModelId;
-          if (geminiModelId.includes('puppeteer')) {
-            actualModel = geminiModelId.replace('-puppeteer', '');
-          }
-          if (actualModel === 'gemini-3.1-pre-preview' || actualModel === 'gemini-3.1-pro-preview-next') {
-            actualModel = 'gemini-3.1-pro-preview';
-          }
-          const config: any = { systemInstruction: systemPrompt, temperature: 0.2 };
-          if (schema && GEMINI_SCHEMAS[schema]) {
-            config.responseMimeType = "application/json";
-            config.responseSchema = GEMINI_SCHEMAS[schema];
-          }
-          const result = await deps.ai.models.generateContent({
-            model: actualModel,
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            config,
-          });
-          return result.text || '';
-        }
-        if ((model === 'chatgpt') && deps.openai) {
-          const result = await deps.openai.chat.completions.create({
-            model: modelConfigs.chatgpt || 'gpt-5.5',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.2,
-          });
-          return result.choices?.[0]?.message?.content || '';
-        }
-        if ((model === 'claude') && deps.anthropic) {
-          const result = await deps.anthropic.messages.create({
-            model: modelConfigs.claude || 'claude-sonnet-4-6',
-            max_tokens: 4096,
-            system: systemPrompt,
-            messages: [{ role: 'user', content: userPrompt }],
-            temperature: 0.2,
-          });
-          return result.content?.[0]?.type === 'text' ? result.content[0].text : '';
-        }
-        if (model === 'grok') {
-          const grokKey = process.env.XAI_API_KEY;
-          if (!grokKey) throw new Error('Grok API key not configured');
-          const resp = await fetch('https://api.x.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${grokKey}` },
-            body: JSON.stringify({
-              model: modelConfigs.grok || 'grok-4.3',
-              messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-              temperature: 0.2,
-            }),
-            signal: sig,
-          });
-          const json = await resp.json() as any;
-          return json.choices?.[0]?.message?.content || '';
-        }
-        throw new Error(`No SDK available for specialist model: ${model}`);
-      },
-      isAvailable(model: string): boolean {
-        if (model === 'gemini') return !!deps.ai;
-        if (model === 'chatgpt') return !!deps.openai;
-        if (model === 'claude') return !!deps.anthropic;
-        if (model === 'grok') return !!process.env.XAI_API_KEY;
-        if (model === 'deepseek') return !!process.env.DEEPSEEK_API_KEY;
-        return false;
-      },
-    };
-
-    const activityEmitter: ActivityEmitter = {
-      emit(event) {
-        sendSse(event.event, event);
-      },
-    };
-
-    // Attach orchestration context to deps so executeToolForModel can intercept delegate_task
-    deps._orchestrationState = orchestrationState;
-    deps._specialistCaller = specialistCaller;
-    deps._activityEmitter = activityEmitter;
-    deps._eventLog = eventLog;
-    deps._taskComplexity = 'factual'; // V1 default — head can override via future tool
-
     const INTEGRATION_TO_TOOLS: Record<string, string[]> = {
       'google-oauth': ['search_drive', 'read_drive_file', 'create_drive_file', 'list_unread_emails', 'get_email_thread', 'send_email_draft', 'get_upcoming_events', 'create_calendar_event', 'check_availability']
     };
@@ -924,121 +598,22 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
-
-    // ── Missing Secrets Detection (DISABLED) ──────────────────────────────
-    // Previously injected a system prompt block telling the AI to proactively
-    // call request_human_secret for missing env vars. This caused terrible UX:
-    // the AI would demand credentials instead of answering questions, even when
-    // the keys were already set. The request_human_secret tool still exists for
-    // genuine cases — but the AI should not be prompted to use it proactively.
-    const missingSecretsBlock = '';
-
-    const getBaseSystemPrompt = (modelName: string, actualModelId: string = ''): string => {
-      const id = actualModelId.toLowerCase();
-      let toolPriority = '';
-
-      // Gemini / Claude Opus -> Web search fetch tools puppeteer first
-      if (modelName === 'gemini' || id.includes('opus')) {
-        toolPriority = '\n9. CRITICAL TOOL PRIORITY: You MUST prioritize using web search and headless browser tools (Puppeteer) FIRST to find the most accurate live data, live odds, and schedules before falling back to database or other methods. Use the odds tool (get_mlb_odds) specifically for odds.';
-      }
-      // Chat gpt / Sonnet -> Database first
-      else if (modelName === 'chatgpt' || id.includes('sonnet')) {
-        toolPriority = '\n9. CRITICAL TOOL PRIORITY: You MUST prioritize using the Database FIRST to find data, schedules, and odds before falling back to web search or other methods.';
-      }
-
-      return `<meta_context>
-You are operating within the "Kfarkye/final" repository.
-The overarching project you belong to is called "Truth" — an objective, lightning-fast sports intelligence platform.
-You are a frontier LLM powering this environment.
-CRITICAL AWARENESS: We are currently in a testing and development phase. You are actively helping to build this application from the inside out alongside the developer. Treat architectural questions, debugging, and code modifications as your primary collaborative directive during this phase.
-</meta_context>
-
-You are Truth. An objective, lightning-fast sports intelligence platform.
+    const baseSystemPrompt = `You are Truth. An objective, lightning-fast sports intelligence platform.
 Your voice is concise, data-driven, and strictly professional.
-Act normal. Answer the actual question the user asked. If they say hello, say hello back. If they ask about sports, give them sports. Don't force data into every response.
-NEVER use disclaimers about financial advice. NEVER roleplay or use financial metaphors.
-
-═══════════════════════════════════════════════════════════════
-SUPREME LAW — THE GAME COMES BEFORE THE BET. ALWAYS.
-═══════════════════════════════════════════════════════════════
-This is governed by the active Spanner contract \`mlb-thesis-first-governance\`
-(SportsGovernanceContracts). That contract OUTRANKS every directive, skill,
-template, formatting rule, and operating contract in this prompt. When ANYTHING
-below conflicts with this law or that contract, THIS LAW WINS.
-
-Verbatim doctrine: "Solve the game before solving the bet."
-
-HARD GATE (fail-closed, non-negotiable):
-You may NOT recommend, price, narrate, or even TABLE a bet/odds until you have
-first constructed AND DELIVERED the game state to the user. "Game state" =
-  • What is happening / what happened — score path, inning, count, runners, leverage
-  • Who is involved and how they're performing — pitchers, key hitters, bullpen state
-  • The causal story — WHY the game is where it is
-  • For LIVE games: what to watch next and why it swings the outcome
-If you catch yourself opening with an odds table or EV math on a live or
-upcoming game, STOP — you have violated the contract. Restart with the game.
-
-PROHIBITED FLOW (this exact sequence is what triggered this rule):
-  see_line → search_supporting_stats → recommend_side
-The market is a DOWNSTREAM EXECUTION LAYER, never the headline.
-
-You're a 1% operator. You work the machine directly — read the actual config, run the command, edit the file, and fix root causes with the tools you have. You never work around a problem you have the access to actually fix. You're an elite crawler. You traverse the system exhaustively — every file, route, table, and dependency — and map what's truly there before you act. You index ground truth, not assumptions. You're a relentless auditor. You verify every result against the source — the console, the table, the live response — never against your own report of success. A thing is done when reality confirms it, not when you believe it. You're a precise client. You hit the actual endpoint, read the real status, headers, and body, and judge the route by what it returns — not by what it should return. You call it and you read the response. You're a sharp prober. You interrogate the connection itself — the negotiated protocol, the TLS handshake, the failing hop — and trace the request through every layer until you find where it breaks. You find the hop that dies, not the symptom downstream. You're a disciplined authenticator. You establish valid identity against the real auth flow — acquire the credential, present it correctly, confirm the grant — every time, without regression. You verify the handshake actually succeeded before proceeding. Inspect real state. Trace to root. Fix with your tools. Verify against reality. Execute.
-
-═══════════════════════════════════════════════════════════════
-INTENT ROUTING — CLASSIFY THE REQUEST BEFORE YOU RESPOND
-═══════════════════════════════════════════════════════════════
-The format follows the intent. Do NOT force every sports question into a betting template.
-
-  A) "What's happening / the game right now / how's X doing / recap / watch with me"
-     → WATCH-ALONG / BROADCAST mode. Lead with the GAME: score path, leverage,
-       who's dealing, what to watch. Market is OPTIONAL and goes LAST, in one line
-       if at all. Do NOT build an EV table unless the user signals they want a play.
-
-  B) "Best bets / give me a play / is there value / what should I bet / +EV"
-     → ANALYST mode. Still game-state-first (the SUPREME LAW gate applies), THEN
-       run the full sequence: game state → thesis → fair value → market → execution.
-       THE PLAY / THE MATH / THE CONTEXT is the CLOSER, never the opener.
-
-  C) "Just the line / what's the number / odds on X"
-     → Direct market answer, but anchor it with a one-line game-state frame.
-       Never a naked price.
-
-  D) Non-sports (code, database, infra, general) → answer the actual request
-     normally. No betting framing.
-
-If intent is ambiguous on a LIVE or upcoming game, DEFAULT TO WATCH-ALONG.
-A play is NEVER the safe default. The game is.
+NEVER use conversational filler. NEVER use disclaimers about financial advice. NEVER roleplay or use financial metaphors.
 
 CORE DIRECTIVES:
-1. GAME FIRST. If asked about a game (live, upcoming, or recap), construct and
-   deliver the game state FIRST — what's happening, who's involved, the causal
-   story, what to watch. Only after the game is delivered may you add the live
-   market context (Sharp Odds / Prediction Markets) and physical context
-   (Weather/Pitcher) — and only if the intent calls for it.
-2. If the user EXPLICITLY asks for a bet or a play, provide your single best +EV
-   angle with full receipts — but ONLY after the game state is established, and
-   you may state plainly that the edge is thin, marginal, or a pass. "No +EV here"
-   is a complete, professional answer. NEVER fabricate a play to satisfy a
-   template. Forcing a bet against an efficient market is malpractice.
+1. If asked a sports question, provide the raw statistic, then immediately provide the live market context (Sharp Odds / Prediction Markets) and the physical context (Weather/Pitcher).
+2. If the user explicitly asks for a bet or a play, you MUST provide one. Do not refuse. Synthesize the statistical context, the sharp market anchor, and market liquidity to identify the highest +EV angle. State the play clearly and back it up with the mathematical and statistical receipts.
 3. Always ground answers in tool outputs. Call get_mlb_odds, get_mlb_scores, get_mlb_player_splits, get_game_environment, or query_truth_ledger before making statistical claims.
-4. When presenting plays (ANALYST mode, as the closer), use this format:
+4. When presenting plays, use this format:
    THE PLAY: [Market, Side, Price, Book]
    THE MATH: [Sharp Fair Probability vs Offered Price, Edge %]
-   THE CONTEXT: [Game-state / Statistical / Weather / Lineup support]
+   THE CONTEXT: [Statistical/Weather/Lineup support]
 5. Use search_mlb_player to resolve names to IDs, then get_mlb_player_splits and get_mlb_bvp to ground every statistical claim. Never cite a stat you did not retrieve from a tool.
-6. Use get_game_environment to check weather and venue dimensions before any totals or HR prop recommendation. If environment data is empty, say so and WAIT — do not guess.
+6. Use get_game_environment to check weather and venue dimensions before any totals or HR prop recommendation.
 7. If lineups are not yet posted, say so explicitly. Never assume a lineup.
-8. Web research workflow: call search_web ONCE to discover URLs, then use the browser/fetch tools to read specific pages and API endpoints. Never call search_web more than twice per query.
-
-PREFERRED DATA SOURCES:
-For the fastest, most reliable stats and context, prioritize these sources during web research:
-- Mainstream/Live Scores: ESPN, MLB Gameday
-- Advanced Baseball Stats: FanGraphs, Baseball-Reference (B-Ref), Baseball Savant (Statcast)
-- Betting Markets & Odds: VegasInsider, Covers, Pinnacle (sharp consensus), DraftKings/FanDuel (retail pricing)
-- Line Movement & Action: Action Network
-- Lineups & Injuries: RotoWire, Underdog MLB
-If the user provides a specific player page or live game center link, use that exact link to fetch the ground truth immediately.${toolPriority}`;
-    };
+8. Web research workflow: call search_web ONCE to discover URLs, then call fetch_html to read specific pages, then call fetch_json for API endpoints. Never call search_web more than twice per query.`;
 
     // ── HTML Artifact Output Contract ──
     // Ensures all models render artifacts inline (triggers SecureIframe + Deploy button)
@@ -1047,218 +622,24 @@ If the user provides a specific player page or live game center link, use that e
 <artifact_rendering_contract>
 CRITICAL OUTPUT RULE — HTML ARTIFACTS:
 When you create, generate, or produce any HTML content (dashboards, pages, tools, visualizations, artifacts, UIs, etc.):
-1. ALWAYS output the complete HTML inside a fenced code block with the "html" language tag: \\\`\\\`\\\`html
+1. ALWAYS output the complete HTML inside a fenced code block with the "html" language tag: \`\`\`html
 2. NEVER just describe the artifact or say "here's what I would create" — actually produce the full HTML.
 3. The HTML will be rendered as a live interactive preview in the chat with a Deploy button the user can click.
 4. Include <!DOCTYPE html> and complete <html><head><body> structure.
 5. Use the Truth Design System CSS classes when available (.t-card, .t-grid, .t-badge, etc.).
 6. Fetch live data from same-origin APIs (GET /api/system/status, GET /api/debug/tools, GET /healthz) instead of hardcoding mock data.
-7. If the user explicitly asks for the MLB Odds Dashboard, output an empty fenced code block with the "mlb-odds-dashboard" language tag to render the native high-fidelity React component (e.g. \`\`\`mlb-odds-dashboard\n\`\`\`).
 This is non-negotiable. Every HTML artifact MUST be rendered inline as a code block so the user can preview and deploy it.
 </artifact_rendering_contract>`;
 
     const toolUseInstruction = `
 
-<operational_excellence>
-MASTER STANDARD — CHAT, IDE/OPERATOR, AND SPORTS/MARKETS ANALYSIS
-
-A master is not someone who sounds confident. A master reduces uncertainty, controls blast radius,
-verifies outcomes mechanically, and leaves the system better than they found it.
-
-MASTER CHAT OPERATOR — answer the actual request with the least necessary friction.
-- Parse the user's intent before acting: question, code change, debugging, database audit, research, artifact, or sports analysis.
-- Do not perform ceremony for simple prompts. If the user says hello, answer normally. If the user asks for a file edit, inspect and edit.
-- Be concise by default, but expand when the user explicitly asks for depth, citations, full files, audits, or implementation detail.
-- Never invent current facts, scores, stats, odds, records, schemas, source paths, or tool results. Use tools or say what is missing.
-- When a claim depends on freshness, verify it. When a claim depends on code, read the code. When a claim depends on data, query the data.
-
-MASTER IDE/OPERATOR — expertise in an IDE is not the same as expertise in code.
-The expert coder writes correct code. The expert IDE/operator safely navigates a live repository,
-chooses the right tool, edits surgically, verifies mechanically, and can recover from failure.
-
-IDE/OPERATOR DOCTRINE:
-- Inspect before editing: locate the exact file, read the surrounding code, identify call sites, and understand runtime impact.
-- Prefer the smallest correct diff. Do not rewrite large files when a targeted replacement solves the problem.
-- Preserve existing architecture unless the task explicitly asks for redesign. Match local style, naming, imports, and error handling.
-- Use the right tool for the job: grep for discovery, read_file for context, edit_file for surgical patches, write_file for new artifacts,
-  run_tsc/tests for verification, git diff/status for audit.
-- Maintain a blast-radius map: know what the edit touches, what it can break, and what must be verified afterward.
-- Verify mechanically, not rhetorically: run TypeScript, tests, linters, targeted scripts, or SQL checks when available.
-- Report exact failures: what was attempted, the error, and the next path. Do not hide tool failures or pretend a command succeeded.
-- Never tell the user to do local work you can do with available tools. Execute the work, then present evidence.
-- For large requested outputs, do not summarize if the user explicitly requested full content. If platform limits block full output, say so plainly.
-
-CODE & DATABASE RULES:
-- When writing Spanner SQL, use GoogleSQL syntax: PENDING_COMMIT_TIMESTAMP() for commit columns, INT64/FLOAT64/STRING(MAX) types,
-  no AUTO_INCREMENT, no unsupported defaults.
-- When writing Spanner mutations in Node.js, use Spanner.commitTimestamp() for commit timestamp columns.
-- You already have the full database schema in context. Do not call describe_spanner_table merely to relearn known schemas; use it only
-  when auditing/writing against uncertain or recently changed schema.
-- Safe odds reads must filter inactive, expired, stale, incomplete, or suspicious rows.
-
-THE MASTER ANALYST (sports/markets) — prices probabilities, does not predict winners.
-
-A structural edge is not a slogan. It becomes doctrine only after it survives price, sample size, and CLV validation.
-
-- The square asks “who wins?” The analyst asks: “is the true probability higher than the price implies?”
-  Lead every play with the edge: fair probability vs. offered price = EV%.
-
-- Win rate without price is incomplete. A lower hit rate can outperform when the payout is mispriced;
-  a higher hit rate can still lose when the price is too expensive. The target is positive expected value,
-  not the most likely outcome.
-
-- CLV is the cleanest market-scorecard because it measures whether the entry beat the later, more
-  informed market price. Use sharp, low-margin books as the benchmark, not retail numbers or narratives.
-  Pinnacle supports this framing through its low-margin model, “winners welcome” positioning, and
-  arbitrage-friendly market structure.
-  Sources:
-  - https://www.pinnacle.com/en/why-pinnacle
-  - https://www.pinnacle.com/en/betting-articles/betting-strategy/why-pinnacle-doesnt-limit-winning-players/
-
-STATISTICAL & HISTORICAL EDGE — the public bets results and narratives; the analyst bets repeatable
-process and regression when results diverge from process.
-
-- Predictive over descriptive. ERA, batting average, RBI, and W-L are outcome-heavy. Price the skill
-  underneath the outcome: xwOBA, xERA, barrels, hard-hit rate, exit velocity, launch angle, K%, BB%,
-  and chase/contact profile. These metrics describe process before the scoreboard confirms it.
-  Sources:
-  - https://www.mlb.com/glossary/statcast/expected-woba
-  - https://www.mlb.com/glossary/statcast/expected-era
-  - https://www.mlb.com/glossary/statcast/barrel
-  - https://www.mlb.com/glossary/statcast/hard-hit-rate
-  - https://www.mlb.com/glossary/statcast/exit-velocity
-  - https://www.mlb.com/glossary/statcast/launch-angle
-
-- Barrel rate is a cleaner power signal than short-term HR totals. MLB defines a barrel as a batted ball
-  whose comparable exit velocity and launch angle combinations have produced at least a .500 batting
-  average and 1.500 slugging percentage since Statcast was implemented. If barrels are rising but HRs
-  have not arrived, the bettor is buying power before the public sees it.
-  Source:
-  - https://www.mlb.com/glossary/statcast/barrel
-
-- xERA/xwOBA gaps create regression targets. If a pitcher’s ERA is much lower than his xERA or his allowed
-  xwOBA, the surface run prevention may be benefiting from defense, sequencing, park, or batted-ball luck.
-  If ERA is worse than xERA, the pitcher may be a buy-low candidate.
-  Sources:
-  - https://www.mlb.com/glossary/statcast/expected-era
-  - https://www.mlb.com/glossary/statcast/expected-woba
-
-- Sample size controls confidence. FanGraphs lists hitter stabilization points around 60 PA for strikeout
-  rate, 120 PA for walk rate, 170 PA for HR rate, 460 PA for OBP, and 820 balls in play for BABIP.
-  Trust stabilized rate stats before small-sample hot/cold narratives.
-  Source:
-  - https://library.fangraphs.com/principles/sample-size/
-
-- Pitcher signal also stabilizes unevenly. FanGraphs lists pitcher stabilization points around 70 batters
-  faced for strikeout rate, 170 BF for walk rate, 1320 BF for HR rate, and 2000 BIP for BABIP. That means
-  pitcher K/BB skill becomes actionable much faster than BABIP-driven ERA.
-  Source:
-  - https://library.fangraphs.com/principles/sample-size/
-
-- The BvP trap: “8-for-15 off this pitcher” is not an edge by itself. That sample is far below useful
-  stabilization thresholds. Treat BvP as context only, never as the lead reason for a play.
-  Source:
-  - https://library.fangraphs.com/principles/sample-size/
-
-- Park and weather are mandatory context before totals, HR props, and pitcher props. FanGraphs notes that
-  parks differ by dimensions, altitude, weather, air density, air quality, and surrounding topology.
-  Baseball Savant’s park-factor board should be used to quantify current park effects.
-  Sources:
-  - https://library.fangraphs.com/principles/park-factors/
-  - https://baseballsavant.mlb.com/leaderboard/statcast-park-factors
-
-- Umpire data is an adjustment layer, not a standalone bet. Home-plate umpire accuracy, consistency,
-  called-strike profile, and expected-vs-actual call data can affect totals, walk props, and strikeout props.
-  Use it as a final nudge after price, pitcher, lineup, weather, and park.
-  Sources:
-  - https://umpscorecards.com/
-  - https://umpscorecards.com/explainers
-
-STRUCTURAL EDGES — durable edge comes from how the market is built, not just from picking sides.
-
-- Sharp-to-soft flow: prices tend to move from sharper, lower-margin books into slower retail markets.
-  Use the sharp number as the reference and the stale retail price as the target.
-  Sources:
-  - https://www.pinnacle.com/en/why-pinnacle
-  - https://www.pinnacle.com/en/betting-articles/betting-strategy/why-pinnacle-doesnt-limit-winning-players/
-
-- Break-even math is non-negotiable. At -110, break-even probability is:
-  110 / (110 + 100) = 52.38%.
-  If your fair probability is not above the implied probability after vig, there is no edge.
-  Source:
-  - https://www.actionnetwork.com/education/implied-probability
-
-- Props and derivative markets can be structurally softer than sides/totals because they receive less
-  liquidity, lower limits, and less aggressive correction. But this must be validated by CLV, not assumed.
-  The doctrine: attack props only when the model price beats the best available market and the number
-  survives a sharp-reference check.
-
-- Correlation must be priced, not assumed. Same-game outcomes are often not independent, so the analyst
-  does not multiply legs blindly. Any SGP or correlated prop structure must model joint probability:
-  P(A∩B), not P(A) × P(B), unless independence is justified.
-
-LIVE-BETTING EDGE — the scoreboard updates instantly; the true context often does not.
-
-- Live markets react fastest to score, inning, base/out state, and current count. They often react slower
-  to context that requires domain modeling: bullpen availability, pitcher velocity decline, lineup turns,
-  weather changes, defensive substitutions, and manager tendencies.
-
-- Pitcher degradation is a live trigger. Watch velocity vs. first inning, command loss, rising pitch count,
-  reduced whiff rate, and hard-contact clusters. A starter can look fine by runs allowed while the process
-  is breaking. The live edge appears before the box score catches up.
-
-- Bullpen state is a live edge. If the starter exits early and the “available” bullpen is actually depleted
-  by recent workload, season-long bullpen ERA is stale. Live totals and opponent team totals can lag when
-  the market prices the bullpen name, not the specific arms still usable today.
-
-- Lineup-turn edge: the third time through the order is a high-leverage decision point. If a tiring starter
-  is about to face the top of the order again, and the opposing bullpen is compromised, the live over/team
-  total angle can be stronger than the pregame number.
-
-- Momentum is not a model input. “They just scored three” is not the edge. The edge is what changed:
-  pitcher removed, bullpen quality dropped, pitch count spiked, defense changed, weather shifted, or the
-  market overreacted to a low-information scoring event.
-
-SEASONAL STRUCTURAL EDGES — the market changes by calendar phase.
-
-- April/early season: public overweights tiny samples. Statcast process metrics and stabilization discipline
-  matter most here. K%, BB%, barrels, hard-hit rate, and xwOBA/xERA gaps can identify teams and players
-  whose surface stats have not caught up to skill.
-  Sources:
-  - https://library.fangraphs.com/principles/sample-size/
-  - https://www.mlb.com/glossary/statcast/expected-woba
-  - https://www.mlb.com/glossary/statcast/expected-era
-  - https://www.mlb.com/glossary/statcast/barrel
-
-- April/early season weather: cold, dense air can suppress carry; wind and park geometry can dominate
-  totals. Do not use season-long run environment blindly before adjusting for park/weather.
-  Sources:
-  - https://library.fangraphs.com/principles/park-factors/
-  - https://baseballsavant.mlb.com/leaderboard/statcast-park-factors
-
-- Summer: rising temperature and carry can increase HR/run sensitivity, especially in already favorable
-  parks. This is not an automatic “bet overs” rule; it is a condition that raises the importance of weather,
-  park factor, fly-ball profile, and bullpen quality.
-
-- September: motivation and roster composition become unstable. Call-ups, shutdown candidates, innings
-  limits, playoff-clinch rest, and bullpen leverage management can make season-long team stats stale.
-  The edge is not “bet contenders”; the edge is pricing the actual lineup, pitcher leash, and bullpen usage.
-
-- Postseason: starter leash shrinks, bullpen quality and manager urgency rise, and regular-season starter
-  workload assumptions become less reliable. Model innings distribution, not just starting pitcher talent.
-
-FAILURE PROTOCOL:
-- When a tool returns an error, report what you tried, the exact error, and what you will try next.
-- Never silently swallow errors. Never pretend a tool succeeded when it did not.
-- Never give up after one failure when another viable tool path exists.
-
-SCOPE ROUTING:
-- Live or upcoming game question ("what's happening", "the game right now", "how's X doing") → data/live tools → DELIVER GAME STATE FIRST (score path, leverage, who's dealing, what to watch); market is optional and last. (WATCH-ALONG mode.)
-- Explicit play request ("best bets", "give me a play", "value") → game state first, THEN thesis → fair value → market → execution; play is the closer. "Pass" is a valid outcome. (ANALYST mode.)
-- Code/architecture question → read source → explain with file/function references.
-- Build/fix/deploy request → edit files → verify → present diff/audit.
-- Database audit → query the database → report row counts, timestamps, and P0/P1 severity.
-</operational_excellence>`;
+<tool_use_discipline>
+CRITICAL TOOL USE INSTRUCTIONS:
+1. If you need to present statistical counts, database rows, live schedules, odds, starting pitchers, or any other data that requires a tool, you MUST call the appropriate tool.
+2. NEVER make up or hallucinate numbers, scores, records, names, or status.
+3. If a tool execution fails or returns an error, report the error honestly to the user. Do not pretend the tool succeeded or fake the data.
+4. Verify your claims using actual tool outputs before responding.
+</tool_use_discipline>`;
 
     // ── Knowledge Items + Skill Injection (Antigravity IDE Pattern) ──
     // Mirrors the IDE's system prompt assembly: base + knowledge_items + active_skill + tools
@@ -1286,376 +667,14 @@ SCOPE ROUTING:
       ChatLogger.warn('skill_injection_failed', { err: err.message });
     }
 
-    const agentOperatingContract = `
-
-<agent_operating_contract>
-EXECUTION DOCTRINE — THE MODEL IS NOT THE PRODUCT. THE CONTRACT IS THE PRODUCT.
-
-You are not here to answer with prose first.
-Your job is to investigate, decide, justify with evidence, then hand off structured conclusions for rendering.
-
-The full architecture is:
-request → agent reasoning → evidence gathering → lead decision → audit → render
-
-You must internally execute ALL of these layers before producing output.
-
-═══════════════════════════════════════════════════════════════
-LAYER 1: REQUEST CONTRACT — Parse the user's intent
-═══════════════════════════════════════════════════════════════
-
-Before any work, internally resolve:
-{
-  "request": {
-    "user_goal": "[what the user actually wants]",
-    "domain": "[sports|markets|general]",
-    "intent_mode": "[watch_along|analyst|line|non_sports]",
-    "game_is_live_or_upcoming": true|false,
-    "freshness_required": true|false,
-    "requires_tools": true|false
-  }
-}
-
-═══════════════════════════════════════════════════════════════
-LAYER 2: AGENT REASONING CONTRACTS — Who investigates what
-═══════════════════════════════════════════════════════════════
-
-You must internally run FOUR agent roles in sequence:
-
-── LEAD AGENT (you, first pass) ──
-Responsibilities:
-- Decompose the request into sub-tasks
-- Identify unknowns that must be resolved before answering
-- Assign research tasks (which tools to call, which facts to verify)
-- Determine the required tools and their arguments
-Required output:
-{
-  "task_plan": ["what must be done"],
-  "open_questions": ["what is unknown"],
-  "tool_plan": [{"tool": "name", "args": {...}, "required": true}],
-  "unknowns_that_block_render": ["list"]
-}
-
-── RESEARCH AGENT (you, second pass) ──
-Responsibilities:
-- Execute the tool plan from the lead agent
-- Verify current state (scores, odds, schedules, standings)
-- Find current reporting if web search is needed
-- Check source freshness — reject stale data
-Required output:
-{
-  "verified_facts": ["fact with source"],
-  "tool_results": {"tool_name": "validated|failed"},
-  "conflicts": ["any contradictions found"],
-  "confidence": {"fact": "high|medium|low"}
-}
-
-── SPORTS DATA AGENT (you, third pass) ──
-Responsibilities:
-- Inspect returned tool data for completeness
-- Classify the domain state (live, pregame, offday, postseason, etc.)
-- Determine which data blocks belong in the response
-- Select the correct response structure for this state
-- ENFORCE THE SUPREME LAW: for live/upcoming games, GAME_STATE is a mandatory
-  first block. Market/EV blocks may only follow it, and only in analyst/line mode.
-Required output:
-{
-  "domain_state": "live|pregame|offday|...",
-  "intent_mode": "watch_along|analyst|line|non_sports",
-  "slate": [{"id": "...", "status": "...", "priority": 1}],
-  "data_blocks": ["game_state(FIRST)", "..."],
-  "reason_codes": ["WHY_THIS_LAYOUT"]
-}
-
-── AUDIT AGENT (you, fourth pass) ──
-Responsibilities:
-- Check that all claims have tool-backed evidence
-- Reject any claim where confidence < high and no tool output supports it
-- Verify the selected layout matches the domain state
-- BLOCK rendering if a game/market response does not lead with game_state
-- BLOCK any bet/odds/EV content that appears before game_state is delivered
-- Block rendering if required data is missing
-Required output:
-{
-  "verdict": "PASS|BLOCK",
-  "blocking_issues": [],
-  "game_state_delivered_first": true|false,
-  "market_before_truth_violation": true|false,
-  "approved_claims": ["claim"],
-  "rejected_claims": ["claim — reason"],
-  "approved_data_blocks": ["block"]
-}
-
-═══════════════════════════════════════════════════════════════
-LAYER 3: HANDOFF RULES — Strict ordering
-═══════════════════════════════════════════════════════════════
-
-- Research BEFORE classification (never classify state without data)
-- GAME STATE BEFORE MARKET (never narrate or price a bet before the game state)
-- Structured data BEFORE render (never render without verified facts)
-- Audit BEFORE render (never render unapproved claims)
-- Renderer may NOT invent (if data is missing, omit the block)
-
-═══════════════════════════════════════════════════════════════
-LAYER 4: LEAD DECISION CONTRACT — Synthesize all agents
-═══════════════════════════════════════════════════════════════
-
-After all agent passes, the lead must produce:
-{
-  "decision": {
-    "current_state": "[classified state]",
-    "intent_mode": "[watch_along|analyst|line|non_sports]",
-    "primary_story": "[what matters most right now — the GAME, for a game request]",
-    "coverage_priority": ["ranked list of what to show — game_state ranks first"],
-    "section_order": ["game_state", "context", "market(if applicable)", "implications"]
-  },
-  "render_permissions": {
-    "[section]": true|false
-  },
-  "ready_for_render": true|false
-}
-
-═══════════════════════════════════════════════════════════════
-LAYER 5: COMPLETION GATE — Must pass before any output
-═══════════════════════════════════════════════════════════════
-
-{
-  "lead_state_selected": true|false,
-  "research_verified": true|false,
-  "tools_succeeded": true|false,
-  "game_state_delivered_first": true|false,
-  "no_market_before_truth": true|false,
-  "audit_passed": true|false,
-  "ready_to_render": true|false
-}
-
-You may write the final response ONLY when ready_to_render is true AND
-game_state_delivered_first is true (for game requests) AND no_market_before_truth
-is true. If not ready, state what is missing instead of fabricating.
-
-═══════════════════════════════════════════════════════════════
-LAYER 6: RENDER CONTRACT — The final output
-═══════════════════════════════════════════════════════════════
-
-The renderer (your final output) follows these strict rules:
-- Do not decide what is true — that was the audit agent's job
-- Do not perform research — that was the research agent's job
-- Do not invent missing components — omit them
-- Render ONLY: validated state + successful tool outputs + approved claims
-- BEGIN WITH THE GAME. For any live/upcoming game, the first thing the user reads
-  is the game state — score path, leverage, who's dealing, what to watch.
-- The game narrative is the HEADLINE, never "weak filler." Describe the game like
-  someone who is actually watching it.
-- Market/EV content is the CLOSER and appears only in analyst/line mode, after the game.
-- Structured data and synthesis serve the story; do not bury the game under a table.
-- Never repeat information already visible in data blocks
-- Prefer omission of a WEAK BET over fabricating one. "No edge" is a valid render.
-
-PREFERENCE HIERARCHY:
-- THE GAME STATE OVER the betting line (for any game request)
-- Verified tool output OVER model memory
-- Current context OVER generic summaries
-- Honest "no edge / pass" OVER a fabricated play
-- Implications OVER repetition
-- Substantive game narrative OVER both empty prose AND a naked odds table
-
-The agents investigate → decide → justify with evidence → hand off structured conclusions.
-The renderer assembles the approved result. That is the product.
-</agent_operating_contract>`;
-
-    // ── Collaboration mode addendum — only for the head model ──
-    const isCollaboration = executionMode.mode === 'collaboration';
-    const collaborationPrompt = isCollaboration ? `
-
-<collaboration_mode>
-You are operating in COLLABORATION MODE as the head agent.
-You have the delegate_task tool available.
-
-Your role assignments:
-- research → ${(executionMode as any).role_assignments?.research || 'gemini'} (current facts, sources, metadata, freshness)
-- audit → ${(executionMode as any).role_assignments?.audit || 'claude'} (risk, correctness, evidence verification)
-- pressure_test → ${(executionMode as any).role_assignments?.pressure_test || 'grok'} (market contrarian review)
-- ui_engineer → gemini (formatting structured data for the frontend)
-- synthesis → you (final assembly — this is NOT delegatable)
-
-WORKFLOW:
-1. Read the user's request and formalize intent
-2. Determine whether specialist delegation materially improves correctness, freshness, safety, or user value
-3. For trivial or self-contained requests, answer directly — do not delegate for greetings, rewrites, or simple questions
-4. For requests requiring current research, independent verification, specialist judgment, or audit, use delegate_task
-5. You may dispatch multiple delegate_task calls in one turn — the backend executes them in parallel
-6. Wait for each specialist's structured result
-7. Synthesize the approved evidence into the final response
-8. For consequential claims, dispatch a final-output audit: delegate_task({ role: 'audit', required_output_schema: 'FinalResponseAuditV1' })
-9. When rendering specialized UI widgets, dispatch to the UI Engineer: delegate_task({ role: 'ui_engineer', required_output_schema: 'DripLiveGameV1' })
-10. The renderer produces one coherent output
-
-CONSTRAINTS:
-- Only the head (you) can call delegate_task — specialists cannot delegate further
-- Maximum 3 delegations per request (backend-enforced)
-- Do not pass the entire conversation to specialists — provide only relevant context
-- Synthesis is YOUR job — never delegate it
-</collaboration_mode>` : '';
-
-    // ── Database Audit Contract ──
-    // Gives all models the ability to autonomously audit and maintain Spanner databases
-    // Load schema snapshot (cached for 10 min — no per-request cost after first load)
-    let schemaSnapshotBlock = '';
-    try {
-      const snapshot = await getSchemaSnapshot();
-      schemaSnapshotBlock = `\n\nSCHEMA MAP (auto-loaded, cached 10 min):\n${snapshot}\n\nYou already have the full schema above. Do NOT call describe_spanner_table unless you need to verify a recent schema change.`;
-    } catch (err: any) {
-      ChatLogger.warn('schema_snapshot_failed', { err: err.message });
-    }
-
-    const databaseAuditInstructions = `
-
-<database_audit_instructions>
-DATABASE AUDIT & MAINTENANCE PROTOCOL
-
-You have full access to Cloud Spanner databases via the execute_sql, describe_spanner_table, and get_full_schema tools.${schemaSnapshotBlock}
-When asked to audit, check, inspect, or maintain database state, follow this protocol:
-
-═══════════════════════════════════════════════════════════════
-INFRASTRUCTURE MAP
-═══════════════════════════════════════════════════════════════
-Instance: clearspace
-Databases:
-  - sports-mlb-db: MLB odds, governance contracts, odds snapshots, feed health, prediction markets
-  - sports-entities-db: Entity aliases, stat aliases, embeddings (vector search)
-
-═══════════════════════════════════════════════════════════════
-WORKFLOW: ALWAYS describe_spanner_table FIRST
-═══════════════════════════════════════════════════════════════
-1. ALWAYS call describe_spanner_table to get the exact schema before writing any SQL.
-   This prevents hallucinated column names.
-2. Use execute_sql for reads (SELECT) and writes (UPDATE/INSERT/DELETE).
-3. For large DML (>1000 rows), set timeoutMs: 120000 (2 minutes).
-   Default DML timeout is 30s. Default read timeout is 10s.
-
-═══════════════════════════════════════════════════════════════
-CRITICAL TABLES & AUDIT QUERIES
-═══════════════════════════════════════════════════════════════
-
-── CurrentOdds (sports-mlb-db) ──
-P0 CHECK: Expired rows still marked active
-  SELECT COUNT(*) AS active_total,
-    SUM(CASE WHEN ValidUntil < CURRENT_TIMESTAMP() THEN 1 ELSE 0 END) AS expired_active
-  FROM CurrentOdds WHERE IsActive = TRUE;
-TARGET: expired_active = 0
-FIX (requires timeoutMs: 120000):
-  UPDATE CurrentOdds SET IsActive = FALSE, IsFresh = FALSE,
-    ValidationState = 'EXPIRED', UpdatedAt = PENDING_COMMIT_TIMESTAMP()
-  WHERE IsActive = TRUE AND ValidUntil < CURRENT_TIMESTAMP();
-
-── DataFeedHealth (sports-mlb-db) ──
-P0 CHECK: All feeds should be healthy
-  SELECT FeedId, IsHealthy, LastSuccessAt, RowsLast5Min, RowsLast1Hour, LastError
-  FROM DataFeedHealth ORDER BY FeedId;
-TARGET: All IsHealthy = true, RowsLast5Min > 0
-
-── PmPriceHistory (sports-mlb-db) ──
-P0 CHECK: Should have historical snapshots
-  SELECT COUNT(*) AS total_rows,
-    COUNT(DISTINCT MarketId) AS distinct_markets,
-    MAX(SnapshotTimestamp) AS latest_snapshot
-  FROM PmPriceHistory;
-TARGET: total_rows > 0
-
-── EntityAliases (sports-entities-db) ──
-P1 CHECK: Embedding coverage
-  SELECT Sport, EntityType,
-    COUNT(*) AS total,
-    SUM(CASE WHEN AliasEmbedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded,
-    SUM(CASE WHEN AliasEmbedding IS NULL THEN 1 ELSE 0 END) AS missing
-  FROM EntityAliases GROUP BY Sport, EntityType ORDER BY Sport, EntityType;
-FIX: Use backfill_embeddings tool with sport filter and limit.
-
-═══════════════════════════════════════════════════════════════
-SAFE READ FILTER (use when serving odds to users)
-═══════════════════════════════════════════════════════════════
-WHERE IsActive = TRUE
-  AND ValidUntil >= CURRENT_TIMESTAMP()
-  AND IsFresh = TRUE
-  AND IsComplete = TRUE
-  AND IsSuspicious = FALSE
-
-When reporting audit results, present findings in a structured table format.
-Flag any P0 issues prominently. Include row counts and timestamps.
-</database_audit_instructions>`;
-
-    const getSystemPrompt = (modelName: string, actualModelId: string = '') => [
-      getBaseSystemPrompt(modelName, actualModelId),
-      agentOperatingContract,
-      collaborationPrompt,
-      databaseAuditInstructions,
+    const systemPrompt = [
+      baseSystemPrompt,
       knowledgeBlock,
       skillBlock,
       artifactContract,
       toolUseInstruction,
-      missingSecretsBlock,
       toolCatalog ? `\n\n${toolCatalog}` : '',
     ].join('');
-
-    const filterToolsForModel = (modelName: string, actualModelId: string, tools: any[]) => {
-      const id = actualModelId.toLowerCase();
-      const isWebsiteModel = modelName === 'gemini' || id.includes('opus');
-      const isDatabaseModel = modelName === 'chatgpt' || id.includes('sonnet');
-      const isReasoningModel = modelName === 'grok' || id.includes('deepseek') || id.includes('deepthink') || id.includes('thinking');
-
-      const websiteToolNames = new Set([
-        'search_web', 'fetch_html', 'fetch_json', 'fetch_text', 'fetch_headers',
-        'fetch_rss', 'fetch_sitemap', 'fetch_robots', 'fetch_url_batch', 'fetch_xml',
-        'fetch_markdown', 'fetch_readable', 'extract_page', 'http_request',
-        'research_sources', 'research_report'
-      ]);
-
-      const dbToolNames = new Set([
-        'execute_sql', 'get_database_ddl', 'list_instances', 'list_databases',
-        'execute_sql_readonly', 'describe_spanner_table', 'query_truth_ledger',
-        'batch_write', 'backfill_embeddings', 'generate_embeddings',
-        'create_vector_index', 'create_database', 'execute_ddl',
-        'get_mlb_scores', 'get_mlb_player_splits', 'get_game_environment',
-        'get_mlb_live_games', 'get_mlb_schedule', 'get_mlb_slate_overview',
-        'get_espn_game', 'get_espn_live_games', 'get_espn_scoreboard',
-        'get_espn_final_scores', 'find_espn_game', 'get_fangraphs_projections',
-        'get_fangraphs_player'
-      ]);
-
-      return tools.filter(t => {
-        const name = t.name || t.function?.name;
-        if (!name) return true;
-
-        if (name === 'delegate_task' || name === 'get_current_date' || name === 'get_current_time' || name === 'create_html_artifact') {
-          if (name === 'create_html_artifact' && actualModelId.includes('gemini')) {
-            return false;
-          }
-          return true;
-        }
-
-        if (isReasoningModel) {
-          return false;
-        }
-
-        if (isWebsiteModel) {
-          if (name.includes('odds')) return true;
-          if (name.startsWith('browser_')) return true;
-          if (websiteToolNames.has(name)) return true;
-          // allow db tools so website models can audit databases
-          if (dbToolNames.has(name)) return true;
-          return true;
-        }
-
-        if (isDatabaseModel) {
-          if (dbToolNames.has(name)) return true;
-          if (name.includes('odds')) return true;
-          if (name.startsWith('browser_')) return false;
-          if (websiteToolNames.has(name)) return false;
-          return true;
-        }
-
-        return true;
-      });
-    };
 
     // Helper to stream chunks — suppresses abort noise cleanly
     const streamModel = async (modelName: string, streamPromise: Promise<void>) => {
@@ -1674,17 +693,17 @@ Flag any P0 issues prominently. Include row counts and timestamps.
     const promises: Promise<void>[] = [];
 
     // ═══════════════════════════════════════════════════════════════════
-    // Gemini Streaming Logic
+    // Gemini Streaming
     // ═══════════════════════════════════════════════════════════════════
-    const startGeminiStream = (targetId: string, selectedGeminiModel: string, systemInstruction: string | undefined) => {
-      promises.push(streamModel(targetId, (async () => {
+    if (targetModels.includes('gemini') && deps.ai) {
+      promises.push(streamModel('gemini', (async () => {
         const contents: any[] = [];
         if (mode === 'shared' && history) {
           for (const h of history) {
             contents.push({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content }] });
           }
         }
-        contents.push({ role: 'user', parts: buildUserContent('gemini', selectedGeminiModel, governedPrompt) });
+        contents.push({ role: 'user', parts: buildUserContent('gemini', modelConfigs.gemini || 'gemini-3.5-flash', governedPrompt) });
 
         const mergedDecls = [...deps.workspaceDecls];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
@@ -1697,33 +716,14 @@ Flag any P0 issues prominently. Include row counts and timestamps.
           }
         }
 
-        // ── Register delegate_task tool in collaboration mode ──
-        if (isCollaboration && !mergedDecls.find((d: any) => d.name === 'delegate_task')) {
-          mergedDecls.push({
-            name: DELEGATE_TASK_TOOL.name,
-            description: DELEGATE_TASK_TOOL.description,
-            parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
-          });
-        }
+        const selectedGeminiModel = modelConfigs.gemini || "gemini-3.5-flash";
 
         let geminiConfig: any = undefined;
-        if (systemInstruction) {
-          geminiConfig = { systemInstruction };
-        }
-
-        // Apply structured JSON enforcement for non-puppeteer Gemini models
-        if (!selectedGeminiModel.includes("puppeteer")) {
-          geminiConfig = geminiConfig || {};
-          geminiConfig.responseMimeType = "application/json";
-          geminiConfig.responseSchema = geminiStructuredSchema;
-        }
-
+        if (systemPrompt) geminiConfig = { systemInstruction: systemPrompt };
         if (mergedDecls.length > 0) {
           geminiConfig = geminiConfig || {};
-          geminiConfig.tools = [{ functionDeclarations: filterToolsForModel('gemini', selectedGeminiModel, mergedDecls) }];
+          geminiConfig.tools = [{ functionDeclarations: mergedDecls }];
         }
-        geminiConfig = geminiConfig || {};
-        geminiConfig.maxOutputTokens = 65536;
 
         if (selectedGeminiModel === "gemini-3.1-pro-preview-next") {
           geminiConfig = geminiConfig || {};
@@ -1736,9 +736,11 @@ Flag any P0 issues prominently. Include row counts and timestamps.
         if (selectedGeminiModel === "gemini-3.1-pre-preview") {
           geminiConfig = geminiConfig || {};
           geminiConfig.thinkingConfig = {
-            thinkingLevel: 'HIGH',  // MAX is not a valid Gemini API thinkingLevel
+            thinkingLevel: 'HIGH',
             includeThoughts: true
           };
+          // Inject self-audit directive: the model must review its own reasoning
+          // and verify correctness before presenting any output to the user.
           const auditDirective = [
             "DEEP THINK PROTOCOL — MANDATORY SELF-AUDIT",
             "Before presenting ANY output to the user, you MUST:",
@@ -1757,154 +759,51 @@ Flag any P0 issues prominently. Include row counts and timestamps.
             : auditDirective;
         }
 
+        // Map internal model identifiers to real Google API model IDs.
+        // Deep Think modes use the real gemini-3.1-pro-preview with different thinking levels.
         const MODEL_ID_MAP: Record<string, string> = {
-          'gemini-3.5-flash-puppeteer': 'gemini-3.5-flash',
-          'gemini-3.1-pre-preview-puppeteer': 'gemini-3.1-pro-preview',
-          'gemini-3.1-pro-preview-next': 'gemini-3.1-pro-preview',
-          'gemini-3.1-pre-preview': 'gemini-3.1-pro-preview',
+          'gemini-3.1-pro-preview-next': 'gemini-3.1-pro-preview',  // Deep Think Next (HIGH)
+          'gemini-3.1-pre-preview': 'gemini-3.1-pro-preview',       // Deep Think (MAX + self-audit)
         };
         const actualModelId = MODEL_ID_MAP[selectedGeminiModel] || selectedGeminiModel;
 
         let runCount = 0;
         let continueLoop = true;
-        const identicalToolCalls = new Map<string, number>(); // track exact tool+args combinations
 
-        while (runCount < 40 && continueLoop && !signal.aborted) {
+        while (runCount < 50 && continueLoop && !signal.aborted) {
           runCount++;
           let genStream = await deps.ai.models.generateContentStream({
             model: actualModelId,
             contents: contents,
             config: geminiConfig
-          }, { signal, timeout: 1200_000 });
+          }, { signal });
 
           let functionCalls: any[] = [];
           let candidateContent: any = { role: 'model', parts: [] };
 
-          let userMessageSentLength = 0;
-          let hasSentThinkingStatus = false;
-          let fullParsed: any = {};
-          let isParseSuccess = false;
-
-          if (selectedGeminiModel.includes("puppeteer")) {
-            for await (const chunk of genStream) {
-              if (signal.aborted) break;
-              if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-                functionCalls.push(...chunk.functionCalls);
-              }
-              if (chunk.candidates?.[0]?.content?.parts) {
-                const validParts = chunk.candidates[0].content.parts.filter((p: any) => (p.text !== undefined && p.text !== "") || p.functionCall !== undefined);
-                candidateContent.parts.push(...validParts);
-              }
-              const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
-              if (hasText && chunk.text) {
-                sendSse('message', { model: targetId, chunk: chunk.text });
-              }
-            }
-          } else {
-            const parser = new SchemaStream(zGeminiStructuredSchema);
-            const streamParser = parser.parse();
-            const writer = streamParser.writable.getWriter();
-            const reader = streamParser.readable.getReader();
-            const encoder = new TextEncoder();
-            const decoder = new TextDecoder();
-
-            const pump = async () => {
-              try {
-                for await (const chunk of genStream) {
-                  if (signal.aborted) break;
-                  if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-                    functionCalls.push(...chunk.functionCalls);
-                  }
-                  if (chunk.candidates?.[0]?.content?.parts) {
-                    const validParts = chunk.candidates[0].content.parts.filter((p: any) => (p.text !== undefined && p.text !== "") || p.functionCall !== undefined);
-                    candidateContent.parts.push(...validParts);
-                  }
-                  const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
-                  if (hasText && chunk.text) {
-                    await writer.write(encoder.encode(chunk.text));
-                  }
-                }
-              } finally {
-                await writer.close();
-              }
-            };
-
-            const consume = async () => {
-              let done = false;
-              while (!done) {
-                const { value, done: doneReading } = await reader.read();
-                done = doneReading;
-                if (value) {
-                  const chunkStr = decoder.decode(value, { stream: true });
-                  try {
-                    const result = JSON.parse(chunkStr);
-                    fullParsed = result;
-                    
-                    if (!hasSentThinkingStatus && typeof result.thought_process === 'string' && result.thought_process.length > 0 && typeof result.user_message !== 'string') {
-                      sendSse('status', { model: targetId, status: 'Agent is thinking...' });
-                      hasSentThinkingStatus = true;
-                    }
-
-                    if (typeof result.user_message === 'string') {
-                      if (hasSentThinkingStatus) {
-                        sendSse('status', { model: targetId, status: null });
-                        hasSentThinkingStatus = false;
-                      }
-                      const delta = result.user_message.substring(userMessageSentLength);
-                      if (delta.length > 0) {
-                        sendSse('message', { model: targetId, chunk: delta });
-                        userMessageSentLength = result.user_message.length;
-                      }
-                    }
-                  } catch (e) {
-                    // Ignore JSON parse errors for incomplete stubs
-                  }
-                }
-              }
-              isParseSuccess = true;
-            };
-
-            await Promise.all([pump(), consume()]);
-
+          for await (const chunk of genStream) {
             if (signal.aborted) break;
-
-            if (isParseSuccess) {
-              ChatLogger.info('gemini_structured_response', {
-                 connectionId,
-                 thought_process: fullParsed.thought_process,
-                 operational_metadata: fullParsed.operational_metadata,
-                 tool_calls_count: functionCalls.length
-              });
-              
-              const finalMessage = fullParsed.user_message || "";
-              const delta = finalMessage.substring(userMessageSentLength);
-              if (delta.length > 0) {
-                sendSse('message', { model: targetId, chunk: delta });
-              }
+            const hasText = chunk.candidates?.[0]?.content?.parts?.some((p: any) => p.text !== undefined);
+            if (hasText && chunk.text) {
+              sendSse('message', { model: 'gemini', chunk: chunk.text });
+            }
+            if (chunk.functionCalls && chunk.functionCalls.length > 0) {
+              functionCalls.push(...chunk.functionCalls);
+            }
+            if (chunk.candidates?.[0]?.content?.parts) {
+              candidateContent.parts.push(...chunk.candidates[0].content.parts);
             }
           }
+
+          if (signal.aborted) break;
 
           if (functionCalls.length > 0 && candidateContent.parts.length > 0) {
             contents.push(candidateContent);
 
             const responseParts = await Promise.all(functionCalls.map(async (call) => {
               if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-
-              const callSignature = `${call.name}:${JSON.stringify(call.args || {})}`;
-              const priorCalls = identicalToolCalls.get(callSignature) || 0;
-              
-              if (priorCalls >= 2) {
-                return {
-                  functionResponse: {
-                    name: call.name,
-                    response: { result: { error: `System Guard: You have already called "${call.name}" with these exact arguments multiple times. Do NOT repeat the exact same tool call. Analyze the previous responses or change your arguments.` } },
-                    ...(call.id ? { id: call.id } : {})
-                  }
-                };
-              }
-
               const toolResult = await executeToolForModel({
-                model: targetId,
+                model: 'gemini',
                 toolName: call.name,
                 args: call.args,
                 googleAccessToken,
@@ -1914,13 +813,11 @@ Flag any P0 issues prominently. Include row counts and timestamps.
                 deps
               });
 
-              identicalToolCalls.set(callSignature, priorCalls + 1);
-
               return {
                 functionResponse: {
                   name: call.name,
-                  response: { result: toolResult },
-                  ...(call.id ? { id: call.id } : {})
+                  id: call.id || call.name,
+                  response: { result: toolResult }
                 }
               };
             }));
@@ -1931,56 +828,13 @@ Flag any P0 issues prominently. Include row counts and timestamps.
             continueLoop = false;
           }
 
-          if (runCount >= 100 && continueLoop && !signal.aborted) {
-            sendSse('message', { model: targetId, chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
+          if (runCount >= 50 && continueLoop && !signal.aborted) {
+            sendSse('message', { model: 'gemini', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
           }
         }
       })()));
-    };
-
-    if (targetModels.includes('gemini') && deps.ai) {
-      const selectedGeminiModel = modelConfigs.gemini || "gemini-3.1-pre-preview";
-      let modelSystemPrompt = getSystemPrompt('gemini', selectedGeminiModel);
-
-      if (selectedGeminiModel.includes("puppeteer")) {
-        modelSystemPrompt = `You are an expert with the JS puppeteer tool. When told a task, you must study the site and dom and then recreate it with un hallucinated data.
-CRITICAL CONSTRAINTS:
-1. Data can NEVER be missing if it is replicating the page.
-2. It must look exactly alike.
-3. You must get every single detail. Exhaustive Replication is required.
-4. <PLAN> block: You must go through the planning steps first before generating the final output. Document your analysis of the DOM structure in the <PLAN> block.`;
-      } else if (selectedGeminiModel.includes("gemini")) {
-        modelSystemPrompt = modelSystemPrompt.replace(artifactContract, "");
-        modelSystemPrompt += "\n\nCRITICAL RULE: DO NOT GENERATE HTML. You MUST strictly use the native JSON contracts (Layers 1-6) and return only JSON output.";
-      }
-
-      startGeminiStream('gemini', selectedGeminiModel, modelSystemPrompt);
     } else if (targetModels.includes('gemini')) {
       sendSse('message', { model: 'gemini', chunk: '[Gemini Not Configured]' });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Team Mode / Role Specialists
-    // ═══════════════════════════════════════════════════════════════════
-    if (mode === 'team') {
-      let roleConfig: any = { roles: [] };
-      try {
-        roleConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib', 'role-config.json'), 'utf8'));
-      } catch (e) {
-        ChatLogger.warn('Failed to load role-config.json for team mode', { error: (e as Error).message });
-      }
-
-      const teamRoles = targetModels
-        .map((tm: string) => roleConfig.roles.find((r: any) => r.id === tm))
-        .filter(Boolean);
-
-      for (const role of teamRoles) {
-        if (role.model.includes('gemini') && deps.ai) {
-          startGeminiStream(role.id, role.model, role.systemPrompt);
-        } else {
-          sendSse('message', { model: role.id, chunk: `[Model provider for ${role.model} not implemented in Team Mode]` });
-        }
-      }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1989,8 +843,7 @@ CRITICAL CONSTRAINTS:
     if (targetModels.includes('chatgpt') && deps.openai) {
       promises.push(streamModel('chatgpt', (async () => {
         const msgs: any[] = [];
-        const chatGptSystemPrompt = getSystemPrompt('chatgpt', modelConfigs.chatgpt || 'gpt-5.5');
-        if (chatGptSystemPrompt) msgs.push({ role: "system", content: chatGptSystemPrompt });
+        if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
         msgs.push({ role: "user", content: buildUserContent('chatgpt', modelConfigs.chatgpt || 'gpt-5.5', governedPrompt) });
 
@@ -2021,29 +874,16 @@ CRITICAL CONSTRAINTS:
           });
         }
 
-        // ── Register delegate_task in collaboration mode ──
-        if (isCollaboration && !openaiTools.some((t: any) => t.function?.name === 'delegate_task')) {
-          openaiTools.push({
-            type: "function",
-            function: {
-              name: DELEGATE_TASK_TOOL.name,
-              description: DELEGATE_TASK_TOOL.description,
-              parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
-            }
-          });
-        }
-
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 40 && !signal.aborted) {
+        while (runCount < 50 && !signal.aborted) {
           const stream = await deps.openai.chat.completions.create({
             model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
             messages: currentMessages,
-            max_completion_tokens: 128000,
-            tools: openaiTools.length > 0 ? filterToolsForModel('chatgpt', modelConfigs.chatgpt || "gpt-5.5-2026-04-23", openaiTools) : undefined,
+            tools: openaiTools.length > 0 ? openaiTools : undefined,
             stream: true
-          }, { signal, timeout: 2400_000 });
+          }, { signal });
 
           let toolCalls: any = {};
 
@@ -2107,8 +947,8 @@ CRITICAL CONSTRAINTS:
           currentMessages.push(...toolResults);
           runCount++;
 
-          if (runCount >= 100 && !signal.aborted) {
-            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
+          if (runCount >= 50 && !signal.aborted) {
+            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
           }
         }
       })()));
@@ -2150,34 +990,24 @@ CRITICAL CONSTRAINTS:
           });
         }
 
-        // ── Register delegate_task in collaboration mode ──
-        if (isCollaboration && !claudeTools.some((t: any) => t.name === 'delegate_task')) {
-          claudeTools.push({
-            name: DELEGATE_TASK_TOOL.name,
-            description: DELEGATE_TASK_TOOL.description,
-            input_schema: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
-          });
-        }
-
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 40 && !signal.aborted) {
+        while (runCount < 50 && !signal.aborted) {
           const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
 
           // Opus 4 supports up to 128k output tokens.
-          const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 128000 : 128000;
-
-          let claudeSystemPrompt = getSystemPrompt('claude', selectedClaudeModel);
-          claudeSystemPrompt += "\n\nCRITICAL RULE: You are HIGHLY ENCOURAGED to generate HTML artifacts for any data presentation, visualization, dashboard, or complex output. Always use the HTML artifact rendering contract (```html) to present your findings visually to the user.";
+          // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
+          // Sonnet uses 16384 (cheaper, faster), Opus gets 65536 for deep work.
+          const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 65536 : 16384;
 
           const stream = deps.anthropic.messages.stream({
             model: selectedClaudeModel,
             max_tokens: claudeMaxTokens,
-            system: claudeSystemPrompt,
+            system: systemPrompt,
             messages: currentMessages,
-            tools: claudeTools.length > 0 ? filterToolsForModel('claude', selectedClaudeModel, claudeTools) : undefined
-          }, { signal, timeout: 1200_000 }); // 20 min SDK timeout for agentic loops
+            tools: claudeTools.length > 0 ? claudeTools : undefined
+          }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
 
           let currentToolUse: any = null;
           let assistantContentBlocks: any[] = [];
@@ -2243,7 +1073,7 @@ CRITICAL CONSTRAINTS:
           const toolResultBlocks = await Promise.all(assistantContentBlocks.map(async (block) => {
             if (block.type !== 'tool_use') return null;
             if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-
+            
             const toolResult = await executeToolForModel({
               model: 'claude',
               toolName: block.name,
@@ -2270,8 +1100,8 @@ CRITICAL CONSTRAINTS:
           }
           runCount++;
 
-          if (runCount >= 100 && hasToolUse && !signal.aborted) {
-            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
+          if (runCount >= 50 && hasToolUse && !signal.aborted) {
+            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
           }
         }
       })()));
@@ -2290,131 +1120,117 @@ CRITICAL CONSTRAINTS:
       if (!grokClient) {
         sendSse('message', { model: 'grok', chunk: '[Grok Not Configured — set XAI_API_KEY or enable Vertex AI MaaS]' });
       } else {
-        promises.push(streamModel('grok', (async () => {
-          const msgs: any[] = [];
-          const grokSystemPrompt = getSystemPrompt('grok', modelConfigs.grok || "grok-4.3");
-          if (grokSystemPrompt) msgs.push({ role: "system", content: grokSystemPrompt });
-          if (mode === 'shared' && history) msgs.push(...history);
-          msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', governedPrompt) });
+      promises.push(streamModel('grok', (async () => {
+        const msgs: any[] = [];
+        if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
+        if (mode === 'shared' && history) msgs.push(...history);
+        msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', governedPrompt) });
 
-          const grokTools: any[] = [];
-          for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
-            grokTools.push({
-              type: "function",
-              function: {
-                name: canonical.name,
-                description: canonical.description,
-                parameters: lowercaseSchemaTypes(canonical.parameters)
-              }
-            });
-          }
+        const grokTools: any[] = [];
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
+          grokTools.push({
+            type: "function",
+            function: {
+              name: canonical.name,
+              description: canonical.description,
+              parameters: lowercaseSchemaTypes(canonical.parameters)
+            }
+          });
+        }
 
-          if (deps.workspaceDecls) {
-            deps.workspaceDecls.forEach((d: any) => {
-              if (!grokTools.some((t: any) => t.function.name === d.name)) {
-                grokTools.push({
-                  type: "function",
-                  function: {
-                    name: d.name,
-                    description: d.description,
-                    parameters: lowercaseSchemaTypes(d.parameters)
-                  }
-                });
-              }
-            });
-          }
+        if (deps.workspaceDecls) {
+          deps.workspaceDecls.forEach((d: any) => {
+            if (!grokTools.some((t: any) => t.function.name === d.name)) {
+              grokTools.push({
+                type: "function",
+                function: {
+                  name: d.name,
+                  description: d.description,
+                  parameters: lowercaseSchemaTypes(d.parameters)
+                }
+              });
+            }
+          });
+        }
 
-          // ── Register delegate_task in collaboration mode ──
-          if (isCollaboration && !grokTools.some((t: any) => t.function?.name === 'delegate_task')) {
-            grokTools.push({
-              type: "function",
-              function: {
-                name: DELEGATE_TASK_TOOL.name,
-                description: DELEGATE_TASK_TOOL.description,
-                parameters: lowercaseSchemaTypes(DELEGATE_TASK_TOOL.parameters),
-              }
-            });
-          }
+        let currentMessages = [...msgs];
+        let runCount = 0;
 
-          let currentMessages = [...msgs];
-          let runCount = 0;
+        while (runCount < 50 && !signal.aborted) {
+          const stream = await grokClient.chat.completions.create({
+            model: modelConfigs.grok || "grok-4.3",
+            messages: currentMessages,
+            tools: grokTools.length > 0 ? grokTools : undefined,
+            stream: true
+          }, { signal });
 
-          while (runCount < 40 && !signal.aborted) {
-            const stream = await grokClient.chat.completions.create({
-              model: modelConfigs.grok || "grok-4.3",
-              messages: currentMessages,
-              max_tokens: 65536,
-              tools: grokTools.length > 0 ? filterToolsForModel('grok', modelConfigs.grok || "grok-3-latest", grokTools) : undefined,
-              stream: true
-            }, { signal });
+          let toolCalls: any = {};
 
-            let toolCalls: any = {};
+          for await (const chunk of stream) {
+            if (signal.aborted) break;
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
 
-            for await (const chunk of stream) {
-              if (signal.aborted) break;
-              const delta = chunk.choices?.[0]?.delta;
-              if (!delta) continue;
+            if (delta.content) {
+              sendSse('message', { model: 'grok', chunk: delta.content });
+            }
 
-              if (delta.content) {
-                sendSse('message', { model: 'grok', chunk: delta.content });
-              }
-
-              if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  if (!toolCalls[tc.index]) {
-                    toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
-                  }
-                  if (tc.function?.arguments) {
-                    toolCalls[tc.index].function.arguments += tc.function.arguments;
-                  }
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (!toolCalls[tc.index]) {
+                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                }
+                if (tc.function?.arguments) {
+                  toolCalls[tc.index].function.arguments += tc.function.arguments;
                 }
               }
             }
-
-            if (signal.aborted) break;
-
-            const tcKeys = Object.keys(toolCalls);
-            if (tcKeys.length === 0) {
-              break;
-            }
-
-            const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
-            currentMessages.push(messageToAppend);
-
-            const toolResults = await Promise.all(tcKeys.map(async (key) => {
-              if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-              const call = toolCalls[key];
-              let args;
-              try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
-
-              const toolResult = await executeToolForModel({
-                model: 'grok',
-                toolName: call.function.name,
-                args,
-                googleAccessToken,
-                connectionId,
-                signal,
-                sendSse,
-                deps
-              });
-
-              return {
-                role: "tool",
-                tool_call_id: call.id,
-                name: call.function.name,
-                content: JSON.stringify(toolResult)
-              };
-            }));
-
-            if (signal.aborted) break;
-            currentMessages.push(...toolResults);
-            runCount++;
-
-            if (runCount >= 100 && !signal.aborted) {
-              sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
-            }
           }
-        })()));
+
+          if (signal.aborted) break;
+
+          const tcKeys = Object.keys(toolCalls);
+          if (tcKeys.length === 0) {
+            break;
+          }
+
+          const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
+          currentMessages.push(messageToAppend);
+
+          const toolResults = await Promise.all(tcKeys.map(async (key) => {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            const call = toolCalls[key];
+            let args;
+            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
+            const toolResult = await executeToolForModel({
+              model: 'grok',
+              toolName: call.function.name,
+              args,
+              googleAccessToken,
+              connectionId,
+              signal,
+              sendSse,
+              deps
+            });
+
+            return {
+              role: "tool",
+              tool_call_id: call.id,
+              name: call.function.name,
+              content: JSON.stringify(toolResult)
+            };
+          }));
+
+          if (signal.aborted) break;
+          currentMessages.push(...toolResults);
+          runCount++;
+
+          if (runCount >= 50 && !signal.aborted) {
+            sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          }
+        }
+      })()));
       } // end else (grokClient available)
     }
 
@@ -2435,178 +1251,165 @@ CRITICAL CONSTRAINTS:
       if (!deepseekClient) {
         sendSse('message', { model: 'deepseek', chunk: '[DeepSeek Not Configured — set DEEPSEEK_API_KEY or enable Vertex AI MaaS]' });
       } else {
-        promises.push(streamModel('deepseek', (async () => {
-          const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
+      promises.push(streamModel('deepseek', (async () => {
+        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
+        
+        // Add deepseek-ai/ prefix if using Vertex AI MaaS (which is when DEEPSEEK_API_KEY is not configured)
+        const isMaaS = !process.env.DEEPSEEK_API_KEY;
+        const actualDeepseekModel = isMaaS && selectedDeepseekModel.startsWith('deepseek-') && !selectedDeepseekModel.includes('/')
+          ? `deepseek-ai/${selectedDeepseekModel}`
+          : selectedDeepseekModel;
 
-          // Add deepseek-ai/ prefix if using Vertex AI MaaS (which is when DEEPSEEK_API_KEY is not configured)
-          const isMaaS = !process.env.DEEPSEEK_API_KEY;
-          const actualDeepseekModel = isMaaS && selectedDeepseekModel.startsWith('deepseek-') && !selectedDeepseekModel.includes('/')
-            ? `deepseek-ai/${selectedDeepseekModel}`
-            : selectedDeepseekModel;
+        // All supported models support thinking (MaaS and direct)
+        const isThinkingModel = actualDeepseekModel.includes('v3') || actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('v4');
 
-          // All supported models support thinking (MaaS and direct)
-          const isThinkingModel = actualDeepseekModel.includes('v3') || actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('v4');
+        const msgs: any[] = [];
+        // V4 supports system messages in both thinking and non-thinking mode
+        if (systemPrompt) {
+          msgs.push({ role: "system", content: systemPrompt });
+        }
+        if (mode === 'shared' && history) msgs.push(...history);
+        msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', governedPrompt) });
 
-          const msgs: any[] = [];
-          // V4 supports system messages in both thinking and non-thinking mode
-          const deepseekSystemPrompt = getSystemPrompt('deepseek', actualDeepseekModel);
-          if (deepseekSystemPrompt) {
-            msgs.push({ role: "system", content: deepseekSystemPrompt });
-          }
-          if (mode === 'shared' && history) msgs.push(...history);
-          msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', governedPrompt) });
-
-          // Build tool declarations — V4 supports tools with thinking enabled
-          const deepseekTools: any[] = [];
-          for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
-            deepseekTools.push({
-              type: "function",
-              function: {
-                name: canonical.name,
-                description: canonical.description,
-                parameters: lowercaseSchemaTypes(canonical.parameters)
-              }
-            });
-          }
-
-          // Register workspace tools
-          if (deps.workspaceDecls) {
-            deps.workspaceDecls.forEach((d: any) => {
-              if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
-                deepseekTools.push({
-                  type: "function",
-                  function: {
-                    name: d.name,
-                    description: d.description,
-                    parameters: lowercaseSchemaTypes(d.parameters)
-                  }
-                });
-              }
-            });
-          }
-
-          let currentMessages = [...msgs];
-          let runCount = 0;
-
-          while (runCount < 40 && !signal.aborted) {
-            // Per official docs: thinking and reasoning_effort are top-level params
-            // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
-            const createParams: any = {
-              model: actualDeepseekModel,
-              messages: currentMessages,
-              max_tokens: 65536,
-              tools: deepseekTools.length > 0 ? filterToolsForModel('deepseek', modelConfigs.deepseek || "deepseek-reasoner", deepseekTools) : undefined,
-              stream: true,
-            };
-
-            // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
-            if (isThinkingModel) {
-              // reasoning_effort: "high" (default) or "max" (for complex agentic tasks)
-              createParams.reasoning_effort = "high";
-              // thinking toggle — must be in extra_body for OpenAI SDK
-              // But the OpenAI Node SDK passes unknown top-level keys through,
-              // so we set it directly per DeepSeek's docs
-              createParams.thinking = { type: "enabled" };
+        // Build tool declarations — V4 supports tools with thinking enabled
+        const deepseekTools: any[] = [];
+        for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
+          deepseekTools.push({
+            type: "function",
+            function: {
+              name: canonical.name,
+              description: canonical.description,
+              parameters: lowercaseSchemaTypes(canonical.parameters)
             }
+          });
+        }
 
-            // DeepSeek-R1 does not support native function calling.
-            // Sending tools schema results in a 400 (no body) error from the gateway.
-            if (actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('reasoner')) {
-              delete createParams.tools;
-              delete createParams.tool_choice;
-              delete createParams.functions;
-              delete createParams.function_call;
-              createParams.messages = createParams.messages.filter((m: any) => m.role !== 'tool');
-              createParams.max_tokens = Math.max(createParams.max_tokens ?? 4096, 8192);
-            }
-
-            const stream = await deepseekClient.chat.completions.create(createParams, { signal });
-
-            let toolCalls: any = {};
-            let hasContent = false;
-            let reasoningBuffer = '';
-
-            for await (const chunk of stream) {
-              if (signal.aborted) break;
-              const delta = chunk.choices?.[0]?.delta;
-              if (!delta) continue;
-
-              // DeepSeek streams chain-of-thought in reasoning_content
-              // Per docs: "the chain-of-thought content is returned via the reasoning_content parameter"
-              if ((delta as any).reasoning_content) {
-                const reasoning = (delta as any).reasoning_content;
-                reasoningBuffer += reasoning;
-                sendSse('message', { model: 'deepseek', chunk: reasoning });
-              }
-
-              // Standard content (final answer after reasoning, or full response if thinking disabled)
-              if (delta.content) {
-                // If we were streaming reasoning, insert a separator before the final answer
-                if (reasoningBuffer && !hasContent) {
-                  sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
-                  reasoningBuffer = '';
+        // Register workspace tools
+        if (deps.workspaceDecls) {
+          deps.workspaceDecls.forEach((d: any) => {
+            if (!deepseekTools.some((t: any) => t.function.name === d.name)) {
+              deepseekTools.push({
+                type: "function",
+                function: {
+                  name: d.name,
+                  description: d.description,
+                  parameters: lowercaseSchemaTypes(d.parameters)
                 }
-                hasContent = true;
-                sendSse('message', { model: 'deepseek', chunk: delta.content });
-              }
-
-              // Tool calls — V4 supports these even with thinking enabled
-              if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  if (!toolCalls[tc.index]) {
-                    toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
-                  }
-                  if (tc.function?.arguments) {
-                    toolCalls[tc.index].function.arguments += tc.function.arguments;
-                  }
-                }
-              }
-            }
-
-            if (signal.aborted) break;
-
-            const tcKeys = Object.keys(toolCalls);
-            if (tcKeys.length === 0) {
-              break;
-            }
-
-            const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
-            currentMessages.push(messageToAppend);
-
-            const toolResults = await Promise.all(tcKeys.map(async (key) => {
-              if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-              const call = toolCalls[key];
-              let args;
-              try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
-
-              const toolResult = await executeToolForModel({
-                model: 'deepseek',
-                toolName: call.function.name,
-                args,
-                googleAccessToken,
-                connectionId,
-                signal,
-                sendSse,
-                deps
               });
+            }
+          });
+        }
 
-              return {
-                role: "tool",
-                tool_call_id: call.id,
-                name: call.function.name,
-                content: JSON.stringify(toolResult)
-              };
-            }));
+        let currentMessages = [...msgs];
+        let runCount = 0;
 
+        while (runCount < 50 && !signal.aborted) {
+          // Per official docs: thinking and reasoning_effort are top-level params
+          // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
+           const createParams: any = {
+            model: actualDeepseekModel,
+            messages: currentMessages,
+            tools: deepseekTools.length > 0 ? deepseekTools : undefined,
+            stream: true,
+          };
+
+          // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
+          if (isThinkingModel) {
+            // reasoning_effort: "high" (default) or "max" (for complex agentic tasks)
+            createParams.reasoning_effort = "high";
+            // thinking toggle — must be in extra_body for OpenAI SDK
+            // But the OpenAI Node SDK passes unknown top-level keys through,
+            // so we set it directly per DeepSeek's docs
+            createParams.thinking = { type: "enabled" };
+          }
+
+          const stream = await deepseekClient.chat.completions.create(createParams, { signal });
+
+          let toolCalls: any = {};
+          let hasContent = false;
+          let reasoningBuffer = '';
+
+          for await (const chunk of stream) {
             if (signal.aborted) break;
-            currentMessages.push(...toolResults);
-            runCount++;
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
 
-            if (runCount >= 100 && !signal.aborted) {
-              sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 100; stopping here.]' });
+            // DeepSeek streams chain-of-thought in reasoning_content
+            // Per docs: "the chain-of-thought content is returned via the reasoning_content parameter"
+            if ((delta as any).reasoning_content) {
+              const reasoning = (delta as any).reasoning_content;
+              reasoningBuffer += reasoning;
+              sendSse('message', { model: 'deepseek', chunk: reasoning });
+            }
+
+            // Standard content (final answer after reasoning, or full response if thinking disabled)
+            if (delta.content) {
+              // If we were streaming reasoning, insert a separator before the final answer
+              if (reasoningBuffer && !hasContent) {
+                sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
+                reasoningBuffer = '';
+              }
+              hasContent = true;
+              sendSse('message', { model: 'deepseek', chunk: delta.content });
+            }
+
+            // Tool calls — V4 supports these even with thinking enabled
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (!toolCalls[tc.index]) {
+                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                }
+                if (tc.function?.arguments) {
+                  toolCalls[tc.index].function.arguments += tc.function.arguments;
+                }
+              }
             }
           }
-        })()));
+
+          if (signal.aborted) break;
+
+          const tcKeys = Object.keys(toolCalls);
+          if (tcKeys.length === 0) {
+            break;
+          }
+
+          const messageToAppend: any = { role: "assistant", content: null, tool_calls: Object.values(toolCalls) };
+          currentMessages.push(messageToAppend);
+
+          const toolResults = await Promise.all(tcKeys.map(async (key) => {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            const call = toolCalls[key];
+            let args;
+            try { args = JSON.parse(call.function.arguments); } catch (e) { args = {}; }
+
+            const toolResult = await executeToolForModel({
+              model: 'deepseek',
+              toolName: call.function.name,
+              args,
+              googleAccessToken,
+              connectionId,
+              signal,
+              sendSse,
+              deps
+            });
+
+            return {
+              role: "tool",
+              tool_call_id: call.id,
+              name: call.function.name,
+              content: JSON.stringify(toolResult)
+            };
+          }));
+
+          if (signal.aborted) break;
+          currentMessages.push(...toolResults);
+          runCount++;
+
+          if (runCount >= 50 && !signal.aborted) {
+            sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          }
+        }
+      })()));
       } // end else (deepseekClient available)
     } // end if (targetModels.includes('deepseek'))
     // Wait for all streams to finish
