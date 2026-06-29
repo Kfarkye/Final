@@ -284,7 +284,10 @@ export const OddsSnapshotCountsSchema = z.object({
   parentGamesCreated: z.number().int().min(0),
   highFidelityRowsWritten: z.number().int().min(0),
   thinRollupRowsWritten: z.number().int().min(0),
-  rowsDeduped: z.number().int().min(0)
+  rowsDeduped: z.number().int().min(0),
+  historyRowsPrepared: z.number().int().min(0),
+  historyRowsWritten: z.number().int().min(0),
+  historyRowsDeduped: z.number().int().min(0)
 }).strict();
 
 export const OddsApiQuotaSchema = z.object({
@@ -377,7 +380,11 @@ export const OddsBackfillRunCompletedPayloadSchema = z.object({
     eventsMatchedToParent: z.number().int().min(0),
     eventsSkippedNoParent: z.number().int().min(0),
     eventsAmbiguousParent: z.number().int().min(0),
-    historyRowsWritten: z.number().int().min(0)
+    historyRowsPrepared: z.number().int().min(0),
+    historyRowsWritten: z.number().int().min(0),
+    historyRowsDeduped: z.number().int().min(0),
+    highFidelityRowsWritten: z.number().int().min(0).optional(),
+    thinRollupRowsWritten: z.number().int().min(0).optional()
   }).strict(),
   quota: z.object({
     lastKnownRemaining: z.number().int().nullable().optional(),
