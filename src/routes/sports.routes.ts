@@ -11,6 +11,7 @@ import { getUnifiedMlbSlate } from "../services/mlb-slate-aggregator";
 import { runTeamIntelligenceIngest } from "../workers/team-intelligence-worker";
 import { runTeamIntelligenceCompute } from "../workers/team-intelligence-compute";
 import { runFeedWatchdog } from "../workers/feed-watchdog-worker";
+import { edgeDb } from "../db/spanner";
 
 const router = Router();
 
@@ -545,6 +546,80 @@ router.post("/workers/feed-watchdog", async (_req: Request, res: Response) => {
     res.json({ success: true, ...result });
   } catch (err: any) {
     logger.error({ msg: "Feed watchdog failed", error: err.message });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Covers MLB Team Stats ──
+
+router.get("/mlb/covers/team-stats", async (req: Request, res: Response) => {
+  try {
+    const db = edgeDb;
+    const [rows] = await db.run({
+      sql: `
+        SELECT 
+          Season,
+          SnapshotDate,
+          TeamCode,
+          TeamName,
+          Wins,
+          Losses,
+          MoneyValue,
+          HomeWins,
+          HomeLosses,
+          HomeMoneyValue,
+          AwayWins,
+          AwayLosses,
+          AwayMoneyValue,
+          RunLineWins,
+          RunLineLosses,
+          RunLineMoney,
+          OverUnderWins,
+          OverUnderLosses,
+          HittingAvg,
+          HittingOps,
+          PitchingEra,
+          BullpenEra
+        FROM CoversMlbTeamStatSnapshot
+        WHERE SnapshotDate = (SELECT MAX(SnapshotDate) FROM CoversMlbTeamStatSnapshot)
+      `
+    });
+
+    const jsonRows = rows.map((r: any) => r.toJSON());
+    
+    const formattedRows = jsonRows.map((r: any) => ({
+      season: Number(r.Season),
+      snapshotDate: r.SnapshotDate,
+      teamCode: r.TeamCode,
+      teamName: r.TeamName || r.TeamCode,
+      wins: Number(r.Wins) || 0,
+      losses: Number(r.Losses) || 0,
+      moneyValue: Number(r.MoneyValue) || 0,
+      homeWins: Number(r.HomeWins) || 0,
+      homeLosses: Number(r.HomeLosses) || 0,
+      homeMoneyValue: Number(r.HomeMoneyValue) || 0,
+      awayWins: Number(r.AwayWins) || 0,
+      awayLosses: Number(r.AwayLosses) || 0,
+      awayMoneyValue: Number(r.AwayMoneyValue) || 0,
+      runLineWins: Number(r.RunLineWins) || 0,
+      runLineLosses: Number(r.RunLineLosses) || 0,
+      runLineMoney: Number(r.RunLineMoney) || 0,
+      overUnderWins: Number(r.OverUnderWins) || 0,
+      overUnderLosses: Number(r.OverUnderLosses) || 0,
+      hittingAvg: Number(r.HittingAvg) || 0,
+      hittingOps: Number(r.HittingOps) || 0,
+      pitchingEra: Number(r.PitchingEra) || 0,
+      bullpenEra: Number(r.BullpenEra) || 0
+    }));
+
+    res.json({
+      success: true,
+      snapshotDate: formattedRows.length > 0 ? formattedRows[0].snapshotDate : null,
+      count: formattedRows.length,
+      data: formattedRows
+    });
+  } catch (err: any) {
+    logger.error({ msg: "Covers stats fetch failed", error: err.message });
     res.status(500).json({ success: false, error: err.message });
   }
 });

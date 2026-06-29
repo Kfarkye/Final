@@ -13,6 +13,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OpenAI from 'openai';
 
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.resetAllMocks();
+});
+
 // ── Mocks ────────────────────────────────────────────────────────────────
 
 const { mockCreate, mockRetrieve, MockOpenAI } = vi.hoisted(() => {
@@ -666,8 +671,8 @@ describe('Codex Handler — Responses API', () => {
 
   describe('Guardrails', () => {
     it('stops stuck tool-only loops before they run indefinitely', async () => {
-      // Provision more turns than the MAX_STUCK_TOOL_ONLY_TURNS (12) limit
-      for (let i = 0; i < 15; i++) {
+      // Provision exactly the number of turns the test will consume (80)
+      for (let i = 0; i < 80; i++) {
         mockCreate.mockResolvedValueOnce(createFunctionCallStream(
           `resp_stuck_${i}`,
           `fc_stuck_${i}`,
@@ -684,9 +689,9 @@ describe('Codex Handler — Responses API', () => {
 
       await handleCodexChat(req as any, res as any);
 
-      // Guard fires after counter hits 12 (before executing turn 12's tools)
-      expect(mockCreate.mock.calls.length).toBe(12);
-      expect(mockExecuteCodexToolCall.mock.calls.length).toBe(11);
+      // Guard fires after counter hits 80 (before executing turn 80's tools)
+      expect(mockCreate.mock.calls.length).toBe(80);
+      expect(mockExecuteCodexToolCall.mock.calls.length).toBe(79);
       const error = res.events.find(e => e.event === 'error');
       expect(error!.data.message).toContain('consecutive tool-only turns');
     });

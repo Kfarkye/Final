@@ -43,3 +43,4 @@ server.js
 .mutagen/
 .skaffold/
 logs/
+.external/

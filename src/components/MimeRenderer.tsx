@@ -6,6 +6,8 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { SecureIframe } from './SecureIframe';
 import { TruthArtifactPreview } from './TruthArtifactPreview';
 import { MlbOddsDashboard } from './MlbOddsDashboard';
+import { MlbCoversTable } from './MlbCoversTable';
+import { BettingAnglesBoard } from './BettingAnglesBoard';
 
 interface MimeRendererProps {
   content: string;
@@ -254,6 +256,12 @@ const MimeRendererComponent = memo(function MimeRenderer({
             }
             if (lang === 'mlb-odds-dashboard') {
               return <MlbOddsDashboard />;
+            }
+            if (lang === 'mlb-covers-table') {
+              return <MlbCoversTable />;
+            }
+            if (lang === 'bettingangles') {
+              return <BettingAnglesBoard payloadString={codeContent} />;
             }
             return (
               <pre className="bg-[var(--s1)] p-4 rounded-xl overflow-x-auto text-[13px] font-mono my-4" {...props}>

@@ -27,7 +27,7 @@ WORKDIR /app
 
 # Install Deno + headless Chromium + dumb-init (PID 1 zombie reaper) + gcloud CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip git gnupg \
+    curl unzip git gnupg ripgrep ca-certificates \
     dumb-init \
     chromium \
     fonts-liberation \
@@ -55,12 +55,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && git config --global --add safe.directory /app \
     && git config --global user.name "Truth AI" \
     && git config --global user.email "kofi.farkye@gmail.com" \
-    && apt-get purge -y --auto-remove curl unzip gnupg \
+    && apt-get purge -y --auto-remove unzip gnupg \
     && rm -rf /var/lib/apt/lists/*
 ENV DENO_INSTALL="/root/.deno"
 ENV PATH="$DENO_INSTALL/bin:$PATH"
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+RUN mkdir -p /app/.external /tmp/truth-external && chmod -R 777 /app/.external /tmp/truth-external
+ENV TRUTH_EXTERNAL_REPOS_DIR=/app/.external
 
 # Copy package configuration
 COPY package*.json ./
@@ -89,6 +91,7 @@ COPY --from=builder /app/firebase-applet-config.json ./firebase-applet-config.js
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/server_workspace.ts ./server_workspace.ts
 COPY --from=builder /app/api ./api
+COPY --from=builder /app/.git ./.git
 
 # Copy compiled MCP servers to the expected location
 RUN mkdir -p /opt/truth/mcp-servers && cp -r mcp-servers/* /opt/truth/mcp-servers/

@@ -34,6 +34,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import { renderCard, CARD_REGISTRY } from './DisplayCards';
 import { getAccessToken } from './lib/firebase';
 import { PRELOADED_SERVERS } from './components/McpRegistry';
+import { MimeRenderer } from './components/MimeRenderer';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants — no magic numbers
@@ -908,9 +909,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
         <React.Fragment key={si}>
           {seg.kind === 'text' && seg.content && (
             <div className="t-prose text-[15px] leading-[1.65] text-[var(--t1)] break-words overflow-hidden">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                {seg.content}
-              </ReactMarkdown>
+              <MimeRenderer content={seg.content} />
             </div>
           )}
           {seg.kind === 'card' && renderCard(seg.cardType, seg.data, undefined, seg.render)}

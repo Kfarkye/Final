@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Unlock, CheckCircle2, ChevronRight, KeyRound, Loader2 } from 'lucide-react';
-import { ApiIntegration } from './CredentialVault';
+import { ApiIntegration } from '../types/vault.types';
 
 interface VaultCardProps {
   integration: ApiIntegration;

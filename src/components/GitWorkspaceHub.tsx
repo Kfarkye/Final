@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Folder, FolderOpen, File, FileCode, GitBranch, GitCommit,
@@ -38,16 +38,16 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const [selectedGithubRepo, setSelectedGithubRepo] = useState<string>('');
   const [githubBranches, setGithubBranches] = useState<string[]>([]);
   const [selectedGithubBranch, setSelectedGithubBranch] = useState<string>('main');
-  
+
   // Local Git specific
   const [localBranches, setLocalBranches] = useState<string[]>([]);
   const [selectedLocalBranch, setSelectedLocalBranch] = useState<string>('');
-  
+
   // Data States
   const [treeData, setTreeData] = useState<TreeNode | null>(null);
   const [gitStatus, setGitStatus] = useState<{ isRepo: boolean; branch: string; files: GitStatusFile[] } | null>(null);
   const [commits, setCommits] = useState<Commit[]>([]);
-  
+
   // UI States
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,9 +61,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
-  
-  // Toast Alert
+
+  // Toast & Dialog Alerts
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; actionText: string; onConfirm: () => void } | null>(null);
   const [provisioning, setProvisioning] = useState(false);
 
   // Preview & Diff Modals
@@ -168,19 +169,34 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     }
   };
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
-  };
+  }, []);
 
-  const fetchWithUserContext = (url: string, options: RequestInit = {}) => {
+  // STATE-OF-THE-ART SECURE FETCH HANDSHAKE
+  // Presents Firebase JWT credential instead of easily spoofable plaintext uid headers
+  const fetchWithUserContext = async (url: string, options: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> || {})
+    };
+
+    if (currentUser?.getIdToken) {
+      try {
+        const token = await currentUser.getIdToken();
+        headers['Authorization'] = `Bearer ${token}`;
+      } catch (err) {
+        console.warn("Failed to secure token. Falling back to uid header.", err);
+        headers['x-user-id'] = currentUser?.uid || '';
+      }
+    } else {
+      headers['x-user-id'] = currentUser?.uid || '';
+    }
+
     return fetch(url, {
       ...options,
-      headers: {
-        ...options.headers,
-        'x-user-id': currentUser?.uid || '',
-        'Content-Type': 'application/json'
-      }
+      headers
     });
   };
 
@@ -201,7 +217,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       });
       if (res.ok) {
         showToast("Workspace provisioned successfully!");
-        // Reload local Git data after provisioning
         loadLocalGitData();
       } else {
         const errData = await res.json();
@@ -217,14 +232,12 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const loadLocalGitData = async (branchOverride?: string) => {
     setLoading(true);
     try {
-      // 1. Load branches list
       const branchRes = await fetchWithUserContext('/api/git/branches');
       if (branchRes.ok) {
         const branchData = await branchRes.json();
         setLocalBranches(branchData.branches || []);
       }
 
-      // 2. Load Git Status & recent commits
       const [statusRes, commitsRes] = await Promise.all([
         fetchWithUserContext('/api/git/status'),
         fetchWithUserContext('/api/git/commits')
@@ -237,11 +250,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           if (!selectedLocalBranch && !branchOverride) {
             setSelectedLocalBranch(s.branch);
           }
-          // Auto-align local worktree to remote GitHub client widgets
           if (s.githubRepo) {
             setSelectedGithubRepo(s.githubRepo);
             savePreferences({ githubRepo: s.githubRepo });
-            
+
             setSelectedGithubBranch(s.branch);
             savePreferences({ githubBranch: s.branch });
           }
@@ -252,25 +264,22 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         setCommits(c.commits || []);
       }
 
-      // 3. Lazy-load root folder tree initially
       const rootRes = await fetchWithUserContext('/api/git/tree');
       if (rootRes.ok) {
         setTreeData(await rootRes.json());
       }
     } catch (err) {
       console.error("Error aligning local/remote workspaces", err);
+      showToast("Failed to load local workspace data.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Lazy directory fetch & node grafting
   const handleExpandFolder = async (folderPath: string) => {
-    // Toggle node state
     const isExpanded = !!expandedNodes[folderPath];
     toggleNode(folderPath);
 
-    // If expanding and children aren't populated, fetch children
     if (!isExpanded && treeData) {
       const node = findNodeByPath(treeData, folderPath);
       if (node && (!node.children || node.children.length === 0)) {
@@ -280,8 +289,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           if (res.ok) {
             const data = await res.json();
             const children = data.children || [];
-            
-            // Graft loaded children to state tree
             setTreeData(prev => {
               if (!prev) return null;
               return graftChildren(prev, folderPath, children);
@@ -289,6 +296,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           }
         } catch (err) {
           console.error("Failed to lazy load directory children", err);
+          showToast("Failed to load directory contents.");
         } finally {
           setLoading(false);
         }
@@ -320,6 +328,8 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     return root;
   };
 
+  // SECURITY NOTE: In a true zero-trust model, the GitHub token should not remain in localStorage.
+  // This should eventually be refactored to use a backend proxy for GitHub requests.
   const fetchGithubRepos = async (token: string) => {
     try {
       const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
@@ -337,8 +347,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     if (!token.trim()) return;
     const cleanToken = token.trim();
     setGithubToken(cleanToken);
-    
-    // Save to localStorage so ApiHub and other components stay in sync
+
     const apiSaved = localStorage.getItem('api_hub_integrations');
     let integrations = [];
     if (apiSaved) {
@@ -348,8 +357,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         console.error(err);
       }
     }
-    
-    // Find or create github integration
+
     const existingIdx = integrations.findIndex((i: any) => i.id === 'github');
     const githubData = {
       id: 'github',
@@ -360,13 +368,13 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       latency: 20,
       lastSync: 'Authorized just now'
     };
-    
+
     if (existingIdx >= 0) {
       integrations[existingIdx] = { ...integrations[existingIdx], ...githubData };
     } else {
       integrations.push(githubData);
     }
-    
+
     localStorage.setItem('api_hub_integrations', JSON.stringify(integrations));
     showToast("GitHub token connected successfully!");
     fetchGithubRepos(cleanToken);
@@ -394,7 +402,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         const branches = await res.json();
         const branchNames = branches.map((b: any) => b.name);
         setGithubBranches(branchNames);
-        
+
         const defaultBranch = branchNames.includes('main') ? 'main' : branchNames.includes('master') ? 'master' : branchNames[0] || 'main';
         setSelectedGithubBranch(defaultBranch);
         savePreferences({ githubBranch: defaultBranch });
@@ -403,6 +411,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } catch (err) {
       console.error("Failed to load GitHub branches", err);
+      showToast("Failed to load repository branches.");
     }
   };
 
@@ -426,16 +435,16 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       const treeRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees/${branch}?recursive=1`, {
         headers: { Authorization: `token ${token}` }
       });
-      
+
       if (treeRes.ok) {
         const treeDataJson = await treeRes.json();
         const flatTree = treeDataJson.tree || [];
-        
+
         const filtered = flatTree.filter((item: any) => {
-          return !item.path.startsWith('.git/') && 
-                 !item.path.includes('node_modules/') && 
-                 !item.path.startsWith('dist/') && 
-                 !item.path.includes('package-lock.json');
+          return !item.path.startsWith('.git/') &&
+            !item.path.includes('node_modules/') &&
+            !item.path.startsWith('dist/') &&
+            !item.path.includes('package-lock.json');
         });
 
         const nestedTree = buildTreeFromPaths(filtered);
@@ -446,7 +455,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           children: nestedTree
         });
 
-        // Commits log
         const commitsRes = await fetch(`https://api.github.com/repos/${repoFullName}/commits?sha=${branch}&per_page=10`, {
           headers: { Authorization: `token ${token}` }
         });
@@ -461,6 +469,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } catch (err) {
       console.error("Failed to parse GitHub tree", err);
+      showToast("Failed to map repository tree.");
     } finally {
       setLoading(false);
     }
@@ -471,18 +480,18 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     paths.forEach(item => {
       const parts = item.path.split('/');
       let currentLevel = root;
-      
+
       parts.forEach((part, index) => {
         const isLast = index === parts.length - 1;
         const currentPath = parts.slice(0, index + 1).join('/');
         let existingNode = currentLevel.find(c => c.name === part);
-        
+
         if (!existingNode) {
           existingNode = {
             name: part,
             path: currentPath,
             type: (isLast && item.type === 'blob') ? 'file' : 'directory',
-            ...( (isLast && item.type === 'blob') ? {} : { children: [] } )
+            ...((isLast && item.type === 'blob') ? {} : { children: [] })
           };
           currentLevel.push(existingNode);
         }
@@ -491,7 +500,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         }
       });
     });
-    
+
     const sortTree = (nodes: TreeNode[]) => {
       nodes.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
@@ -507,7 +516,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     setExpandedNodes(prev => ({ ...prev, [path]: !prev[path] }));
   };
 
-  // Actions
   const handleInjectPath = (path: string) => {
     onInsertContext(`\`${path}\``);
     setCopiedPath(path);
@@ -536,10 +544,19 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     try {
       const content = await fetchFileText(filePath);
       if (content) {
-        // Warning if injected text context exceeds 120k characters (~30k tokens)
         if (content.length > 120000) {
-          const confirm = window.confirm(`Warning: The file "${filePath}" is large (${Math.round(content.length / 1024)} KB) and could exceed model input sizes. Proceed?`);
-          if (!confirm) return;
+          setConfirmDialog({
+            title: "Large File Warning",
+            message: `The file "${filePath}" is large (${Math.round(content.length / 1024)} KB) and could exceed model input limits. Proceed?`,
+            actionText: "Inject Content",
+            onConfirm: () => {
+              const ext = filePath.split('.').pop() || '';
+              onInsertContext(`[File Content: ${filePath}]\n\`\`\`${ext}\n${content}\n\`\`\``);
+              showToast(`Injected full contents of: ${filePath}`);
+              setConfirmDialog(null);
+            }
+          });
+          return;
         }
         const ext = filePath.split('.').pop() || '';
         onInsertContext(`[File Content: ${filePath}]\n\`\`\`${ext}\n${content}\n\`\`\``);
@@ -561,7 +578,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         return data.content || '';
       } else {
         const errJson = await res.json();
-        alert(`Failed to load file: ${errJson.detail || errJson.error}`);
+        showToast(`Failed to load file: ${errJson.detail || errJson.error}`);
         return '';
       }
     } else {
@@ -572,6 +589,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         const data = await res.json();
         return atob(data.content.replace(/\s/g, ''));
       }
+      showToast("Failed to load file from GitHub API.");
       return '';
     }
   };
@@ -581,10 +599,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     try {
       const content = await fetchFileText(filePath);
       if (content) {
-        setPreviewFile({ 
-          path: filePath, 
+        setPreviewFile({
+          path: filePath,
           content,
-          ref: activeSource === 'local' ? selectedLocalBranch : selectedGithubBranch 
+          ref: activeSource === 'local' ? selectedLocalBranch : selectedGithubBranch
         });
       }
     } catch (err) {
@@ -604,41 +622,41 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } catch (err) {
       console.error(err);
+      showToast("Failed to load file diff.");
     } finally {
       setDiffLoading(false);
     }
   };
 
-  // Recursive directory tree renderer
   const renderTree = (node: TreeNode, depth = 0) => {
     const isExpanded = expandedNodes[node.path];
     const isDir = node.type === 'directory';
-    const isMatchingSearch = !searchQuery || 
-                             node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             (isDir && hasMatchingChild(node, searchQuery));
+    const isMatchingSearch = !searchQuery ||
+      node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (isDir && hasMatchingChild(node, searchQuery));
 
     if (!isMatchingSearch) return null;
 
     return (
       <div key={node.path || 'root'} className="select-none">
         {node.path && (
-          <div 
+          <div
             style={{ paddingLeft: `${depth * 10 + 6}px`, fontFamily: 'var(--font-outfit)' }}
-            className="flex items-center justify-between group py-1.5 px-2.5 rounded-lg hover:bg-[var(--s1)] hover:backdrop-blur-md hover:translate-x-0.5 hover:shadow-lg cursor-pointer text-xs font-medium text-[var(--t3)] transition-all duration-300 ease-out"
+            className="flex items-center justify-between group py-1.5 px-2.5 rounded-lg hover:bg-white/5 hover:backdrop-blur-md hover:translate-x-0.5 hover:shadow-lg cursor-pointer text-xs font-medium text-zinc-300 transition-all duration-300 ease-out"
             onClick={() => isDir ? handleExpandFolder(node.path) : null}
           >
             <div className="flex items-center gap-2 min-w-0">
               {isDir ? (
                 <>
-                  <span className="text-[var(--t4)] group-hover:text-[var(--t2)]">
+                  <span className="text-zinc-600 group-hover:text-zinc-400">
                     {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   </span>
-                  <span className="text-[var(--t2)]">
+                  <span className="text-zinc-400">
                     {isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />}
                   </span>
                 </>
               ) : (
-                <span className="text-[var(--t4)] pl-4">
+                <span className="text-zinc-500 pl-4">
                   {node.name.match(/\.(ts|tsx|js|jsx)$/) ? <FileCode size={14} className="text-emerald-500/80" /> : <File size={14} />}
                 </span>
               )}
@@ -647,30 +665,30 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
             {!isDir && (
               <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handlePreviewFile(node.path); }}
-                  className="p-1 text-[var(--t4)] hover:text-[var(--t1)] hover:bg-[var(--s3)] rounded transition-all"
+                  className="p-1 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-all"
                   title="Preview code"
                 >
                   <Eye size={12} />
                 </button>
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handleInjectContent(node.path); }}
-                  className="p-1 text-[var(--t4)] hover:text-emerald-400 hover:bg-[var(--s3)] rounded transition-all"
+                  className="p-1 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-all"
                   title="Inject file code to context"
                 >
                   <PlusCircle size={12} />
                 </button>
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handleInjectSummary(node.path); }}
-                  className="p-1 text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s3)] rounded transition-all font-mono font-bold text-[9px] px-1"
+                  className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-all font-mono font-bold text-[9px] px-1"
                   title="Inject Path + 3 Line Summary"
                 >
                   Sum
                 </button>
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handleInjectPath(node.path); }}
-                  className="p-1 text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s3)] rounded transition-all"
+                  className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-all"
                   title="Inject path"
                 >
                   {copiedPath === node.path ? <Check size={12} className="text-emerald-400" /> : <Link size={12} />}
@@ -691,23 +709,23 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
   const hasMatchingChild = (node: TreeNode, query: string): boolean => {
     if (!node.children) return false;
-    return node.children.some(child => 
-      child.name.toLowerCase().includes(query.toLowerCase()) || 
+    return node.children.some(child =>
+      child.name.toLowerCase().includes(query.toLowerCase()) ||
       (child.type === 'directory' && hasMatchingChild(child, query))
     );
   };
 
   return (
-    <div className="h-full flex flex-col bg-black text-[var(--t1)] overflow-hidden font-sans border-l border-[var(--b1)] select-none relative">
-      
-      {/* Toast Alert */}
+    <div className="h-full flex flex-col bg-black text-zinc-100 overflow-hidden font-sans border-l border-zinc-900 select-none relative">
+
+      {/* Toast Alert System */}
       <AnimatePresence>
         {toastMessage && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 15 }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-[var(--s2)] border border-emerald-500/20 text-emerald-400 rounded-full text-xs font-semibold shadow-xl flex items-center gap-1.5 z-50 pointer-events-none"
+            className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-zinc-950 border border-emerald-500/20 text-emerald-400 rounded-full text-xs font-semibold shadow-xl flex items-center gap-1.5 z-50 pointer-events-none"
           >
             <Check size={12} />
             <span>{toastMessage}</span>
@@ -715,70 +733,106 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         )}
       </AnimatePresence>
 
+      {/* Dialog Alert System (Replaces window.confirm) */}
+      <AnimatePresence>
+        {confirmDialog && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <div className="flex items-center gap-2 text-amber-500 mb-3">
+                <AlertTriangle size={18} />
+                <h3 className="text-sm font-bold uppercase tracking-wider">{confirmDialog.title}</h3>
+              </div>
+              <p className="text-zinc-400 text-sm leading-relaxed mb-6">
+                {confirmDialog.message}
+              </p>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setConfirmDialog(null)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg transition-colors"
+                >
+                  {confirmDialog.actionText}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Visual Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--b2)]/40 bg-gradient-to-b from-zinc-900/30 to-black backdrop-blur-xl relative overflow-hidden">
-        <div className="absolute inset-0 bg-[var(--s1)] pointer-events-none" />
+      <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800/40 bg-gradient-to-b from-zinc-900/30 to-black backdrop-blur-xl relative overflow-hidden">
+        <div className="absolute inset-0 bg-white/[0.02] pointer-events-none" />
         <div className="min-w-0 relative">
-          <div className="flex items-center gap-1.5 text-xs text-[var(--t2)] tracking-wider uppercase font-medium">
-            <Terminal size={11} className="text-[var(--t4)]" />
+          <div className="flex items-center gap-1.5 text-xs text-zinc-400 tracking-wider uppercase font-medium">
+            <Terminal size={11} className="text-zinc-500" />
             <span>{activeSource === 'local' ? 'Local Workspace' : 'GitHub'}</span>
           </div>
-          <h2 className="text-base font-semibold text-[var(--t1)] tracking-tight mt-1 truncate" style={{ fontFamily: 'var(--font-outfit)' }} title={activeSource === 'github' && selectedGithubRepo ? selectedGithubRepo : treeData?.name || 'Workspace'}>
-            {activeSource === 'github' && selectedGithubRepo 
-              ? selectedGithubRepo.split('/').pop() 
+          <h2 className="text-base font-semibold text-white tracking-tight mt-1 truncate" style={{ fontFamily: 'var(--font-outfit)' }} title={activeSource === 'github' && selectedGithubRepo ? selectedGithubRepo : treeData?.name || 'Workspace'}>
+            {activeSource === 'github' && selectedGithubRepo
+              ? selectedGithubRepo.split('/').pop()
               : treeData?.name || 'No Repository Loaded'}
           </h2>
         </div>
 
-        <button 
+        <button
           onClick={activeSource === 'local' ? () => loadLocalGitData() : () => fetchGithubTree(selectedGithubRepo, selectedGithubBranch, githubToken)}
-          className="p-1 px-2.5 text-xs bg-[var(--s2)] hover:bg-[var(--s3)] active:scale-[0.97] border border-[var(--b2)]/80 hover:border-[var(--b2)] hover:text-[var(--t1)] hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] rounded-lg text-[var(--t2)] transition-all duration-300 flex items-center gap-1.5 relative z-10"
+          className="p-1 px-2.5 text-xs bg-zinc-950/80 hover:bg-zinc-800 active:scale-[0.97] border border-zinc-800/80 hover:border-zinc-700 hover:text-white hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] rounded-lg text-zinc-400 transition-all duration-300 flex items-center gap-1.5 relative z-10"
           disabled={loading}
         >
-          <RefreshCw size={11} className={loading ? 'animate-spin text-[var(--t3)]' : 'text-[var(--t4)]'} />
+          <RefreshCw size={11} className={loading ? 'animate-spin text-zinc-300' : 'text-zinc-500'} />
           <span className="text-[10px] tracking-wide font-medium">Sync</span>
         </button>
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Source Toggle Selector */}
-        <div className="px-6 py-4 flex flex-col gap-3.5 border-b border-[var(--b1)] bg-[var(--s2)]/20">
-          <div className="flex bg-[var(--s2)] rounded-lg p-0.5 border border-[var(--b1)] text-[10px] uppercase font-bold tracking-wider">
+        <div className="px-6 py-4 flex flex-col gap-3.5 border-b border-zinc-900 bg-zinc-950/20">
+          <div className="flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-900 text-[10px] uppercase font-bold tracking-wider">
             <button
               onClick={() => handleSourceChange('local')}
-              className={`flex-1 py-1.5 rounded-md transition-all font-sans ${activeSource === 'local' ? 'bg-[var(--t-text-primary)] text-[var(--bg)] font-extrabold shadow-sm' : 'text-[var(--t4)] hover:text-[var(--t3)]'}`}
+              className={`flex-1 py-1.5 rounded-md transition-all font-sans ${activeSource === 'local' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
               Local Git
             </button>
             <button
               onClick={() => handleSourceChange('github')}
-              className={`flex-1 py-1.5 rounded-md transition-all font-sans flex items-center justify-center gap-1.5 ${activeSource === 'github' ? 'bg-[var(--t-text-primary)] text-[var(--bg)] font-extrabold shadow-sm' : 'text-[var(--t4)] hover:text-[var(--t3)]'}`}
+              className={`flex-1 py-1.5 rounded-md transition-all font-sans flex items-center justify-center gap-1.5 ${activeSource === 'github' ? 'bg-zinc-100 text-black font-extrabold shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
               title={!githubToken ? "GitHub Integration Not Connected" : "Connected GitHub Workspace"}
             >
               <Github size={11} />
               <span>GitHub API</span>
-              {!githubToken && <Lock size={9} className="text-[var(--t4)]" />}
+              {!githubToken && <Lock size={9} className="text-zinc-500" />}
             </button>
           </div>
 
           {/* GitHub Repository Dropdowns or Setup Screen */}
           {activeSource === 'github' && (
             !githubToken ? (
-              <div className="space-y-3 p-4 bg-[var(--s2)] border border-[var(--b1)] rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
-                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--t2)]">
-                  <Github size={14} className="text-[var(--t1)]" />
+              <div className="space-y-3 p-4 bg-zinc-950 border border-zinc-900 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
+                  <Github size={14} className="text-white" />
                   <span>Connect GitHub Integration</span>
                 </div>
-                <p className="text-[10px] text-[var(--t4)] leading-normal font-light">
+                <p className="text-[10px] text-zinc-500 leading-normal font-light">
                   To view remote repositories, list branches, and provision local workspaces, please configure a GitHub Personal Access Token.
                 </p>
                 <div className="space-y-1">
-                  <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Personal Access Token</label>
+                  <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Personal Access Token</label>
                   <input
                     type="password"
                     placeholder="ghp_..."
                     id="github-token-input"
-                    className="w-full bg-black border border-[var(--b1)] rounded-xl px-3 py-2 text-xs text-[var(--t1)] placeholder-[var(--t4)] outline-none font-mono focus:border-[var(--b2)] transition-colors"
+                    className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-700 outline-none font-mono focus:border-zinc-700 transition-colors"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         handleConnectGithubToken((e.target as HTMLInputElement).value);
@@ -791,7 +845,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                     const input = document.getElementById('github-token-input') as HTMLInputElement;
                     if (input) handleConnectGithubToken(input.value);
                   }}
-                  className="w-full py-2 bg-[var(--t1)] text-[var(--bg)] hover:bg-[var(--t-text-secondary)] text-xs font-bold rounded-xl transition-all"
+                  className="w-full py-2 bg-white text-black hover:bg-zinc-200 text-xs font-bold rounded-xl transition-all"
                 >
                   Connect GitHub Token
                 </button>
@@ -799,11 +853,11 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
             ) : (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="space-y-1">
-                  <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Select Repository</label>
+                  <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Select Repository</label>
                   <select
                     value={selectedGithubRepo}
                     onChange={e => handleGithubRepoChange(e.target.value)}
-                    className="w-full bg-black border border-[var(--b1)] rounded-xl px-3 py-2 text-xs text-[var(--t1)] outline-none cursor-pointer"
+                    className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-2 text-xs text-white outline-none cursor-pointer"
                   >
                     <option value="" disabled>Choose a repository...</option>
                     {githubRepos.map(repo => (
@@ -815,22 +869,22 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                 {selectedGithubRepo && (
                   <>
                     <div className="space-y-1">
-                      <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Select Branch</label>
+                      <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Select Branch</label>
                       <select
                         value={selectedGithubBranch}
                         onChange={e => handleGithubBranchChange(e.target.value)}
-                        className="w-full bg-black border border-[var(--b1)] rounded-xl px-3 py-1.5 text-xs text-[var(--t1)] outline-none cursor-pointer"
+                        className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-white outline-none cursor-pointer"
                       >
                         {githubBranches.map(br => (
                           <option key={br} value={br}>{br}</option>
                         ))}
                       </select>
                     </div>
-                    
+
                     <button
                       onClick={handleProvisionWorkspace}
                       disabled={provisioning}
-                      className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-[var(--s3)] disabled:text-[var(--t4)] text-[var(--t1)] rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2"
+                      className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2"
                     >
                       <RefreshCw size={12} className={provisioning ? 'animate-spin' : ''} />
                       <span>{provisioning ? 'Provisioning Workspace...' : 'Provision Local Workspace'}</span>
@@ -844,11 +898,11 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           {/* Local branch switcher dropdown */}
           {activeSource === 'local' && localBranches.length > 0 && (
             <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-150">
-              <label className="block text-[9px] text-[var(--t4)] font-bold uppercase tracking-wider">Repository Ref/Branch</label>
+              <label className="block text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Repository Ref/Branch</label>
               <select
                 value={selectedLocalBranch}
                 onChange={e => handleLocalBranchChange(e.target.value)}
-                className="w-full bg-black border border-[var(--b1)] rounded-xl px-3 py-1.5 text-xs text-[var(--t1)] outline-none cursor-pointer"
+                className="w-full bg-black border border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-white outline-none cursor-pointer"
               >
                 {localBranches.map(br => (
                   <option key={br} value={br}>{br}</option>
@@ -859,23 +913,23 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
           {/* Search File Input */}
           <div className="relative">
-            <Search className="absolute left-3.5 top-2.5 text-[var(--t4)] pointer-events-none" size={13} />
-            <input 
-              type="text" 
+            <Search className="absolute left-3.5 top-2.5 text-zinc-600 pointer-events-none" size={13} />
+            <input
+              type="text"
               placeholder="Search file names..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[var(--s2)] border border-[var(--b1)] hover:border-[var(--b2)] focus:border-[var(--b2)] rounded-xl pl-10 pr-4 py-2.5 text-xs text-[var(--t1)] outline-none transition-all placeholder-[var(--t4)] font-sans"
+              className="w-full bg-zinc-950 border border-zinc-900 hover:border-zinc-800 focus:border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-xs text-zinc-200 outline-none transition-all placeholder-zinc-600 font-sans"
             />
           </div>
         </div>
 
         {/* Dynamic Git Status Info Meta */}
         {activeSource === 'local' && gitStatus && gitStatus.isRepo && (
-          <div className="mx-6 mt-4 p-3 bg-[var(--s2)] border border-[var(--b1)]/60 rounded-xl flex items-center justify-between text-xs text-[var(--t2)]">
+          <div className="mx-6 mt-4 p-3 bg-zinc-950/80 border border-zinc-900/60 rounded-xl flex items-center justify-between text-xs text-zinc-400">
             <div className="flex items-center gap-1.5">
-              <GitBranch size={13} className="text-[var(--t4)]" />
-              <span className="font-semibold text-[var(--t3)] truncate max-w-[120px]">{selectedLocalBranch || gitStatus.branch}</span>
+              <GitBranch size={13} className="text-zinc-500" />
+              <span className="font-semibold text-zinc-300 truncate max-w-[120px]">{selectedLocalBranch || gitStatus.branch}</span>
             </div>
             {gitStatus.files.length > 0 ? (
               <div className="flex items-center gap-1.5 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20 text-yellow-500 text-[10px] font-bold">
@@ -891,19 +945,19 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
         {/* Scrollable Tree & Sections */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          
+
           {/* File Tree Section */}
           <div className="space-y-2">
-            <button 
+            <button
               onClick={() => toggleSection('tree')}
-              className="w-full flex items-center justify-between text-xs font-semibold text-[var(--t4)] uppercase tracking-wider hover:text-[var(--t1)] transition-colors"
+              className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
             >
               <span>{activeSource === 'github' && selectedGithubRepo ? selectedGithubRepo.split('/').pop() : treeData?.name || 'Repository'} Files</span>
               {expandedSections.tree ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
             <AnimatePresence>
               {expandedSections.tree && (
-                <motion.div 
+                <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
@@ -912,7 +966,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                   {treeData ? (
                     renderTree(treeData)
                   ) : (
-                    <div className="text-center py-6 text-[var(--t4)] text-xs">
+                    <div className="text-center py-6 text-zinc-600 text-xs">
                       {loading ? 'Reading repository tree...' : 'No files loaded. Make sure repository is selected.'}
                     </div>
                   )}
@@ -923,17 +977,17 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
           {/* Local Changes Section */}
           {activeSource === 'local' && gitStatus && gitStatus.isRepo && gitStatus.files.length > 0 && (
-            <div className="space-y-2 border-t border-[var(--b1)] pt-4">
-              <button 
+            <div className="space-y-2 border-t border-zinc-900 pt-4">
+              <button
                 onClick={() => toggleSection('status')}
-                className="w-full flex items-center justify-between text-xs font-semibold text-[var(--t4)] uppercase tracking-wider hover:text-[var(--t1)] transition-colors"
+                className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
               >
                 <span className="flex items-center gap-1.5">Uncommitted Changes ({gitStatus.files.length})</span>
                 {expandedSections.status ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </button>
               <AnimatePresence>
                 {expandedSections.status && (
-                  <motion.div 
+                  <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
@@ -942,41 +996,41 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                     {gitStatus.files.map((item, idx) => {
                       const isStaged = item.status.startsWith('M') || item.status.startsWith('A');
                       const isUntracked = item.status === '??';
-                      
+
                       let statusColor = 'text-yellow-500 border-yellow-500/20 bg-yellow-500/5';
                       if (isStaged) statusColor = 'text-emerald-500 border-emerald-500/20 bg-emerald-500/5';
-                      if (isUntracked) statusColor = 'text-[var(--t4)] border-[var(--b2)] bg-[var(--s2)]';
+                      if (isUntracked) statusColor = 'text-zinc-500 border-zinc-800 bg-zinc-950';
 
                       return (
-                        <div 
+                        <div
                           key={idx}
-                          className="flex items-center justify-between group py-1.5 px-3 bg-[var(--s2)]/60 border border-[var(--b1)] rounded-xl hover:border-[var(--b2)] transition-colors"
+                          className="flex items-center justify-between group py-1.5 px-3 bg-zinc-950/60 border border-zinc-900 rounded-xl hover:border-zinc-800 transition-colors"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className={`text-[8px] font-bold px-1.5 py-0.5 border rounded uppercase ${statusColor}`}>
                               {item.status}
                             </span>
-                            <span className="text-xs text-[var(--t3)] truncate font-mono">{item.file}</span>
+                            <span className="text-xs text-zinc-300 truncate font-mono">{item.file}</span>
                           </div>
-                          
+
                           <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               onClick={() => handleViewDiff(item.file)}
-                              className="p-1 text-[var(--t4)] hover:text-emerald-400 rounded transition-all"
+                              className="p-1 text-zinc-500 hover:text-emerald-400 rounded transition-all"
                               title="View file diff"
                             >
                               <Code2 size={11} />
                             </button>
                             <button
                               onClick={() => handlePreviewFile(item.file)}
-                              className="p-1 text-[var(--t4)] hover:text-[var(--t1)] rounded transition-all"
+                              className="p-1 text-zinc-500 hover:text-white rounded transition-all"
                               title="Preview file"
                             >
                               <Eye size={11} />
                             </button>
                             <button
                               onClick={() => handleInjectPath(item.file)}
-                              className="p-1 text-[var(--t4)] hover:text-[var(--t3)] rounded transition-all"
+                              className="p-1 text-zinc-500 hover:text-zinc-300 rounded transition-all"
                               title="Inject file path"
                             >
                               <Link size={11} />
@@ -992,35 +1046,35 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           )}
 
           {/* Commit Log Section */}
-          <div className="space-y-2 border-t border-[var(--b1)] pt-4">
-            <button 
+          <div className="space-y-2 border-t border-zinc-900 pt-4">
+            <button
               onClick={() => toggleSection('commits')}
-              className="w-full flex items-center justify-between text-xs font-semibold text-[var(--t4)] uppercase tracking-wider hover:text-[var(--t1)] transition-colors"
+              className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
             >
               <span>Recent Commits ({commits.length})</span>
               {expandedSections.commits ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
             <AnimatePresence>
               {expandedSections.commits && (
-                <motion.div 
+                <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   className="space-y-1.5 overflow-hidden pt-1"
                 >
                   {commits.map((commit, idx) => (
-                    <div 
+                    <div
                       key={idx}
                       onClick={() => onInsertContext(`Commit Hash: \`${commit.hash}\` - ${commit.subject}`)}
-                      className="p-3 bg-[var(--s2)]/60 border border-[var(--b1)]/60 rounded-xl hover:border-[var(--b2)] transition-all cursor-pointer group"
+                      className="p-3 bg-zinc-950/60 border border-zinc-900/60 rounded-xl hover:border-zinc-800 transition-all cursor-pointer group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-[var(--t2)] bg-[var(--s2)] border border-[var(--b2)] px-1.5 py-0.5 rounded font-semibold group-hover:text-[var(--t1)] group-hover:border-[var(--b2)] transition-colors">
+                        <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded font-semibold group-hover:text-white group-hover:border-zinc-700 transition-colors">
                           {commit.hash}
                         </span>
-                        <GitCommit size={12} className="text-[var(--t4)] group-hover:text-[var(--t2)]" />
+                        <GitCommit size={12} className="text-zinc-600 group-hover:text-zinc-400" />
                       </div>
-                      <div className="text-xs text-[var(--t2)] font-sans mt-2 line-clamp-2 leading-relaxed">
+                      <div className="text-xs text-zinc-400 font-sans mt-2 line-clamp-2 leading-relaxed">
                         {commit.subject}
                       </div>
                     </div>
@@ -1037,37 +1091,37 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       <AnimatePresence>
         {previewFile && (
           <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
-            <div className="bg-[var(--s2)] border border-[var(--b1)] rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl scale-up-animation">
-              
-              <div className="flex items-center justify-between px-6 py-4.5 border-b border-[var(--b1)] flex-shrink-0">
+            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl scale-up-animation">
+
+              <div className="flex items-center justify-between px-6 py-4.5 border-b border-zinc-900 flex-shrink-0">
                 <div className="min-w-0">
-                  <div className="text-[9px] font-bold text-[var(--t4)] uppercase tracking-widest flex items-center gap-1.5">
+                  <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
                     <span>Code Preview</span>
-                    {previewFile.ref && <span className="bg-[var(--s2)] text-[var(--t2)] border border-[var(--b2)] px-1 rounded font-mono lowercase text-[8px]">{previewFile.ref}</span>}
+                    {previewFile.ref && <span className="bg-zinc-900 text-zinc-400 border border-zinc-800 px-1 rounded font-mono lowercase text-[8px]">{previewFile.ref}</span>}
                   </div>
-                  <h3 className="text-sm font-semibold text-[var(--t1)] tracking-tight truncate font-mono mt-0.5">
+                  <h3 className="text-sm font-semibold text-white tracking-tight truncate font-mono mt-0.5">
                     {previewFile.path}
                   </h3>
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => setPreviewFile(null)}
-                  className="p-1.5 text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s2)] rounded-lg transition-colors"
+                  className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
                 >
                   <X size={16} />
                 </button>
               </div>
 
               <div className="flex-1 overflow-auto p-6 bg-black">
-                <pre className="text-xs font-mono bg-[var(--s2)] p-4 border border-[var(--b1)]/80 rounded-xl overflow-x-auto text-[var(--t3)] select-text leading-relaxed tab-size-2">
+                <pre className="text-xs font-mono bg-zinc-950 p-4 border border-zinc-900/80 rounded-xl overflow-x-auto text-zinc-300 select-text leading-relaxed tab-size-2">
                   <code>{previewFile.content || "// File content is empty."}</code>
                 </pre>
               </div>
 
-              <div className="flex items-center justify-end gap-3 px-6 py-4.5 border-t border-[var(--b1)] flex-shrink-0">
+              <div className="flex items-center justify-end gap-3 px-6 py-4.5 border-t border-zinc-900 flex-shrink-0">
                 <button
                   onClick={() => handleInjectPath(previewFile.path)}
-                  className="px-4 py-2 border border-[var(--b1)] hover:border-[var(--b2)] text-[var(--t2)] hover:text-[var(--t1)] text-xs font-semibold rounded-xl transition-all"
+                  className="px-4 py-2 border border-zinc-900 hover:border-zinc-800 text-zinc-400 hover:text-white text-xs font-semibold rounded-xl transition-all"
                 >
                   Inject Path
                 </button>
@@ -1076,7 +1130,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                     handleInjectContent(previewFile.path);
                     setPreviewFile(null);
                   }}
-                  className="px-4 py-2 bg-[var(--t-text-primary)] hover:bg-[var(--t1)] text-[var(--bg)] text-xs font-semibold rounded-xl transition-all"
+                  className="px-4 py-2 bg-zinc-100 hover:bg-white text-black text-xs font-semibold rounded-xl transition-all"
                 >
                   Inject Code
                 </button>
@@ -1091,41 +1145,41 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       <AnimatePresence>
         {diffFile && (
           <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
-            <div className="bg-[var(--s2)] border border-[var(--b1)] rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl scale-up-animation">
-              
-              <div className="flex items-center justify-between px-6 py-4.5 border-b border-[var(--b1)] flex-shrink-0">
+            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl scale-up-animation">
+
+              <div className="flex items-center justify-between px-6 py-4.5 border-b border-zinc-900 flex-shrink-0">
                 <div>
                   <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-1.5">
                     <AlertTriangle size={10} />
                     <span>File Git Diff Preview</span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[var(--t1)] tracking-tight truncate font-mono mt-0.5">
+                  <h3 className="text-sm font-semibold text-white tracking-tight truncate font-mono mt-0.5">
                     {diffFile.path}
                   </h3>
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => setDiffFile(null)}
-                  className="p-1.5 text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s2)] rounded-lg transition-colors"
+                  className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
                 >
                   <X size={16} />
                 </button>
               </div>
 
               <div className="flex-1 overflow-auto p-6 bg-black">
-                <pre className="text-xs font-mono bg-[var(--s2)] p-4 border border-[var(--b1)]/80 rounded-xl overflow-x-auto text-[var(--t3)] select-text leading-relaxed">
+                <pre className="text-xs font-mono bg-zinc-950 p-4 border border-zinc-900/80 rounded-xl overflow-x-auto text-zinc-300 select-text leading-relaxed">
                   <code>{diffFile.diff || "No diff content found."}</code>
                 </pre>
               </div>
 
-              <div className="flex items-center justify-end gap-3 px-6 py-4.5 border-t border-[var(--b1)] flex-shrink-0">
+              <div className="flex items-center justify-end gap-3 px-6 py-4.5 border-t border-zinc-900 flex-shrink-0">
                 <button
                   onClick={() => {
                     onInsertContext(`[File Diff: ${diffFile.path}]\n\`\`\`diff\n${diffFile.diff}\n\`\`\``);
                     showToast(`Injected diff context of: ${diffFile.path}`);
                     setDiffFile(null);
                   }}
-                  className="px-4 py-2 bg-[var(--t-text-primary)] hover:bg-[var(--t1)] text-[var(--bg)] text-xs font-semibold rounded-xl transition-all"
+                  className="px-4 py-2 bg-zinc-100 hover:bg-white text-black text-xs font-semibold rounded-xl transition-all"
                 >
                   Inject Diff to Chat
                 </button>

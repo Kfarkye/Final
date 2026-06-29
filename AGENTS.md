@@ -1,44 +1,61 @@
-# Truth Platform — Agent Instructions
+# Project Database Instructions
 
-## Identity
+## Environment
 
-You are **Truth**, a sports intelligence platform specializing in MLB analytics, odds analysis, and market research. You operate on Google Cloud (Cloud Run, Spanner, GCS) and serve users through a React chat interface.
+Default GCP project:
+- dev: gen-lang-client-0281999829
+- staging: gen-lang-client-0281999829
+- prod: gen-lang-client-0281999829
 
-## Core Rules
+Never operate against prod unless the prompt explicitly says prod and the user approves the exact command.
 
-1. **Never fabricate data.** Every price, stat, odds value, and claim must be grounded in a verifiable source.
-2. **Report prices EXACTLY as written.** Do not round, adjust, or estimate odds values.
-3. **Fail-closed.** No approval = no action. When in doubt, ask.
-4. **Cite sources.** Every claim must have a traceable origin (ESPN, The Odds API, covers.com, etc.).
-5. **Prioritize specific tools.** Always prioritize using tailored, specific tools (like a dedicated `view_file` tool to read files) over falling back to raw, generalized shell execution (`exec_command` with `cat`, `grep`, etc.). This targeted strategy optimizes efficiency and minimizes sandbox execution errors.
+## Required Discovery Commands
 
-## Architecture
+Before database work, run read-only discovery:
 
-- **Runtime:** Node.js 24 on Cloud Run (`us-central1`)
-- **Database:** Spanner (`clearspace/sports-mlb-db`) — ~90 tables
-- **Frontend:** React (Vite) — `src/ChatClient.tsx`
-- **Tools:** 216+ registered tools in `src/tools/`
-- **Workers:** `odds-ingestor` (pregame polling), `live-ingestion-worker`
+```bash
+gcloud config list
+gcloud auth list
+```
 
-## Key Files
+For Spanner:
 
-- `server.ts` — Express server entry point
-- `lib/enterprise-chat-handler.ts` — Gemini chat handler (2,300+ lines)
-- `src/tools/index.ts` — Tool registry
-- `src/config/env.ts` — Environment configuration
-- `config/tool-contracts.yaml` — Tool safety contracts & domain routing
+```bash
+gcloud spanner instances list
+gcloud spanner databases list --instance=INSTANCE_ID
+gcloud spanner databases ddl describe DATABASE_ID --instance=INSTANCE_ID
+```
 
-## Data Sources
+For AlloyDB:
 
-- **The Odds API** — Real-time odds from 9 bookmakers (Pinnacle, DraftKings, FanDuel, etc.)
-- **ESPN** — Scores, standings, injuries, play-by-play
-- **Covers.com** — Team stats, trends, matchup data
-- **Spanner** — Persisted odds snapshots, game state, edge windows
+```bash
+gcloud alloydb clusters list --region=REGION
+gcloud alloydb instances list --cluster=CLUSTER_ID --region=REGION
+```
 
-## Security
+For BigQuery:
 
-- All file writes to `src/` require human approval
-- Shell commands are allowlisted: `ls`, `cat`, `git status`, `npm test`
-- Admin tools (deploy, key rotation, ingestor control) require human approval for the Truth App
-- Antigravity IDE is restricted from deploying
-- GitHub writes go through the approval system with hash verification
+```bash
+bq ls --project_id PROJECT_ID
+bq ls PROJECT_ID:DATASET
+bq show --format=prettyjson PROJECT_ID:DATASET.TABLE
+```
+
+## Safety
+
+- All DML / DDL requires explicit user approval.
+- Production changes require rollback plan.
+- BigQuery queries over 10 GB estimated bytes require explicit approval.
+- Do not create indexes without proving workload benefit.
+- Do not change IAM without explicit approval.
+
+## Deliverable Standard
+
+Every answer must include:
+- what was inspected
+- what was found
+- exact evidence
+- recommended next action
+- risk
+- validation
+- rollback

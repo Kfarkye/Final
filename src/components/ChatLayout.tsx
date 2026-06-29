@@ -1,5 +1,6 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { copyToClipboard } from '../utils/clipboard';
+import { Copy, Check, RotateCw, Edit2, ArrowDown } from 'lucide-react';
 
 interface MessageActionsProps {
   content: string;
@@ -8,7 +9,7 @@ interface MessageActionsProps {
   onEdit?: () => void;
 }
 
-const MessageActions: React.FC<MessageActionsProps> = ({ 
+const MessageActions: React.FC<MessageActionsProps> = memo(({ 
   content, 
   isUser = false, 
   onRegenerate, 
@@ -27,40 +28,42 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   };
 
   return (
-    <div className="absolute -right-2 top-3 hidden items-center gap-1 rounded-lg border bg-background p-1 shadow-sm group-hover:flex">
+    <div className="absolute -right-2 top-3 hidden items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1 shadow-sm group-hover:flex">
       <button
         onClick={handleCopy}
-        className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+        className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300 transition-colors cursor-pointer"
         aria-label="Copy message"
         title="Copy"
       >
-        {copied ? '✓' : '⎘'}
+        {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
       </button>
 
       {!isUser && onRegenerate && (
         <button
           onClick={onRegenerate}
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+          className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300 transition-colors cursor-pointer"
           aria-label="Regenerate response"
           title="Regenerate"
         >
-          ⟳
+          <RotateCw size={14} />
         </button>
       )}
 
       {isUser && onEdit && (
         <button
           onClick={onEdit}
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+          className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300 transition-colors cursor-pointer"
           aria-label="Edit message"
           title="Edit"
         >
-          ✎
+          <Edit2 size={14} />
         </button>
       )}
     </div>
   );
-};
+});
+
+MessageActions.displayName = 'MessageActions';
 
 interface ChatMessageProps {
   content: string;
@@ -69,24 +72,24 @@ interface ChatMessageProps {
   onEdit?: () => void;
 }
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ 
+const ChatMessage: React.FC<ChatMessageProps> = memo(({ 
   content, 
   isUser = false, 
   onRegenerate, 
   onEdit 
 }) => {
   return (
-    <div className="group relative">
+    <div className="group relative animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div 
         className={`
           rounded-2xl px-6 py-5 
           ${isUser 
-            ? 'bg-primary text-primary-foreground ml-auto max-w-[85%]' 
-            : 'bg-muted'
+            ? 'bg-zinc-100 text-black ml-auto max-w-[85%]' 
+            : 'bg-zinc-900/50 border border-zinc-800/50 text-zinc-200 max-w-full'
           }
         `}
       >
-        <div className="prose prose-neutral dark:prose-invert leading-relaxed">
+        <div className="prose prose-neutral dark:prose-invert max-w-none leading-relaxed text-sm whitespace-pre-wrap">
           {content}
         </div>
       </div>
@@ -99,7 +102,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       />
     </div>
   );
-};
+});
+
+ChatMessage.displayName = 'ChatMessage';
 
 interface ChatLayoutProps {
   children?: React.ReactNode;
@@ -112,6 +117,7 @@ interface ChatLayoutProps {
   }>;
   onRegenerate?: (messageId: string) => void;
   onEdit?: (messageId: string) => void;
+  inputArea?: React.ReactNode; // Replaced dead input with a layout slot
 }
 
 export const ChatLayout: React.FC<ChatLayoutProps> = ({ 
@@ -121,28 +127,37 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   messages = [],
   onRegenerate,
   onEdit,
+  inputArea
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  
+  // Track intentional user scroll to prevent violent yanking during streaming
+  const isUserScrolledUp = useRef(false);
 
-  // Auto-scroll behavior (especially during streaming)
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
-    }
-  }, [messages, children, isStreaming]);
-
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    
+    const isNearBottom = distanceFromBottom < 40; // 40px buffer
+    isUserScrolledUp.current = !isNearBottom;
     setShowScrollButton(!isNearBottom);
-  };
+  }, []);
+
+  // Auto-scroll behavior
+  useEffect(() => {
+    if (scrollRef.current && !isUserScrolledUp.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        // Use instant scroll during rapid streaming to prevent animation queue lag/thrashing
+        behavior: isStreaming ? 'auto' : 'smooth',
+      });
+    }
+  }, [messages, isStreaming]);
 
   const scrollToBottom = () => {
+    isUserScrolledUp.current = false;
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
@@ -150,11 +165,15 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background">
+    <div className="flex h-screen w-full flex-col bg-black text-zinc-100 selection:bg-zinc-800 selection:text-white font-sans">
       {/* Subtle Header */}
-      <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
-        <div className="mx-auto max-w-chat text-center text-sm text-muted-foreground">
-          Truth • Long-form AI Workspace
+      <div className="sticky top-0 z-10 border-b border-zinc-900 bg-black/80 px-4 py-3 backdrop-blur-xl">
+        <div className="mx-auto max-w-4xl flex items-center justify-between text-xs text-zinc-500 font-medium tracking-wide">
+          <span className="flex items-center gap-2 text-zinc-300">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            Truth Workspace
+          </span>
+          <span>Optimized for deep, readable responses</span>
         </div>
       </div>
 
@@ -162,9 +181,9 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 pb-28 pt-8 sm:px-6 md:px-8"
+        className="flex-1 overflow-y-auto px-4 pb-32 pt-8 sm:px-6 md:px-8 scroll-smooth"
       >
-        <div className={`mx-auto max-w-chat space-y-6 ${className}`}>
+        <div className={`mx-auto max-w-4xl space-y-8 ${className}`}>
           {messages.length > 0 ? (
             messages.map((msg) => (
               <ChatMessage
@@ -182,32 +201,24 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
       </div>
 
       {/* Scroll to Bottom Button */}
-      {showScrollButton && (
+      <div className={`fixed bottom-28 right-6 z-50 transition-all duration-300 ${showScrollButton ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
         <button
           onClick={scrollToBottom}
-          className="fixed bottom-28 right-6 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all hover:scale-105 active:scale-95 cursor-pointer"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 shadow-xl transition-all hover:bg-zinc-800 hover:text-white active:scale-95 cursor-pointer"
           aria-label="Scroll to bottom"
         >
-          ↓
+          <ArrowDown size={18} />
         </button>
-      )}
+      </div>
 
-      {/* Sticky Input Bar */}
-      <div className="sticky bottom-0 z-20 border-t bg-background/95 px-4 py-4 backdrop-blur">
-        <div className="mx-auto max-w-chat">
-          <div className="flex items-center gap-2 rounded-2xl border bg-muted px-4 py-3 shadow-sm">
-            <input
-              type="text"
-              placeholder="Ask anything..."
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            />
-            <button className="rounded-xl bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 cursor-pointer">
-              Send
-            </button>
-          </div>
-          <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
-            Optimized for deep, readable responses
-          </p>
+      {/* Input Area Slot */}
+      <div className="absolute bottom-0 w-full z-20 bg-gradient-to-t from-black via-black to-transparent pt-12 pb-6 px-4 pointer-events-none">
+        <div className="mx-auto max-w-4xl pointer-events-auto">
+          {inputArea || (
+            <div className="p-4 border border-zinc-800 border-dashed rounded-2xl bg-zinc-950/50 text-center text-xs text-zinc-600 font-mono">
+              // ChatLayout expected an inputArea prop here
+            </div>
+          )}
         </div>
       </div>
     </div>

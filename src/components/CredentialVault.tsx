@@ -2,14 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Search, X, Lock, RefreshCw } from 'lucide-react';
 import VaultCard from './VaultCard';
 
-export interface ApiIntegration {
-  id: string;
-  name: string;
-  category: 'AI / LLM' | 'Productivity' | 'Payments' | 'Communication' | 'Dev / Data' | 'Markets';
-  description: string;
-  keyFields: { label: string; placeholder: string; key: string; isSecret: boolean }[];
-  docUrl: string;
-}
+import { ApiIntegration } from '../types/vault.types';
 
 const INTEGRATIONS: ApiIntegration[] = [
   {
