@@ -91,7 +91,7 @@ for svc in "${SERVICES[@]}"; do
     --platform=managed \
     --no-allow-unauthenticated \
     --service-account="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},NODE_ENV=production"
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_PROJECT=${PROJECT_ID},NODE_ENV=production"
 
   echo "Granting Pub/Sub invoker access to $svc..."
   gcloud run services add-iam-policy-binding "$svc" \
