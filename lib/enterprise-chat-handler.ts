@@ -701,13 +701,20 @@ CRITICAL TOOL USE INSTRUCTIONS:
         }
         contents.push({ role: 'user', parts: buildUserContent('gemini', modelConfigs.gemini || 'gemini-3.5-flash', governedPrompt) });
 
-        const mergedDecls = [...deps.workspaceDecls];
+        const mergedDecls = (deps.workspaceDecls || []).map((decl: any) => {
+          const params = decl.parameters || { type: 'object', properties: {} };
+          if (!params.type) params.type = 'object';
+          return { ...decl, parameters: lowercaseSchemaTypes(params) };
+        });
+
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
           if (!mergedDecls.find((d: any) => d.name === toolName)) {
+            const params = canonical.parameters || { type: 'object', properties: {} };
+            if (!params.type) params.type = 'object';
             mergedDecls.push({
               name: canonical.name,
               description: canonical.description,
-              parameters: lowercaseSchemaTypes(canonical.parameters)
+              parameters: lowercaseSchemaTypes(params)
             });
           }
         }
