@@ -66,7 +66,7 @@ function withDeadline<T>(p: Promise<T>, ms: number, signal: AbortSignal, label: 
   });
 }
 
-function truncateToolResult(result: any, maxLen = 30000): any {
+function truncateToolResult(result: any, maxLen = 150000): any {
   if (result === null || result === undefined) return result;
   if (typeof result !== 'object') {
     const str = String(result);
@@ -445,7 +445,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     return capable.some(m => modelVersion.includes(m));
   }
 
-  const MAX_TEXT_CHARS = 50000; // Max characters per text file to inject into prompt
+  const MAX_TEXT_CHARS = 150000; // Max characters per text file to inject into prompt
 
   function truncateTextFile(decoded: string, fileName: string): string {
     if (decoded.length <= MAX_TEXT_CHARS) return decoded;
