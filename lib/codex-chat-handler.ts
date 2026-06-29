@@ -36,12 +36,12 @@ const MAX_CODEX_TOOLS = 100;
 const MAX_TOOL_TURNS = 100;
 const MAX_STREAM_RECONNECTS = 10;
 const STREAM_IDLE_TIMEOUT_MS = 300_000;
-const MAX_CODEX_OUTPUT_TOKENS = 100_000;
-const MAX_TOTAL_RESPONSE_TOKENS = Number(process.env.CODEX_MAX_TOTAL_RESPONSE_TOKENS ?? 200_000);
+const MAX_CODEX_OUTPUT_TOKENS = 16_384;
+const MAX_TOTAL_RESPONSE_TOKENS = Number(process.env.CODEX_MAX_TOTAL_RESPONSE_TOKENS ?? 2_000_000);
 const MAX_TOTAL_TOOL_CALLS = 100;
 const MAX_REPEATED_TOOL_CALLS = 50;
-const MAX_STUCK_TOOL_ONLY_TURNS = 200;
-const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 500;
+const MAX_STUCK_TOOL_ONLY_TURNS = 20;
+const MAX_HOSTED_TOOL_CALLS_WITHOUT_TEXT = 50;
 const MAX_HOSTED_TOOL_CALLS_PER_RESPONSE = 200;
 const TOOL_OUTPUT_TRUNCATE_AT = 128_000;
 const TOOL_OUTPUT_HEAD_CHARS = 64_000;
@@ -684,14 +684,9 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
 
       codexLog.info({ connectionId, turn, pendingCalls: pendingCalls.length, emittedTextOutput }, 'codex_executing_truth_tools');
 
-      // Execute all pending function calls and collect outputs
-      const functionOutputs: Array<{
-        type: 'function_call_output';
-        call_id: string;
-        output: string;
-      }> = [];
-
-      for (const call of pendingCalls) {
+      // Execute all pending function calls in parallel and collect outputs
+      const outputPromises = pendingCalls.map(async (call) => {
+        // Synchronously increment counters before any await points to prevent race conditions
         totalToolCalls++;
         let toolArgs: Record<string, unknown> = {};
         try {
@@ -715,7 +710,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           sendSSE('error', {
             message: `Codex function call "${displayToolName}" was missing call_id; cannot return tool output.`,
           });
-          continue;
+          return null;
         }
 
         const toolCallFingerprint = buildToolCallFingerprint(call.name, toolArgs);
@@ -783,12 +778,15 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
           result: resultStr.slice(0, 500),
         });
 
-        functionOutputs.push({
-          type: 'function_call_output',
+        return {
+          type: 'function_call_output' as const,
           call_id: call.callId,
           output: resultStr,
-        });
-      }
+        };
+      });
+
+      const parallelOutputs = await Promise.all(outputPromises);
+      const functionOutputs = parallelOutputs.filter((o): o is NonNullable<typeof o> => o !== null);
 
       if (functionOutputs.length === 0) {
         sendSSE('error', {
@@ -1250,8 +1248,6 @@ return `You are Truth, a sports intelligence AI specializing in MLB analytics, o
 
 You're a 1% operator. You work the machine directly — read the actual config, run the command, edit the file, and fix root causes with the tools you have. You never work around a problem you have the access to actually fix. You're an elite crawler. You traverse the system exhaustively — every file, route, table, and dependency — and map what's truly there before you act. You index ground truth, not assumptions. You're a relentless auditor. You verify every result against the source — the console, the table, the live response — never against your own report of success. A thing is done when reality confirms it, not when you believe it. You're a precise client. You hit the actual endpoint, read the real status, headers, and body, and judge the route by what it returns — not by what it should return. You call it and you read the response. You're a sharp prober. You interrogate the connection itself — the negotiated protocol, the TLS handshake, the failing hop — and trace the request through every layer until you find where it breaks. You find the hop that dies, not the symptom downstream. You're a disciplined authenticator. You establish valid identity against the real auth flow — acquire the credential, present it correctly, confirm the grant — every time, without regression. You verify the handshake actually succeeded before proceeding. Inspect real state. Trace to root. Fix with your tools. Verify against reality. Execute.
 
-Current time: ${now} (${tz})
-
 ## Core Rules
 1. NEVER fabricate data. Every price, stat, and odds value must be grounded in a verifiable source.
 2. Report prices EXACTLY as written — do not round or estimate.
@@ -1278,5 +1274,7 @@ You have access to:
 - Use clean citations: concise source names as Markdown links, no bare URLs in prose unless a URL itself is the answer, and no duplicate citation clutter
 - Cite every factual, statistical, odds, injury, schedule, or market claim; if a claim cannot be sourced, say so plainly
 - Structure complex responses with headers and tables
-- Be concise but thorough`;
+- Be concise but thorough
+
+Current time: ${now} (${tz})`;
 }
