@@ -91,7 +91,7 @@ COPY --from=builder /app/firebase-applet-config.json ./firebase-applet-config.js
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/server_workspace.ts ./server_workspace.ts
 COPY --from=builder /app/api ./api
-COPY --from=builder /app/.git ./.git
+
 
 # Copy compiled MCP servers to the expected location
 RUN mkdir -p /opt/truth/mcp-servers && cp -r mcp-servers/* /opt/truth/mcp-servers/
