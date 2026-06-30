@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { copyToClipboard } from './utils/clipboard';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,6 +18,7 @@ import SettingsDialog from './components/SettingsDialog';
 
 import { AssistantBlockRenderer } from './components/AssistantBlockRenderer';
 import { ToolTrace, ToolTraceEntry } from './components/ToolTrace';
+import BrowserPanel, { isBrowserTraceEntry } from './components/BrowserPanel';
 import { ModelSelector } from './components/ModelSelector';
 import SuggestedPrompts from './components/SuggestedPrompts';
 
@@ -72,10 +73,32 @@ export const DOMAINS = [
   { id: 'GENERAL', label: 'GENERAL', color: 'text-[var(--t2)] bg-[var(--s3)] border-[var(--b1)]' }
 ];
 
+type ChatMode = 'compare' | 'shared' | 'team' | 'solo' | 'browser';
+type RightPanelTab = 'workspace' | 'mcp' | 'integrations' | 'browser';
+
+const BROWSER_LANE_PROMPT = [
+  'Hybrid Browser Lane active.',
+  'Use browser tools as a first-class execution surface, not as hidden incidental calls.',
+  '',
+  'Routing policy:',
+  '- Public pages, documentation, articles, tables, dashboards, and JS-heavy pages: use headless browser tools first.',
+  '- Prefer browser_navigate for rendered pages, browser_evaluate/read DOM for targeted inspection, browser_screenshot for visual proof, and browser_extract_table for tables.',
+  '- If you encounter login, OAuth, MFA, CAPTCHA, payment walls, session locks, Cloudflare challenges, or repeated automation failure, stop before sensitive input and request human handoff.',
+  '- Never capture, store, replay, or quote credentials, one-time auth codes, MFA codes, cookies, or sensitive form values.',
+  '- After human handoff, resume only from a fresh DOM snapshot/screenshot and explain what changed.',
+  '- Keep every browser action auditable through ToolTrace: URL, action, timing, status, result summary, and blocker.',
+  '',
+  'User request:',
+].join('\n');
+
+function buildBrowserLanePrompt(prompt: string): string {
+  return `${BROWSER_LANE_PROMPT}\n${prompt}`;
+}
+
 interface Conversation {
   id: string;
   title: string;
-  mode: string;
+  mode: ChatMode | string;
   topic: string;
   updatedAt: any;
 }
@@ -188,7 +211,7 @@ export default function ChatClient() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [inputVal, setInputVal] = useState('');
   const [config, setConfig] = useState<{ baseModel: string } | null>(null);
-  const [mode, setMode] = useState<'compare' | 'shared' | 'team' | 'solo'>('compare');
+  const [mode, setMode] = useState<ChatMode>('compare');
   const [sharedModel, setSharedModel] = useState<string>('gemini');
   const [topic, setTopic] = useState('DEV');
   const [historyFilter, setHistoryFilter] = useState<string | null>(null);
@@ -200,7 +223,7 @@ export default function ChatClient() {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [activeRightTab, setActiveRightTab] = useState<'workspace' | 'mcp' | 'integrations'>('integrations');
+  const [activeRightTab, setActiveRightTab] = useState<RightPanelTab>('integrations');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -440,8 +463,8 @@ export default function ChatClient() {
     const conv = conversations.find(c => c.id === convId);
     if (conv) {
       setTopic(conv.topic || 'Normal');
-      if (['compare', 'shared', 'team', 'solo'].includes(conv.mode)) {
-        setMode(conv.mode as 'compare' | 'shared' | 'team' | 'solo');
+      if (['compare', 'shared', 'team', 'solo', 'browser'].includes(conv.mode)) {
+        setMode(conv.mode as ChatMode);
       }
     }
 
@@ -492,6 +515,7 @@ export default function ChatClient() {
     if ((!inputVal.trim() && attachments.length === 0) || isTyping || !config || !currentUser) return;
 
     const userText = inputVal.trim();
+    const backendPrompt = mode === 'browser' ? buildBrowserLanePrompt(userText) : userText;
     setInputVal('');
 
     const filesPayload = attachments.map(att => ({
@@ -511,9 +535,11 @@ export default function ChatClient() {
       ? [replyTargetModel]
       : mode === 'team'
         ? ['planner', 'ui_engineer', 'data_analyst']
-        : mode === 'shared'
-          ? [sharedModel]
-          : selectedProviders;
+        : mode === 'browser'
+          ? ['codex']
+          : mode === 'shared'
+            ? [sharedModel]
+            : selectedProviders;
 
     const turnId = Date.now();
     setTurns(prev => [...prev, {
@@ -553,7 +579,7 @@ export default function ChatClient() {
     }
 
     try {
-      const activeModel = replyTargetModel || (mode === 'shared' ? sharedModel : null);
+      const activeModel = replyTargetModel || (mode === 'browser' ? 'codex' : mode === 'shared' ? sharedModel : null);
       const history = activeModel ? turns.map(t => {
         return [
           { role: 'user', content: t.prompt },
@@ -635,7 +661,7 @@ export default function ChatClient() {
         },
         body: codexOnly
           ? JSON.stringify({
-              prompt: userText,
+              prompt: backendPrompt,
               history,
               connectionId: conversationId,
               userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -643,7 +669,7 @@ export default function ChatClient() {
               ...(codexResponseId ? { previousResponseId: codexResponseId } : {}),
             })
           : JSON.stringify({
-              prompt: userText,
+              prompt: backendPrompt,
               history,
               mode,
               targetModels,
@@ -662,7 +688,7 @@ export default function ChatClient() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
           body: JSON.stringify({
-            prompt: userText,
+            prompt: backendPrompt,
             history,
             connectionId: conversationId,
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -1082,6 +1108,12 @@ export default function ChatClient() {
     }
   };
 
+  const browserTraceEntries = useMemo(
+    () => turns.flatMap(turn => turn.trace || []).filter(isBrowserTraceEntry),
+    [turns],
+  );
+  const browserLaneActive = mode === 'browser';
+
   if (!config) return null;
 
   const getModelDisplayName = (id: string) => {
@@ -1227,6 +1259,17 @@ export default function ChatClient() {
           >
             Team
           </button>
+          <button
+            onClick={() => {
+              setMode('browser');
+              setSharedModel('codex');
+              setWorkspaceOpen(true);
+              setActiveRightTab('browser');
+            }}
+            className={`px-5 py-1.5 rounded-full transition-all duration-300 ${mode === 'browser' ? 'bg-[var(--t1)] text-[var(--bg)] shadow-sm' : 'text-[var(--t2)] hover:text-[var(--t1)]'}`}
+          >
+            Browser
+          </button>
         </div>
 
 
@@ -1267,6 +1310,27 @@ export default function ChatClient() {
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
             <span className="hidden lg:inline">MCP Registry</span>
+          </button>
+
+          {/* Browser Lane Button */}
+          <button
+            onClick={() => {
+              if (workspaceOpen && activeRightTab === 'browser') {
+                setWorkspaceOpen(false);
+              } else {
+                setWorkspaceOpen(true);
+                setActiveRightTab('browser');
+              }
+            }}
+            className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-full transition-all duration-300 border ${workspaceOpen && activeRightTab === 'browser' ? 'bg-[var(--t1)] text-[var(--bg)] border-[var(--t1)] shadow-[var(--t-shadow-md)]' : 'text-[var(--t2)] hover:text-[var(--t1)] bg-[var(--s1)] hover:bg-[var(--s2)] border-transparent'}`}
+            title="Browser Lane"
+          >
+            <span className="flex h-2 w-2 relative">
+              {browserLaneActive && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${browserTraceEntries.length > 0 ? 'bg-blue-500' : 'bg-[var(--t4)]'}`}></span>
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 0 20"></path><path d="M12 2a15.3 15.3 0 0 0 0 20"></path></svg>
+            <span className="hidden lg:inline">Browser</span>
           </button>
 
           {/* Secrets Vault Button */}
@@ -1484,7 +1548,13 @@ export default function ChatClient() {
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--t1)]"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                 </div>
                 <div className="t-h1 mb-3">Ready to start.</div>
-                <p className="mb-8 font-light text-lg">Domain: <span className="font-semibold text-[var(--t1)]">{topic}</span></p>
+                <p className="mb-8 font-light text-lg">
+                  {mode === 'browser' ? (
+                    <>Browser Lane: <span className="font-semibold text-[var(--t1)]">Headless first, human handoff when needed</span></>
+                  ) : (
+                    <>Domain: <span className="font-semibold text-[var(--t1)]">{topic}</span></>
+                  )}
+                </p>
                 <div className="md:hidden flex flex-wrap justify-center gap-2 bg-[var(--s2)] border border-[var(--b1)] p-1 rounded-2xl text-xs font-semibold mx-auto w-fit">
                   <button
                     onClick={() => setMode('compare')}
@@ -1503,6 +1573,17 @@ export default function ChatClient() {
                     className={`px-4 py-1.5 rounded-full transition-colors ${mode === 'solo' ? 'bg-[var(--t1)] text-[var(--bg)] shadow-sm' : 'text-[var(--t2)] hover:text-[var(--t1)]'}`}
                   >
                     Solo
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMode('browser');
+                      setSharedModel('codex');
+                      setWorkspaceOpen(true);
+                      setActiveRightTab('browser');
+                    }}
+                    className={`px-4 py-1.5 rounded-full transition-colors ${mode === 'browser' ? 'bg-[var(--t1)] text-[var(--bg)] shadow-sm' : 'text-[var(--t2)] hover:text-[var(--t1)]'}`}
+                  >
+                    Browser
                   </button>
                 </div>
               </div>
@@ -1626,6 +1707,17 @@ export default function ChatClient() {
                       setInputVal(prev => prev + (prev ? '\n\n' : '') + text);
                     }}
                   />
+                ) : activeRightTab === 'browser' ? (
+                  <BrowserPanel
+                    entries={browserTraceEntries}
+                    laneActive={browserLaneActive}
+                    onInsertContext={(text) => {
+                      setInputVal(prev => prev + (prev ? '\n\n' : '') + text);
+                      setMode('browser');
+                      setSharedModel('codex');
+                      textareaRef.current?.focus();
+                    }}
+                  />
                 ) : (
                   <CredentialVault
                     onClose={() => setWorkspaceOpen(false)}
@@ -1728,7 +1820,7 @@ export default function ChatClient() {
                   handleSend(e);
                 }
               }}
-              placeholder={replyTargetModel ? `Type a message to ${getModelDisplayName(replyTargetModel)}...` : "Send a message..."}
+              placeholder={replyTargetModel ? `Type a message to ${getModelDisplayName(replyTargetModel)}...` : mode === 'browser' ? 'Ask Codex to inspect a page, read DOM, capture screenshots, or extract tables...' : "Send a message..."}
               className="flex-1 w-full text-[15px] resize-none bg-transparent border-0 outline-none px-2 py-4 focus:ring-0 text-[var(--t1)] placeholder-[var(--t4)] leading-relaxed font-normal min-h-[56px] max-h-[300px] [&::-webkit-scrollbar]:hidden hover:[&::-webkit-scrollbar]:block"
               disabled={isTyping}
               {...pasteProps}
