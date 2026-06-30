@@ -15,10 +15,35 @@ describe("Hybrid Browser Lane contract", () => {
 
     expect(manifest).toContain("name: hybrid-browser-lane");
     expect(manifest).toContain("AI operations must execute on the identical CDP target as the human viewport.");
+    expect(manifest).toContain("Default web-page handling is a single normal browser page session");
+    expect(manifest).toContain("Assistant clicks, typing, scrolling, retries, research, crawling, and multi-source fan-out require explicit user intent");
+    expect(manifest).toContain("not a stealth, bot-detection bypass, or anti-challenge product");
     expect(manifest).toContain("webrtc_or_novnc");
     expect(manifest).toContain("cdp: 9222");
     expect(feature).toContain("AI and Human share the identical session");
     expect(feature).toContain("Human handles secure authentication");
+    expect(feature).toContain("Browser core is not a hidden crawler");
+  });
+
+  it("keeps browser core separate from crawler and stealth language", () => {
+    const browserTools = readFileSync(resolve(root, "src/tools/browser.tools.ts"), "utf8");
+    const registry = readFileSync(resolve(root, "src/components/McpRegistry.tsx"), "utf8");
+    const chatClient = readFileSync(resolve(root, "src/ChatClient.tsx"), "utf8");
+    const browserPanel = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");
+
+    expect(browserTools).toContain("Browser core tool for navigating one Chromium page session");
+    expect(browserTools).toContain("does not crawl, parallel-fetch, fan out, retry-loop, stealth, or bypass site challenges");
+    expect(browserTools).not.toContain("StealthPlugin");
+    expect(browserTools).not.toContain("bot-mitigation bypass");
+    expect(browserTools).not.toContain("evades Cloudflare");
+    expect(registry).not.toContain("bypasses anti-bot systems");
+    expect(registry).toContain("Browser Core");
+    expect(chatClient).toContain("Default = browser. Automation = explicit. Research/crawling = separate bounded mode only when the user asks for it.");
+    expect(chatClient).toContain("const browserSurfaceActive = workspaceOpen && activeRightTab === 'browser';");
+    expect(chatClient).toContain("const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 420px)' : 380;");
+    expect(chatClient).toContain("Browser mode promotes this area into the primary surface.");
+    expect(browserPanel).toContain("First-class browser");
+    expect(browserPanel).toContain("min-h-[520px] xl:min-h-[640px]");
   });
 
   it("classifies public-site challenges as human-control blockers", () => {

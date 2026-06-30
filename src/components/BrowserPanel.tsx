@@ -12,7 +12,7 @@ import React, {
 import type { ToolTraceEntry } from './ToolTrace';
 import { getBrowserLaneBlockerGuidance } from '../browser/browser-lane.contract';
 
-type BrowserMode = 'headless' | 'remote';
+type BrowserMode = 'browser_core' | 'remote';
 type BrowserStatus = 'ready' | 'agent_controlled' | 'human_controlled' | 'paused' | 'failed' | 'closed';
 type Controller = 'agent' | 'human' | 'none';
 type JsonObject = Record<string, unknown>;
@@ -147,7 +147,7 @@ function getBrowserMode(entries: ToolTraceEntry[], session?: BrowserSessionView 
   if (session?.controller === 'human') return 'remote';
   return entries.some(entry => HANDOFF_RE.test(getHandoffText(entry)))
     ? 'remote'
-    : 'headless';
+    : 'browser_core';
 }
 
 function getTraceSummary(entries: ToolTraceEntry[]) {
@@ -495,13 +495,13 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [runAction, typedText]);
 
   return (
-    <div className="h-full flex flex-col bg-[var(--t-bg-primary)]">
+    <div className="h-full min-w-0 flex flex-col bg-[var(--t-bg-primary)]">
       <div className="border-b border-[var(--b1)] p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--t4)]">Browser Lane</div>
             <h3 className="text-sm font-semibold text-[var(--t1)] mt-1">
-              Human browser tab
+              First-class browser
             </h3>
           </div>
           <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
@@ -616,7 +616,7 @@ const BrowserPanel = memo(function BrowserPanel({
           tabIndex={0}
           onWheel={scrollScreen}
           onKeyDown={keyScreen}
-          className="rounded-2xl border border-[var(--b1)] bg-[var(--s1)] p-3 min-h-[240px] outline-none focus:border-blue-400/50"
+          className="rounded-2xl border border-[var(--b1)] bg-[var(--s1)] p-3 min-h-[520px] xl:min-h-[640px] outline-none focus:border-blue-400/50"
         >
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-[10px] uppercase tracking-wider text-[var(--t4)]">Visible Browser Surface</span>
@@ -624,7 +624,7 @@ const BrowserPanel = memo(function BrowserPanel({
           </div>
 
           {blocker && blockerGuidance ? (
-            <div className="flex min-h-[210px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-950/25 px-6 text-center">
+            <div className="flex min-h-[490px] xl:min-h-[610px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-950/25 px-6 text-center">
               <div className="max-w-sm">
                 <div className="mx-auto mb-3 h-10 w-10 rounded-2xl border border-amber-300/30 bg-amber-300/10 flex items-center justify-center text-amber-200">
                   !
@@ -649,12 +649,12 @@ const BrowserPanel = memo(function BrowserPanel({
                 src={`data:${screenshot.mimeType};base64,${screenshot.base64}`}
                 alt="Current in-app browser page"
                 onClick={clickScreen}
-                className="block w-full cursor-crosshair select-none"
+                className="mx-auto block max-h-[calc(100vh-330px)] w-full cursor-crosshair select-none object-contain"
                 draggable={false}
               />
             </div>
           ) : (
-            <div className="flex min-h-[210px] items-center justify-center rounded-xl border border-dashed border-[var(--b1)] bg-black/35 px-6 text-center">
+            <div className="flex min-h-[490px] xl:min-h-[610px] items-center justify-center rounded-xl border border-dashed border-[var(--b1)] bg-black/35 px-6 text-center">
               <div>
                 <div className="mx-auto mb-3 h-10 w-10 rounded-2xl border border-[var(--b1)] bg-black/40 flex items-center justify-center">
                   <span className="text-lg">◉</span>

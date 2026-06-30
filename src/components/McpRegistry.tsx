@@ -259,7 +259,7 @@ export const PRELOADED_SERVERS: McpServer[] = [
     id: 'fetch-script-mcp',
     name: 'Fetch & Script Sandbox',
     publisher: 'Custom Sandbox Engine',
-    description: 'Enables high-performance scraping of public HTML pages, structured JSON API fetching, and sandboxed Javascript script execution.',
+    description: 'Provides explicit research-layer URL fetching, structured JSON API access, and sandboxed Javascript script execution outside the default browser lane.',
     status: 'Connected',
     icon: 'custom',
     type: 'Official',
@@ -647,9 +647,9 @@ export const PRELOADED_SERVERS: McpServer[] = [
   },
   {
     id: 'headless-browser-mcp',
-    name: 'Headless Browser Automation',
+    name: 'Browser Core',
     publisher: 'Reverie Engine',
-    description: 'Provides a secure, sandboxed headless Chromium browser. Navigates, takes screenshots, clicks, fills forms, and bypasses anti-bot systems.',
+    description: 'Provides a secure Chromium page session for normal browser navigation, screenshots, DOM inspection, clicks, fills, and human-visible proof. It stops at auth, CAPTCHA, and browser challenges.',
     status: 'Connected',
     icon: 'custom',
     type: 'Official',
@@ -658,7 +658,7 @@ export const PRELOADED_SERVERS: McpServer[] = [
     tools: [
       {
         name: 'browser_navigate',
-        description: 'Navigate to a URL in a headless browser. Returns page title, URL, and text content.',
+        description: 'Navigate one Chromium page session to a URL. Returns page status, active URL, title, and visible text.',
         parameters: '{ url: string, pageId?: string, waitForSelector?: string }',
         sampleInput: '{"url": "https://example.com"}'
       },

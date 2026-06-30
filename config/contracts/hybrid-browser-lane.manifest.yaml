@@ -24,6 +24,12 @@ spec:
         stream: 6080
 
   constraints:
+    - browser_core: true
+      rule: "Default web-page handling is a single normal browser page session: navigate, render, inspect, screenshot, and expose status, URL, title, DOM, screenshot, and errors."
+    - automation_explicit: true
+      rule: "Assistant clicks, typing, scrolling, retries, research, crawling, and multi-source fan-out require explicit user intent or an explicit higher-level mode."
+    - no_stealth_bypass: true
+      rule: "The browser lane is a trustworthy user-agent surface, not a stealth, bot-detection bypass, or anti-challenge product."
     - isolation: true
       rule: "AI operations must execute on the identical CDP target as the human viewport."
     - security: true
@@ -37,3 +43,4 @@ spec:
     - "Human can type URLs, search, click, scroll, log in, and browse normally."
     - "AI browser tools attach to the same session via WS/CDP."
     - "AI can navigate, inspect DOM, extract text/tables, screenshot, click, and scroll."
+    - "Browser navigation does not secretly crawl, parallel-fetch, retry-loop, fan out, stealth, or bypass site challenges."

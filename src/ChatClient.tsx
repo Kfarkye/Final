@@ -82,6 +82,8 @@ const BROWSER_LANE_PROMPT = [
   '',
   'Routing policy:',
   '- Public pages, documentation, articles, tables, dashboards, and JS-heavy pages: open/render in the browser lane first.',
+  '- Default = browser. Automation = explicit. Research/crawling = separate bounded mode only when the user asks for it.',
+  '- Do not secretly crawl, parallel-fetch, scrape, retry-loop, or fan out when the user asked to open, inspect, verify, read, extract, or interact with a page.',
   '- Prefer browser_navigate for rendered pages, browser_evaluate/read DOM for targeted inspection, browser_screenshot for visual proof, and browser_extract_table for tables on the same visible page.',
   '- If you encounter login, OAuth, MFA, CAPTCHA, payment walls, session locks, Cloudflare/browser challenges, or repeated automation failure, stop before sensitive input and request human control.',
   '- If a page reports BLOCKED_FOR_AUTH or a browser challenge, do not retry the same URL in a loop; switch to an approved API/source fallback or wait for human control.',
@@ -1209,6 +1211,9 @@ export default function ChatClient() {
     );
   };
 
+  const browserSurfaceActive = workspaceOpen && activeRightTab === 'browser';
+  const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 420px)' : 380;
+
   return (
     <div className="app pb-safe pt-safe">
       {/* Ambient depth — pure aura black, no color tints */}
@@ -1266,6 +1271,7 @@ export default function ChatClient() {
               setSharedModel('codex');
               setWorkspaceOpen(true);
               setActiveRightTab('browser');
+              setSidebarOpen(false);
             }}
             className={`px-5 py-1.5 rounded-full transition-all duration-300 ${mode === 'browser' ? 'bg-[var(--t1)] text-[var(--bg)] shadow-sm' : 'text-[var(--t2)] hover:text-[var(--t1)]'}`}
           >
@@ -1321,6 +1327,7 @@ export default function ChatClient() {
               } else {
                 setWorkspaceOpen(true);
                 setActiveRightTab('browser');
+                setSidebarOpen(false);
               }
             }}
             className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-full transition-all duration-300 border ${workspaceOpen && activeRightTab === 'browser' ? 'bg-[var(--t1)] text-[var(--bg)] border-[var(--t1)] shadow-[var(--t-shadow-md)]' : 'text-[var(--t2)] hover:text-[var(--t1)] bg-[var(--s1)] hover:bg-[var(--s2)] border-transparent'}`}
@@ -1539,7 +1546,7 @@ export default function ChatClient() {
 
         {/* Chat Area */}
         <main
-          className="flex-1 overflow-y-auto px-4 py-10 flex flex-col space-y-12"
+          className={`overflow-y-auto flex flex-col space-y-12 transition-all duration-300 ${browserSurfaceActive ? 'w-[420px] flex-none px-3 py-8 border-r border-[var(--b1)] bg-black/20' : 'flex-1 px-4 py-10'}`}
           onClick={() => showMenu && setShowMenu(false)}
         >
           <div className="max-w-[1400px] w-full mx-auto flex flex-col space-y-12">
@@ -1672,16 +1679,16 @@ export default function ChatClient() {
           </div>
         </main>
 
-        {/* Right Sidebar (Workspace & MCP Integrations) */}
+        {/* Support panels; Browser mode promotes this area into the primary surface. */}
         <AnimatePresence initial={false}>
           {workspaceOpen && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 380, opacity: 1 }}
+              animate={{ width: supportPanelWidth, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              className="border-l border-[var(--b1)] bg-[var(--t-bg-primary)] backdrop-blur-xl flex flex-col flex-shrink-0 overflow-hidden"
+              className={`bg-[var(--t-bg-primary)] backdrop-blur-xl flex flex-col flex-shrink-0 overflow-hidden ${browserSurfaceActive ? 'shadow-[-24px_0_80px_rgba(0,0,0,0.45)]' : 'border-l border-[var(--b1)]'}`}
             >
-              <div className="w-[380px] h-full flex flex-col">
+              <div className="h-full flex flex-col" style={{ width: supportPanelWidth }}>
                 {activeRightTab === 'workspace' ? (
                   <div className="h-full flex flex-col overflow-hidden">
                     <WorkspaceModeToggle mode={workspaceSubTab} onToggle={setWorkspaceSubTab} />

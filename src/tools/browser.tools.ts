@@ -1,11 +1,11 @@
 /**
- * browser.tools.ts — Hardened headless browser automation for the reverie agent
+ * browser.tools.ts — Browser core for the reverie agent
  *
  * Architecture:
  * - Singleton Puppeteer browser instance (lazy-init)
  * - Auto-closes after 5 min idle to conserve Cloud Run memory
  * - Pages tracked in a Map by auto-generated ID
- * - Uses puppeteer-extra with stealth plugin for bot-mitigation bypass
+ * - Normal Chromium page session with cookies, storage, navigation, DOM access, and screenshots
  * - puppeteer-core + system Chromium (installed via apt in Dockerfile)
  *
  * Security:
@@ -14,7 +14,8 @@
  *   and decimal/hex encoded IPs
  * - Request interception: every outbound request is validated against SSRF rules
  *   to prevent mid-flight DNS rebinding attacks
- * - No auth/cookie passthrough — clean browser context
+ * - No auth/cookie passthrough from host browser — clean browser context
+ * - Browser core does not crawl, fan out, stealth, or bypass site challenges
  * - 30s navigation timeout
  * - 5 concurrent pages max (oldest evicted)
  * - 10MB max screenshot
@@ -24,14 +25,10 @@
 import { z } from "zod";
 import type { RegisteredTool } from "./types";
 import puppeteer from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page, HTTPRequest } from "puppeteer-core";
 import { resolve4 } from "dns/promises";
 import { isIP } from "net";
 import { existsSync } from "fs";
-
-// Enable stealth — evades Cloudflare, Imperva, DataDome, etc.
-puppeteer.use(StealthPlugin());
 
 // ── SSRF Defense ─────────────────────────────────────────────────────────────
 
@@ -236,7 +233,7 @@ async function getBrowser(): Promise<Browser> {
   }
 
   const execPath = getChromiumPath();
-  console.log(`[browser.tools] Launching stealth Chrome: ${execPath}`);
+  console.log(`[browser.tools] Launching browser core Chrome: ${execPath}`);
 
   browserInstance = await puppeteer.launch({
     executablePath: execPath,
@@ -391,10 +388,11 @@ const browserNavigateTool: RegisteredTool<any> = {
   definition: {
     name: "browser_navigate",
     description:
-      "FIRST-CLASS PRIMARY TOOL for navigating to and reading any URL in a real headless browser. Returns page title, URL, and extracted text content. " +
-      "ALWAYS use this instead of fetch_html/curl, as it renders JavaScript and handles modern SPAs perfectly. " +
-      "Returns a pageId for subsequent operations (click, fill, screenshot) on the same page. " +
-      "URLs are validated against SSRF blocklist (internal IPs, metadata endpoints blocked).",
+      "Browser core tool for navigating one Chromium page session to a URL. Returns page status, active URL, title, and extracted visible text. " +
+      "Use this as the default for web-page inspection because it renders the page a normal browser would see. " +
+      "It does not crawl, parallel-fetch, fan out, retry-loop, stealth, or bypass site challenges. " +
+      "Returns a pageId for explicit follow-up actions (click, fill, screenshot, DOM/table extraction) on the same page. " +
+      "URLs are validated against SSRF blocklist (internal IPs and metadata endpoints blocked).",
     schema: z.object({
       url: z.string().url().describe("URL to navigate to"),
       pageId: z.string().optional().describe("Reuse an existing page (from a previous navigate call)"),
@@ -409,7 +407,7 @@ const browserNavigateTool: RegisteredTool<any> = {
 
       const { id, page } = await getOrCreatePage(args.pageId);
 
-      await page.goto(args.url, {
+      const response = await page.goto(args.url, {
         waitUntil: "domcontentloaded",
         timeout: NAV_TIMEOUT_MS,
       });
@@ -432,6 +430,8 @@ const browserNavigateTool: RegisteredTool<any> = {
 
       return {
         success: true,
+        status: "loaded",
+        httpStatus: response?.status() ?? null,
         pageId: id,
         title,
         url,

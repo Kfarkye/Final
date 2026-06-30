@@ -154,7 +154,7 @@ export const scraperTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "search_web",
-      description: "Performs a web search to DISCOVER information and URLs. Returns a summary with source URLs. Use this FIRST to find relevant pages, then use browser_navigate (the primary headless browser tool) or fetch_json to read specific URLs you discover. Do NOT call search_web repeatedly — call it once, then fetch the URLs it returns.",
+      description: "Research layer tool for explicit discovery across the web. Returns a summary with source URLs. Do not use this as a hidden substitute for opening a specific page; for a user-provided URL or rendered page inspection, use browser_navigate first. Do NOT call search_web repeatedly — call it once, then inspect selected sources explicitly.",
       schema: z.object({
         query: z.string().min(1, "Query is required"),
         domain: z.string().optional()
@@ -200,7 +200,7 @@ export const scraperTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "fetch_html",
-      description: "Legacy text-only fetcher. STRONGLY PREFER using browser_navigate for any web page interaction, as it runs a real browser and can evaluate JS. Use this ONLY as a fallback if browser_navigate fails.",
+      description: "Text-only fetcher for explicit research/crawler workflows. It does not render a human-visible browser page. For normal web-page inspection, use browser_navigate and browser screenshot/DOM tools first.",
       schema: z.object({
         url: z.string().url("Must be a valid HTTP/HTTPS URL")
       })
