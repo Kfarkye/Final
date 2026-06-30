@@ -47,6 +47,9 @@ import bindExternalServiceRoute from "./src/routes/workers/bind-external-service
 
 // Browser Runtime — real isolated browser session control plane (Phase A)
 import { browserSessionRoutes } from "./src/browser/browser-session.routes";
+// MV3 Extension Bridge — real Chrome on the user's machine (Path A)
+import { extensionBridge } from "./src/browser/extension-bridge";
+import { browserBridgeRoutes } from "./src/browser/browser-bridge.routes";
 
 const app = express();
 const PORT = env.PORT;
@@ -73,6 +76,7 @@ app.use("/api/design-systems", designSystemRoutes);
 app.use("/api/truth", suggestRoutes);
 app.use("/api/source", sourceRoutes);
 app.use("/api/browser", browserSessionRoutes); // Browser Runtime: sessions, actions, take-control, SSE stream
+app.use("/api/browser", browserBridgeRoutes);  // MV3 bridge: SSE frame relay + navigate/click/fill commands
 app.use(artifactRoutes); // SSR artifacts + sitemap.xml (indexable by construction)
 app.use(bindExternalServiceRoute);
 
@@ -124,6 +128,13 @@ async function startServer() {
 
   // 1. Create the native HTTP server explicitly
   const server = http.createServer(app);
+
+  // 1b. Attach the MV3 extension bridge (raw WebSocket upgrade at /api/browser/bridge).
+  // This is the only transport the user's Chrome MV3 service worker speaks. It hooks
+  // the http.Server 'upgrade' event and path-gates to BRIDGE_PATH, so normal HTTP/SSE
+  // routes are unaffected.
+  extensionBridge.attach(server);
+  logger.info({ msg: "MV3 extension bridge attached", path: "/api/browser/bridge" });
 
   // ── SSE / Long-Running Request Timeouts ──────────────────────────────
   // GKE load balancers enforce backend service timeoutSec (default 30s).
