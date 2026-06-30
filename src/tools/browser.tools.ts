@@ -28,6 +28,7 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page, HTTPRequest } from "puppeteer-core";
 import { resolve4 } from "dns/promises";
 import { isIP } from "net";
+import { existsSync } from "fs";
 
 // Enable stealth — evades Cloudflare, Imperva, DataDome, etc.
 puppeteer.use(StealthPlugin());
@@ -172,9 +173,37 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 const MAX_PAGES = 5;
 const NAV_TIMEOUT_MS = 30_000;
 
+export type BrowserVisualSnapshot = {
+  pageId: string;
+  title: string;
+  url: string;
+  updatedAt: string;
+  lastScreenshot?: {
+    mimeType: "image/png";
+    base64: string;
+    sizeBytes: number;
+    capturedAt: string;
+  };
+};
+
 // Page registry: pageId → Page
 const pages = new Map<string, Page>();
 let pageCounter = 0;
+let latestVisualSnapshot: BrowserVisualSnapshot | null = null;
+
+function updateLatestVisualSnapshot(pageId: string, patch: Partial<Omit<BrowserVisualSnapshot, "pageId">>) {
+  latestVisualSnapshot = {
+    pageId,
+    title: patch.title ?? latestVisualSnapshot?.title ?? "",
+    url: patch.url ?? latestVisualSnapshot?.url ?? "",
+    updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    lastScreenshot: patch.lastScreenshot ?? latestVisualSnapshot?.lastScreenshot,
+  };
+}
+
+export function getLatestBrowserVisualSnapshot(): BrowserVisualSnapshot | null {
+  return latestVisualSnapshot;
+}
 
 // Detect Chromium location
 function getChromiumPath(): string {
@@ -192,11 +221,8 @@ function getChromiumPath(): string {
   ];
 
   for (const p of paths) {
-    try {
-      require("fs").accessSync(p);
+    if (existsSync(p)) {
       return p;
-    } catch {
-      continue;
     }
   }
 
@@ -295,6 +321,22 @@ async function getOrCreatePage(pageId?: string): Promise<{ id: string; page: Pag
   return { id, page };
 }
 
+export async function getBrowserPageById(pageId: string): Promise<Page | null> {
+  resetIdleTimer();
+  return pages.get(pageId) ?? null;
+}
+
+export async function getBrowserPageMetadata(pageId: string): Promise<{ pageId: string; title: string; url: string } | null> {
+  const page = await getBrowserPageById(pageId);
+  if (!page) return null;
+
+  return {
+    pageId,
+    title: await page.title().catch(() => ""),
+    url: page.url(),
+  };
+}
+
 // ── Helper: Extract page text ────────────────────────────────────────────────
 
 async function extractPageText(page: Page, maxChars = 50000): Promise<string> {
@@ -382,6 +424,11 @@ const browserNavigateTool: RegisteredTool<any> = {
       const title = await page.title();
       const url = page.url();
       const text = await extractPageText(page, args.maxChars);
+      updateLatestVisualSnapshot(id, {
+        title,
+        url,
+        updatedAt: new Date().toISOString(),
+      });
 
       return {
         success: true,
@@ -441,6 +488,21 @@ const browserScreenshotTool: RegisteredTool<any> = {
       }
 
       const base64 = Buffer.from(screenshotBuffer).toString("base64");
+      const capturedAt = new Date().toISOString();
+      const title = await page.title().catch(() => "");
+      const url = page.url();
+
+      updateLatestVisualSnapshot(args.pageId, {
+        title,
+        url,
+        updatedAt: capturedAt,
+        lastScreenshot: {
+          mimeType: "image/png",
+          base64,
+          sizeBytes: screenshotBuffer.length,
+          capturedAt,
+        },
+      });
 
       return {
         success: true,
@@ -581,6 +643,11 @@ const browserClickTool: RegisteredTool<any> = {
 
       const url = page.url();
       const title = await page.title();
+      updateLatestVisualSnapshot(args.pageId, {
+        title,
+        url,
+        updatedAt: new Date().toISOString(),
+      });
 
       return {
         success: true,
@@ -665,6 +732,9 @@ const browserCloseTool: RegisteredTool<any> = {
         if (page) {
           await page.close().catch(() => {});
           pages.delete(args.pageId);
+          if (latestVisualSnapshot?.pageId === args.pageId) {
+            latestVisualSnapshot = null;
+          }
           return { success: true, message: `Closed page '${args.pageId}'` };
         }
         return { success: false, error: `Page '${args.pageId}' not found.` };
@@ -675,6 +745,7 @@ const browserCloseTool: RegisteredTool<any> = {
         await browserInstance.close().catch(() => {});
         browserInstance = null;
         pages.clear();
+        latestVisualSnapshot = null;
         if (idleTimer) clearTimeout(idleTimer);
       }
       return { success: true, message: "Browser closed." };

@@ -1,6 +1,11 @@
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
-import { browserTools } from "../tools/browser.tools";
+import {
+  browserTools,
+  getBrowserPageById,
+  getBrowserPageMetadata,
+  getLatestBrowserVisualSnapshot,
+} from "../tools/browser.tools";
 
 type BrowserSessionStatus =
   | "ready"
@@ -30,10 +35,19 @@ type BrowserActionResult = {
   };
 };
 
+type BrowserScreenshotState = {
+  mimeType: "image/png";
+  base64: string;
+  sizeBytes: number;
+  capturedAt: string;
+  actionId: string;
+};
+
 type BrowserSession = {
   id: string;
   status: BrowserSessionStatus;
   currentUrl: string | null;
+  title: string | null;
   pageId: string | null;
   browserProcessId: number | null;
   workerId: string;
@@ -47,6 +61,7 @@ type BrowserSession = {
   lastHeartbeatAt: string;
   idleTimeoutMs: number;
   failureReason: string | null;
+  lastScreenshot: BrowserScreenshotState | null;
   actionHistory: BrowserActionResult[];
 };
 
@@ -72,25 +87,32 @@ function toView(session: BrowserSession) {
   };
 }
 
-function createSession(): BrowserSession {
+function createSession(seed?: {
+  pageId?: string | null;
+  currentUrl?: string | null;
+  title?: string | null;
+  lastScreenshot?: BrowserScreenshotState | null;
+}): BrowserSession {
   const timestamp = nowIso();
   return {
     id: `browser-${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`,
     status: "agent_controlled",
-    currentUrl: null,
-    pageId: null,
+    currentUrl: seed?.currentUrl ?? null,
+    title: seed?.title ?? null,
+    pageId: seed?.pageId ?? null,
     browserProcessId: null,
     workerId: "mcp-browser",
     controller: "agent",
     controlLease: null,
     profileRef: "ephemeral-browser-profile",
     downloadRef: "ephemeral-browser-downloads",
-    viewport: { width: 1280, height: 800 },
+    viewport: { width: 1280, height: 900 },
     createdAt: timestamp,
     updatedAt: timestamp,
     lastHeartbeatAt: timestamp,
     idleTimeoutMs: 5 * 60 * 1000,
     failureReason: null,
+    lastScreenshot: seed?.lastScreenshot ?? null,
     actionHistory: [],
   };
 }
@@ -132,6 +154,52 @@ function updateSessionFromToolResult(session: BrowserSession, result: any) {
   if (typeof result?.url === "string") {
     session.currentUrl = result.url;
   }
+  if (typeof result?.title === "string") {
+    session.title = result.title;
+  }
+}
+
+async function syncSessionFromPage(session: BrowserSession) {
+  if (!session.pageId) return null;
+  const metadata = await getBrowserPageMetadata(session.pageId);
+  if (!metadata) return null;
+
+  session.currentUrl = metadata.url;
+  session.title = metadata.title;
+  session.updatedAt = nowIso();
+  session.lastHeartbeatAt = session.updatedAt;
+  session.failureReason = null;
+  session.status = getStatusForController(session.controller);
+  return metadata;
+}
+
+async function captureSessionPreview(session: BrowserSession, actionId: string) {
+  if (!session.pageId) return null;
+  const result = await callBrowserTool("browser_screenshot", {
+    pageId: session.pageId,
+    fullPage: false,
+  });
+
+  const capturedAt = nowIso();
+  const screenshot = {
+    mimeType: "image/png" as const,
+    base64: result.base64,
+    sizeBytes: result.sizeBytes,
+    capturedAt,
+    actionId,
+  };
+  session.lastScreenshot = screenshot;
+  return screenshot;
+}
+
+function summarizeToolResult(result: any) {
+  if (!result || typeof result !== "object") return result;
+  const { text, base64, ...rest } = result;
+  return {
+    ...rest,
+    ...(typeof text === "string" ? { textLength: text.length } : {}),
+    ...(typeof base64 === "string" ? { base64Omitted: true } : {}),
+  };
 }
 
 function recordAction(session: BrowserSession, action: BrowserActionResult) {
@@ -203,6 +271,13 @@ async function executeSessionAction(session: BrowserSession, body: any): Promise
         base64: result.base64,
         sizeBytes: result.sizeBytes,
       };
+      session.lastScreenshot = {
+        mimeType: "image/png",
+        base64: result.base64,
+        sizeBytes: result.sizeBytes,
+        capturedAt: nowIso(),
+        actionId: action.actionId,
+      };
     } else if (type === "click") {
       if (!session.pageId) throw Object.assign(new Error("Navigate before clicking"), { statusCode: 400 });
       result = await callBrowserTool("browser_click", {
@@ -235,22 +310,81 @@ async function executeSessionAction(session: BrowserSession, body: any): Promise
         expression: `window.scrollBy(${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)}); ({ scrollX: window.scrollX, scrollY: window.scrollY })`,
       });
       action.data = result.result;
+    } else if (type === "pointer_click") {
+      if (!session.pageId) throw Object.assign(new Error("Navigate before clicking"), { statusCode: 400 });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      const x = Math.max(0, Math.round(Number(body.x ?? 0)));
+      const y = Math.max(0, Math.round(Number(body.y ?? 0)));
+      await page.mouse.click(x, y);
+      await page.waitForNetworkIdle({ timeout: 3000 }).catch(() => {});
+      await syncSessionFromPage(session);
+      result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title, x, y };
+      action.data = { x, y };
+    } else if (type === "wheel") {
+      if (!session.pageId) throw Object.assign(new Error("Navigate before scrolling"), { statusCode: 400 });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      const deltaX = Math.round(Number(body.deltaX ?? 0));
+      const deltaY = Math.round(Number(body.deltaY ?? 0));
+      await page.mouse.wheel({ deltaX, deltaY });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await syncSessionFromPage(session);
+      result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title, deltaX, deltaY };
+      action.data = { deltaX, deltaY };
+    } else if (type === "key") {
+      if (!session.pageId) throw Object.assign(new Error("Navigate before typing"), { statusCode: 400 });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      const key = String(body.key || "");
+      if (!key) throw Object.assign(new Error("Missing key"), { statusCode: 400 });
+      await page.keyboard.press(key as any);
+      await page.waitForNetworkIdle({ timeout: 1500 }).catch(() => {});
+      await syncSessionFromPage(session);
+      result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title, key };
+      action.data = { key };
+    } else if (type === "text") {
+      if (!session.pageId) throw Object.assign(new Error("Navigate before typing"), { statusCode: 400 });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      const text = String(body.text || "");
+      if (!text) throw Object.assign(new Error("Missing text"), { statusCode: 400 });
+      await page.keyboard.type(text, { delay: 8 });
+      await syncSessionFromPage(session);
+      result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title, textLength: text.length };
+      action.data = { redacted: true, textLength: text.length };
+    } else if (type === "back" || type === "forward") {
+      if (!session.pageId) throw Object.assign(new Error(`Navigate before ${type}`), { statusCode: 400 });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      if (type === "back") {
+        await page.goBack({ waitUntil: "domcontentloaded", timeout: 10_000 }).catch(() => null);
+      } else {
+        await page.goForward({ waitUntil: "domcontentloaded", timeout: 10_000 }).catch(() => null);
+      }
+      await page.waitForNetworkIdle({ timeout: 3000 }).catch(() => {});
+      await syncSessionFromPage(session);
+      result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title };
     } else if (type === "reload") {
       if (!session.pageId || !session.currentUrl) throw Object.assign(new Error("Navigate before reloading"), { statusCode: 400 });
-      result = await callBrowserTool("browser_navigate", {
-        url: session.currentUrl,
-        pageId: session.pageId,
-        maxChars: body.maxChars || 20_000,
-      });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 10_000 });
+      await page.waitForNetworkIdle({ timeout: 3000 }).catch(() => {});
+      await syncSessionFromPage(session);
+      result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title };
     } else {
       throw Object.assign(new Error(`Unsupported browser action: ${type}`), { statusCode: 400 });
     }
 
     updateSessionFromToolResult(session, result);
+    if (type !== "screenshot") {
+      await captureSessionPreview(session, action.actionId).catch(() => null);
+    }
     action.completedAt = nowIso();
     action.urlAfter = session.currentUrl;
     if (action.data === undefined) {
-      action.data = result;
+      action.data = summarizeToolResult(result);
     }
   } catch (err: any) {
     session.status = "failed";
@@ -271,13 +405,39 @@ async function executeSessionAction(session: BrowserSession, body: any): Promise
 }
 
 router.get("/sessions", (_req, res) => {
+  const sessionViews = [...sessions.values()].filter(session => session.status !== "closed").map(toView);
+  const latestBrowser = getLatestBrowserVisualSnapshot();
   res.json({
-    sessions: [...sessions.values()].filter(session => session.status !== "closed").map(toView),
+    sessions: sessionViews,
+    activeBrowser: latestBrowser,
   });
 });
 
-router.post("/sessions", (_req, res) => {
-  const session = createSession();
+router.get("/active", (_req, res) => {
+  res.json({ activeBrowser: getLatestBrowserVisualSnapshot() });
+});
+
+router.post("/sessions", async (req, res) => {
+  const pageId = typeof req.body?.pageId === "string" ? req.body.pageId : null;
+  let seed: Parameters<typeof createSession>[0] | undefined;
+
+  if (pageId) {
+    const metadata = await getBrowserPageMetadata(pageId);
+    if (!metadata) {
+      return res.status(404).json({ error: { message: "Browser page not found" } });
+    }
+    const latestBrowser = getLatestBrowserVisualSnapshot();
+    seed = {
+      pageId,
+      currentUrl: metadata.url,
+      title: metadata.title,
+      lastScreenshot: latestBrowser?.pageId === pageId && latestBrowser.lastScreenshot
+        ? { ...latestBrowser.lastScreenshot, actionId: "adopted-browser-screenshot" }
+        : null,
+    };
+  }
+
+  const session = createSession(seed);
   sessions.set(session.id, session);
   res.status(201).json({ session: toView(session), actions: [] });
 });
