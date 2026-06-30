@@ -56,8 +56,8 @@ echo "[2/4] git push origin HEAD  (${BRANCH} @ ${SHA})"
 git push origin HEAD
 
 # ── 3. Trigger the authoritative Cloud Build (manual today; trigger-automated later) ──
-echo "[3/4] gcloud builds submit --config=${CONFIG}"
-gcloud builds submit --config="${CONFIG}" --project="${PROJECT}" .
+echo "[3/4] gcloud builds submit --config=${CONFIG} --substitutions=_IMAGE_TAG=${SHA}"
+gcloud builds submit --config="${CONFIG}" --project="${PROJECT}" --substitutions="_IMAGE_TAG=${SHA}" .
 # cloudbuild.yaml internally runs: npm ci -> lint -> kaniko build -> kubectl apply
 # -> kubectl set image -> kubectl rollout status  (rollout health gate)
 
