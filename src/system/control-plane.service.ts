@@ -8,6 +8,16 @@ import { env } from "../config/env.js";
 const execPromise = promisify(exec);
 const pubsub = new PubSub({ projectId: env.SPANNER_PROJECT_ID || "gen-lang-client-0281999829" });
 
+function getBuildSha(): string {
+  const buildSha = process.env.BUILD_SHA?.trim();
+  return buildSha && buildSha !== "unknown" ? buildSha.substring(0, 7) : "";
+}
+
+function isGitRepositoryMissing(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("not a git repository");
+}
+
 export interface WorkspaceState {
   status: "READY" | "SYNC_NEEDED" | "DIRTY" | "WRONG_BRANCH";
   branch: string;
@@ -146,6 +156,19 @@ export class ControlPlaneService {
         behindCount: 0
       };
     } catch (err: any) {
+      const buildSha = getBuildSha();
+      if (buildSha && isGitRepositoryMissing(err)) {
+        return {
+          status: "READY",
+          branch: "runtime-image",
+          localSha: buildSha,
+          remoteSha: buildSha,
+          isDirty: false,
+          behindCount: 0,
+          message: "Runtime image does not include a Git checkout; using BUILD_SHA for deployed state."
+        };
+      }
+
       logger.error({ msg: "Failed to get workspace state", error: err.message });
       return {
         status: "WRONG_BRANCH",
