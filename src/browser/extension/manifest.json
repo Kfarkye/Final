@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Truth Browser Bridge",
+  "version": "0.1.0",
+  "description": "Connects a real Chrome tab on your machine to the Truth web app: streams the tab and accepts navigate/click/fill commands via a local bridge.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "debugger",
+    "tabCapture",
+    "offscreen",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Connect this tab to Truth"
+  }
+}
