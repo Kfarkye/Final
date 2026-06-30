@@ -2,6 +2,7 @@ import React, { memo, useMemo } from 'react';
 import type { ToolTraceEntry } from './ToolTrace';
 
 type BrowserMode = 'headless' | 'remote';
+type JsonObject = Record<string, unknown>;
 
 interface BrowserPanelProps {
   entries: ToolTraceEntry[];
@@ -9,7 +10,7 @@ interface BrowserPanelProps {
   onInsertContext: (text: string) => void;
 }
 
-const BROWSER_TOOL_NAMES = new Set([
+const BROWSER_TOOL_NAMES = new Set<string>([
   'browser_navigate',
   'browser_screenshot',
   'browser_extract_table',
@@ -26,21 +27,29 @@ const BROWSER_TOOL_NAMES = new Set([
 
 const HANDOFF_RE = /\b(login|sign in|oauth|mfa|2fa|captcha|cloudflare|forbidden|403|payment|session|credential|auth)\b/i;
 
-function safeParseJson(value?: string): Record<string, any> | null {
+function safeParseJson(value?: string): JsonObject | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as JsonObject : null;
   } catch {
     return null;
   }
 }
 
-function getEntryArgs(entry?: ToolTraceEntry): Record<string, any> | null {
+function getEntryArgs(entry?: ToolTraceEntry): JsonObject | null {
   return safeParseJson(entry?.argsPreview);
 }
 
-function getHandoffText(entry: ToolTraceEntry): string {
+function getStringField(obj: JsonObject | null, key: string): string | undefined {
+  const value = obj?.[key];
+  if (typeof value === 'string' && value.trim()) return value;
+  if (typeof value === 'number') return String(value);
+  return undefined;
+}
+
+function getHandoffText(entry?: ToolTraceEntry): string {
+  if (!entry) return '';
   return `${entry.error || ''} ${entry.resultPreview || ''} ${entry.argsPreview || ''}`;
 }
 
@@ -55,8 +64,14 @@ function getSessionSummary(entries: ToolTraceEntry[]) {
   const latestArgs = getEntryArgs(latest);
   const latestNavigate = [...entries].reverse().find(entry => entry.tool === 'browser_navigate');
   const navigateArgs = getEntryArgs(latestNavigate);
-  const latestUrl = latestArgs?.url || navigateArgs?.url || 'No active browser URL yet';
-  const latestPageId = latestArgs?.pageId || navigateArgs?.pageId || 'pending';
+  const latestUrl =
+    getStringField(latestArgs, 'url') ||
+    getStringField(navigateArgs, 'url') ||
+    'No active browser URL yet';
+  const latestPageId =
+    getStringField(latestArgs, 'pageId') ||
+    getStringField(navigateArgs, 'pageId') ||
+    'pending';
   const handoffEntry = [...entries].reverse().find(entry =>
     HANDOFF_RE.test(getHandoffText(entry)),
   );
@@ -77,19 +92,27 @@ function actionLabel(entry: ToolTraceEntry): string {
     case 'browser_navigate': return 'Navigate';
     case 'browser_screenshot': return 'Screenshot';
     case 'browser_extract_table': return 'Extract table';
-    case 'browser_evaluate': return 'Read DOM';
+    case 'browser_evaluate':
+    case 'browser_read_dom': return 'Read DOM';
     case 'browser_click': return 'Click';
     case 'browser_fill': return 'Fill';
     case 'browser_close': return 'Close';
+    case 'browser_download': return 'Download';
+    case 'browser_detect_auth': return 'Detect auth';
+    case 'browser_handoff_requested': return 'Handoff requested';
+    case 'browser_handoff_resumed': return 'Handoff resumed';
     default: return entry.tool;
   }
 }
 
 function statusClass(entry?: ToolTraceEntry): string {
   if (!entry) return 'bg-zinc-500';
-  if (entry.status === 'running') return 'bg-blue-400 animate-pulse';
-  if (entry.status === 'error') return 'bg-rose-400';
-  return 'bg-emerald-400';
+  switch (entry.status) {
+    case 'running': return 'bg-blue-400 animate-pulse';
+    case 'success': return 'bg-emerald-400';
+    case 'error': return 'bg-rose-400';
+    default: return 'bg-zinc-500';
+  }
 }
 
 export function isBrowserTraceEntry(entry: ToolTraceEntry): boolean {
