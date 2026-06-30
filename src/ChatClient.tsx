@@ -84,6 +84,7 @@ const BROWSER_LANE_PROMPT = [
   '- Public pages, documentation, articles, tables, dashboards, and JS-heavy pages: open/render in the browser lane first.',
   '- Prefer browser_navigate for rendered pages, browser_evaluate/read DOM for targeted inspection, browser_screenshot for visual proof, and browser_extract_table for tables on the same visible page.',
   '- If you encounter login, OAuth, MFA, CAPTCHA, payment walls, session locks, Cloudflare/browser challenges, or repeated automation failure, stop before sensitive input and request human control.',
+  '- If a page reports BLOCKED_FOR_AUTH or a browser challenge, do not retry the same URL in a loop; switch to an approved API/source fallback or wait for human control.',
   '- Never capture, store, replay, or quote credentials, one-time auth codes, MFA codes, cookies, or sensitive form values.',
   '- After human control, resume only from a fresh DOM snapshot/screenshot and explain what changed.',
   '- Keep every browser action auditable through ToolTrace: URL, action, timing, status, result summary, and blocker.',

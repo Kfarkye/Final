@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectBrowserLaneBlocker } from "../browser-lane.contract";
+import {
+  detectBrowserLaneBlocker,
+  getBrowserLaneBlockerGuidance,
+} from "../browser-lane.contract";
 
 const root = resolve(__dirname, "../../..");
 
@@ -31,6 +34,19 @@ describe("Hybrid Browser Lane contract", () => {
       message: "Browser challenge requires human control",
       evidence: "Max challenge attempts exceeded",
     });
+  });
+
+  it("tells the agent not to retry browser-challenge loops", () => {
+    const blocker = detectBrowserLaneBlocker({
+      url: "https://www.espn.com/",
+      text: "Max challenge attempts exceeded. Please refresh the page to try again.",
+    });
+
+    expect(blocker).not.toBeNull();
+    const guidance = getBrowserLaneBlockerGuidance(blocker!, "https://www.espn.com/");
+    expect(guidance.title).toBe("espn.com blocked automated Chromium");
+    expect(guidance.agentAction).toContain("Stop retrying this browser page");
+    expect(guidance.agentAction).toContain("official APIs");
   });
 
   it("classifies login and MFA pages as human-only surfaces", () => {

@@ -81,6 +81,12 @@ export interface BrowserLanePageSignal {
   error?: string | null;
 }
 
+export interface BrowserLaneBlockerGuidance {
+  title: string;
+  humanAction: string;
+  agentAction: string;
+}
+
 const BLOCKER_PATTERNS: Array<{
   kind: BrowserLaneBlockerKind;
   label: string;
@@ -145,4 +151,47 @@ export function detectBrowserLaneBlocker(signal: BrowserLanePageSignal): Browser
   }
 
   return null;
+}
+
+export function getBrowserLaneBlockerGuidance(
+  blocker: BrowserLaneBlocker,
+  url?: string | null,
+): BrowserLaneBlockerGuidance {
+  const host = (() => {
+    try {
+      return url ? new URL(url).hostname.replace(/^www\./, "") : "this site";
+    } catch {
+      return "this site";
+    }
+  })();
+
+  if (blocker.kind === "BOT_CHALLENGE") {
+    return {
+      title: `${host} blocked automated Chromium`,
+      humanAction: "Use a real human-controlled browser session/profile for the site challenge. Do not type credentials or solve anti-bot checks through the agent.",
+      agentAction: "Stop retrying this browser page. Use official APIs, existing sports data tools, search, or another public source until the live Chrome streaming lane is available.",
+    };
+  }
+
+  if (blocker.kind === "CAPTCHA" || blocker.kind === "MFA" || blocker.kind === "AUTH") {
+    return {
+      title: "Human authentication checkpoint",
+      humanAction: "Complete login, CAPTCHA, or MFA directly as the human. The agent must not capture credentials, one-time codes, cookies, or sensitive form values.",
+      agentAction: "Pause browser automation. Resume only after the human confirms the page is past the checkpoint and a fresh screenshot/DOM snapshot is captured.",
+    };
+  }
+
+  if (blocker.kind === "PAYMENT") {
+    return {
+      title: "Payment checkpoint",
+      humanAction: "Keep all payment fields human-controlled.",
+      agentAction: "Do not fill, quote, store, or replay payment data. Resume only on non-sensitive page state.",
+    };
+  }
+
+  return {
+    title: "Human browser checkpoint",
+    humanAction: "Review the visible page directly before continuing.",
+    agentAction: "Pause automation and resume only from a fresh visible page snapshot.",
+  };
 }

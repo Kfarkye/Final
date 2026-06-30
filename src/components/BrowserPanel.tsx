@@ -10,6 +10,7 @@ import React, {
   useState,
 } from 'react';
 import type { ToolTraceEntry } from './ToolTrace';
+import { getBrowserLaneBlockerGuidance } from '../browser/browser-lane.contract';
 
 type BrowserMode = 'headless' | 'remote';
 type BrowserStatus = 'ready' | 'agent_controlled' | 'human_controlled' | 'paused' | 'failed' | 'closed';
@@ -289,8 +290,9 @@ const BrowserPanel = memo(function BrowserPanel({
     [session?.recentActions],
   );
   const blocker = session?.blocker || latestBlockedAction?.blocker || null;
+  const blockerGuidance = blocker ? getBrowserLaneBlockerGuidance(blocker, displayUrl) : null;
   const displayTitle = session?.title || activeBrowser?.title || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
-  const pageStatusLabel = blocker?.message || displayTitle;
+  const pageStatusLabel = blockerGuidance?.title || displayTitle;
   const hasHandoff = Boolean(blocker) || Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
   const actionRows = session?.recentActions || [];
 
@@ -440,6 +442,18 @@ const BrowserPanel = memo(function BrowserPanel({
     ].join('\n'));
   }, [displayPageId, displayTitle, displayUrl, onInsertContext]);
 
+  const insertBlockerFallback = useCallback(() => {
+    if (!blocker || !blockerGuidance) return;
+    onInsertContext([
+      'The visible browser hit a human-control checkpoint.',
+      `Active URL: ${displayUrl || 'unknown'}`,
+      `Blocker: ${blockerGuidance.title}`,
+      `Evidence: ${blocker.evidence}`,
+      blockerGuidance.agentAction,
+      'Do not retry the same blocked browser automation loop. Use a permitted API/source fallback or ask me to complete the human browser step.',
+    ].join('\n'));
+  }, [blocker, blockerGuidance, displayUrl, onInsertContext]);
+
   const clickScreen = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
     const target = await ensureSession();
     if (!target.pageId) return;
@@ -582,10 +596,18 @@ const BrowserPanel = memo(function BrowserPanel({
           </div>
         )}
 
-        {blocker && (
+        {blocker && blockerGuidance && (
           <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
             <div className="font-bold uppercase tracking-wider text-[10px] text-amber-300">Human browser checkpoint</div>
-            <div className="mt-1">{blocker.message}. The page is visible; keep sensitive or anti-bot interaction human-controlled, then resume the agent from a fresh snapshot.</div>
+            <div className="mt-1 font-semibold">{blockerGuidance.title}</div>
+            <div className="mt-1 text-amber-100/80">{blockerGuidance.humanAction}</div>
+            <button
+              type="button"
+              onClick={insertBlockerFallback}
+              className="mt-2 rounded-lg border border-amber-300/25 bg-amber-300/10 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-300/15"
+            >
+              Ask Agent for fallback
+            </button>
           </div>
         )}
 
@@ -601,7 +623,27 @@ const BrowserPanel = memo(function BrowserPanel({
             <span className="text-[10px] text-[var(--t4)]">{formatBytes(screenshot?.sizeBytes)}</span>
           </div>
 
-          {screenshot ? (
+          {blocker && blockerGuidance ? (
+            <div className="flex min-h-[210px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-950/25 px-6 text-center">
+              <div className="max-w-sm">
+                <div className="mx-auto mb-3 h-10 w-10 rounded-2xl border border-amber-300/30 bg-amber-300/10 flex items-center justify-center text-amber-200">
+                  !
+                </div>
+                <div className="text-sm font-semibold text-amber-100">{blockerGuidance.title}</div>
+                <p className="mt-2 text-xs text-amber-100/75 leading-relaxed">
+                  Truth captured proof of a site challenge, but this is not usable page content. The agent should pause or use a safe data-source fallback instead of retrying the same browser loop.
+                </p>
+                <div className="mt-3 rounded-lg border border-amber-300/15 bg-black/30 px-3 py-2 text-[11px] text-amber-100/80">
+                  Evidence: {blocker.evidence}
+                </div>
+                {screenshot?.sizeBytes ? (
+                  <div className="mt-2 text-[10px] uppercase tracking-wider text-amber-100/50">
+                    Screenshot proof captured · {formatBytes(screenshot.sizeBytes)}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : screenshot ? (
             <div className="overflow-hidden rounded-xl border border-black/60 bg-black">
               <img
                 src={`data:${screenshot.mimeType};base64,${screenshot.base64}`}
