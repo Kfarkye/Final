@@ -19,6 +19,7 @@ steps:
       - '--cache-ttl=168h'
       - '--compressed-caching=false'
       - '--snapshot-mode=redo'
+      - '--build-arg=BUILD_SHA=$_IMAGE_TAG'
       - '--context=.'
 
   # Deploy the immutable SHA-tagged image to GKE Autopilot

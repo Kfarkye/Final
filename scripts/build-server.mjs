@@ -14,11 +14,14 @@
 import { execSync } from "child_process";
 import { build } from "esbuild";
 
-let sha = "unknown";
-try {
-  sha = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
-} catch {
-  console.warn("⚠️  git not available — BUILD_SHA will be 'unknown'");
+let sha = process.env.BUILD_SHA?.trim() || "";
+if (!sha) {
+  try {
+    sha = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    sha = "unknown";
+    console.warn("⚠️  git not available and BUILD_SHA not set — BUILD_SHA will be 'unknown'");
+  }
 }
 
 console.log(`[build-server] Injecting BUILD_SHA=${sha}`);

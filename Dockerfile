@@ -1,6 +1,8 @@
 # Stage 1: Build stage
 FROM node:24-slim AS builder
 WORKDIR /app
+ARG BUILD_SHA=unknown
+ENV BUILD_SHA=$BUILD_SHA
 
 # Install build dependencies required for compiling node-gyp or other native modules, and Deno
 RUN apt-get update && apt-get install -y python3 make g++ curl unzip && \
@@ -24,6 +26,8 @@ RUN npm ci --omit=dev --legacy-peer-deps
 # Stage 2: Production runner stage
 FROM node:24-slim AS runner
 WORKDIR /app
+ARG BUILD_SHA=unknown
+ENV BUILD_SHA=$BUILD_SHA
 
 # Install Deno + headless Chromium + dumb-init (PID 1 zombie reaper) + gcloud CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
