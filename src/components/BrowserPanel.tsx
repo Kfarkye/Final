@@ -85,6 +85,49 @@ interface BrowserSessionsResponse {
   activeBrowser?: ActiveBrowserView | null;
 }
 
+type ChromeBridgeStatus = 'checking' | 'missing' | 'connected' | 'streaming' | 'error';
+
+interface ChromeBridgeTab {
+  tabId?: number | null;
+  windowId?: number | null;
+  url?: string;
+  title?: string;
+  status?: string;
+  active?: boolean;
+}
+
+interface ChromeBridgeMessage {
+  channel?: string;
+  source?: string;
+  type?: string;
+  requestId?: string;
+  payload?: JsonObject;
+  error?: { message?: string };
+}
+
+interface ChromeBridgePendingRequest {
+  resolve: (value: JsonObject) => void;
+  reject: (reason?: unknown) => void;
+  timeout: number;
+}
+
+interface ServerBridgeConnection {
+  id: string;
+  mode?: string;
+  connectedAt?: number;
+  lastFrameAt?: number | null;
+}
+
+interface ServerBridgeFrame {
+  connectionId: string;
+  dataUrl: string;
+  timestamp: number;
+}
+
+const CHROME_BRIDGE_CHANNEL = 'truth-chrome-bridge';
+const CHROME_BRIDGE_APP_SOURCE = 'truth-app';
+const CHROME_BRIDGE_SOURCE = 'truth-chrome-bridge';
+
 const BROWSER_TOOL_NAMES = new Set<string>([
   'browser_navigate',
   'browser_screenshot',
@@ -259,6 +302,12 @@ async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+function isChromeBridgeMessage(value: unknown): value is ChromeBridgeMessage {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as ChromeBridgeMessage;
+  return message.channel === CHROME_BRIDGE_CHANNEL && message.source === CHROME_BRIDGE_SOURCE;
+}
+
 export function isBrowserTraceEntry(entry: ToolTraceEntry): boolean {
   return BROWSER_TOOL_NAMES.has(entry.tool);
 }
@@ -277,11 +326,26 @@ const BrowserPanel = memo(function BrowserPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const screenRef = useRef<HTMLDivElement | null>(null);
+  const chromeBridgeVideoRef = useRef<HTMLVideoElement | null>(null);
+  const chromeBridgePeerRef = useRef<RTCPeerConnection | null>(null);
+  const chromeBridgeRequestCounterRef = useRef(0);
+  const chromeBridgePendingRef = useRef<Map<string, ChromeBridgePendingRequest>>(new Map());
   const wheelLockedRef = useRef(false);
+  const [chromeBridgeStatus, setChromeBridgeStatus] = useState<ChromeBridgeStatus>('checking');
+  const [chromeBridgeTab, setChromeBridgeTab] = useState<ChromeBridgeTab | null>(null);
+  const [chromeBridgeStreamState, setChromeBridgeStreamState] = useState('idle');
+  const [chromeBridgeError, setChromeBridgeError] = useState<string | null>(null);
+  const [serverBridgeConnected, setServerBridgeConnected] = useState(false);
+  const [serverBridgeConnections, setServerBridgeConnections] = useState<ServerBridgeConnection[]>([]);
+  const [serverBridgeFrame, setServerBridgeFrame] = useState<ServerBridgeFrame | null>(null);
+  const [serverBridgeEvent, setServerBridgeEvent] = useState<JsonObject | null>(null);
   const traceSummary = getTraceSummary(browserEntries);
   const mode = getBrowserMode(browserEntries, session);
-  const displayUrl = session?.currentUrl || activeBrowser?.url || traceSummary.latestUrl || '';
-  const displayPageId = session?.pageId || activeBrowser?.pageId || traceSummary.latestPageId || 'pending';
+  const chromeBridgeConnected = chromeBridgeStatus === 'connected' || chromeBridgeStatus === 'streaming';
+  const chromeBridgeStreaming = chromeBridgeStatus === 'streaming';
+  const serverBridgeStreaming = Boolean(serverBridgeFrame?.dataUrl);
+  const displayUrl = chromeBridgeTab?.url || (typeof serverBridgeEvent?.url === 'string' ? serverBridgeEvent.url : '') || session?.currentUrl || activeBrowser?.url || traceSummary.latestUrl || '';
+  const displayPageId = chromeBridgeTab?.tabId ? `chrome-tab-${chromeBridgeTab.tabId}` : serverBridgeFrame?.connectionId ? `chrome-bridge-${serverBridgeFrame.connectionId.slice(0, 8)}` : session?.pageId || activeBrowser?.pageId || traceSummary.latestPageId || 'pending';
   const screenshot = session?.lastScreenshot || (activeBrowser?.lastScreenshot
     ? { ...activeBrowser.lastScreenshot, actionId: 'active-browser' }
     : null);
@@ -291,10 +355,269 @@ const BrowserPanel = memo(function BrowserPanel({
   );
   const blocker = session?.blocker || latestBlockedAction?.blocker || null;
   const blockerGuidance = blocker ? getBrowserLaneBlockerGuidance(blocker, displayUrl) : null;
-  const displayTitle = session?.title || activeBrowser?.title || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
+  const displayTitle = chromeBridgeTab?.title || (serverBridgeStreaming ? 'Real Chrome tab stream' : '') || session?.title || activeBrowser?.title || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
   const pageStatusLabel = blockerGuidance?.title || displayTitle;
   const hasHandoff = Boolean(blocker) || Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
   const actionRows = session?.recentActions || [];
+
+  const sendChromeBridgeCommand = useCallback((
+    type: string,
+    payload: JsonObject = {},
+    options: { timeoutMs?: number; awaitResponse?: boolean } = {},
+  ) => {
+    const requestId = `truth-${Date.now().toString(36)}-${++chromeBridgeRequestCounterRef.current}`;
+    const awaitResponse = options.awaitResponse !== false;
+
+    const message = {
+      channel: CHROME_BRIDGE_CHANNEL,
+      source: CHROME_BRIDGE_APP_SOURCE,
+      type,
+      requestId,
+      payload,
+    };
+
+    window.postMessage(message, window.location.origin);
+
+    if (!awaitResponse) {
+      return Promise.resolve({ requestId });
+    }
+
+    return new Promise<JsonObject>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        chromeBridgePendingRef.current.delete(requestId);
+        reject(new Error('Truth Chrome Bridge did not respond. Install or reload the extension.'));
+      }, options.timeoutMs ?? 3000);
+
+      chromeBridgePendingRef.current.set(requestId, { resolve, reject, timeout });
+    });
+  }, []);
+
+  const closeChromeBridgePeer = useCallback(() => {
+    if (chromeBridgePeerRef.current) {
+      chromeBridgePeerRef.current.getReceivers().forEach(receiver => receiver.track?.stop());
+      chromeBridgePeerRef.current.close();
+      chromeBridgePeerRef.current = null;
+    }
+    if (chromeBridgeVideoRef.current) {
+      const stream = chromeBridgeVideoRef.current.srcObject as MediaStream | null;
+      stream?.getTracks().forEach(track => track.stop());
+      chromeBridgeVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const sendServerBridgeCommand = useCallback(async (path: string, body: JsonObject = {}) => {
+    const response = await fetch(`/api/browser/bridge/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload?.error?.message || payload?.error || `Chrome Bridge ${path} failed`;
+      throw new Error(String(message));
+    }
+    return payload as JsonObject;
+  }, []);
+
+  const acceptChromeBridgeOffer = useCallback(async (sdp: unknown) => {
+    if (!sdp) return;
+    closeChromeBridgePeer();
+
+    const peer = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+    chromeBridgePeerRef.current = peer;
+
+    peer.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (chromeBridgeVideoRef.current && stream) {
+        chromeBridgeVideoRef.current.srcObject = stream;
+        chromeBridgeVideoRef.current.play().catch(() => null);
+      }
+      setChromeBridgeStatus('streaming');
+      setChromeBridgeStreamState('live');
+    };
+
+    peer.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      sendChromeBridgeCommand('ICE_CANDIDATE', {
+        candidate: event.candidate.toJSON(),
+      }, { awaitResponse: false }).catch(() => null);
+    };
+
+    peer.onconnectionstatechange = () => {
+      setChromeBridgeStreamState(peer.connectionState);
+      if (peer.connectionState === 'connected') setChromeBridgeStatus('streaming');
+      if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+        setChromeBridgeStatus('connected');
+      }
+    };
+
+    await peer.setRemoteDescription(new RTCSessionDescription(sdp as RTCSessionDescriptionInit));
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+
+    await sendChromeBridgeCommand('WEBRTC_ANSWER', {
+      sdp: peer.localDescription?.toJSON(),
+    });
+  }, [closeChromeBridgePeer, sendChromeBridgeCommand]);
+
+  useEffect(() => {
+    const onBridgeMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      if (event.origin !== window.location.origin) return;
+      if (!isChromeBridgeMessage(event.data)) return;
+
+      const message = event.data;
+      const payload = message.payload || {};
+
+      if (message.type === 'READY') {
+        setChromeBridgeStatus(current => current === 'streaming' ? current : 'connected');
+        setChromeBridgeError(null);
+        return;
+      }
+
+      if (message.type === 'RESPONSE' && message.requestId) {
+        const pending = chromeBridgePendingRef.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          chromeBridgePendingRef.current.delete(message.requestId);
+          if (message.error) pending.reject(new Error(message.error.message || 'Truth Chrome Bridge command failed'));
+          else pending.resolve(payload);
+        }
+        if (payload.tab && typeof payload.tab === 'object') setChromeBridgeTab(payload.tab as ChromeBridgeTab);
+        return;
+      }
+
+      if (message.type === 'TAB_CREATED' || message.type === 'TAB_CONNECTED' || message.type === 'TAB_UPDATED') {
+        setChromeBridgeStatus(current => current === 'streaming' ? current : 'connected');
+        setChromeBridgeTab(payload as ChromeBridgeTab);
+        if (typeof payload.url === 'string' && payload.url) setUrlInput(payload.url);
+        return;
+      }
+
+      if (message.type === 'CAPTURE_STARTING') {
+        setChromeBridgeStatus('connected');
+        setChromeBridgeStreamState('starting');
+        return;
+      }
+
+      if (message.type === 'SDP_OFFER') {
+        setChromeBridgeStreamState('negotiating');
+        acceptChromeBridgeOffer(payload.sdp).catch((err: any) => {
+          setChromeBridgeStatus('error');
+          setChromeBridgeError(err.message || 'Unable to start Chrome Bridge stream');
+        });
+        return;
+      }
+
+      if (message.type === 'ICE_CANDIDATE') {
+        const candidate = payload.candidate;
+        if (chromeBridgePeerRef.current && candidate) {
+          chromeBridgePeerRef.current.addIceCandidate(new RTCIceCandidate(candidate as RTCIceCandidateInit)).catch(() => null);
+        }
+        return;
+      }
+
+      if (message.type === 'RTC_STATE') {
+        if (typeof payload.state === 'string') setChromeBridgeStreamState(payload.state);
+        return;
+      }
+
+      if (message.type === 'STREAM_ERROR') {
+        setChromeBridgeStatus('error');
+        setChromeBridgeError(typeof payload.message === 'string' ? payload.message : 'Chrome Bridge stream failed');
+        return;
+      }
+
+      if (message.type === 'TAB_CLOSED' || message.type === 'CAPTURE_STOPPED' || message.type === 'STREAM_STOPPED') {
+        closeChromeBridgePeer();
+        setChromeBridgeStatus('connected');
+        setChromeBridgeStreamState('idle');
+      }
+    };
+
+    window.addEventListener('message', onBridgeMessage);
+    return () => window.removeEventListener('message', onBridgeMessage);
+  }, [acceptChromeBridgeOffer, closeChromeBridgePeer]);
+
+  useEffect(() => {
+    let cancelled = false;
+    sendChromeBridgeCommand('PING', {}, { timeoutMs: 1200 })
+      .then((payload) => {
+        if (cancelled) return;
+        setChromeBridgeStatus(current => current === 'streaming' ? current : 'connected');
+        setChromeBridgeError(null);
+        if (payload.tab && typeof payload.tab === 'object') setChromeBridgeTab(payload.tab as ChromeBridgeTab);
+      })
+      .catch(() => {
+        if (!cancelled) setChromeBridgeStatus('missing');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sendChromeBridgeCommand]);
+
+  useEffect(() => {
+    const source = new EventSource('/api/browser/bridge/stream');
+
+    const parseEvent = (event: Event) => {
+      try {
+        return JSON.parse((event as MessageEvent).data);
+      } catch {
+        return null;
+      }
+    };
+
+    const onStatus = (event: Event) => {
+      const payload = parseEvent(event);
+      if (!payload || typeof payload !== 'object') return;
+      setServerBridgeConnected(Boolean(payload.connected));
+      if (Array.isArray(payload.connections)) {
+        setServerBridgeConnections(payload.connections as ServerBridgeConnection[]);
+      }
+    };
+
+    const onFrame = (event: Event) => {
+      const payload = parseEvent(event);
+      if (!payload || typeof payload !== 'object' || typeof payload.dataUrl !== 'string') return;
+      setServerBridgeFrame(payload as ServerBridgeFrame);
+      setServerBridgeConnected(true);
+    };
+
+    const onBrowserEvent = (event: Event) => {
+      const payload = parseEvent(event);
+      if (!payload || typeof payload !== 'object') return;
+      setServerBridgeEvent(payload as JsonObject);
+      if (typeof payload.url === 'string' && payload.url) setUrlInput(payload.url);
+    };
+
+    source.addEventListener('status', onStatus);
+    source.addEventListener('frame', onFrame);
+    source.addEventListener('browser-event', onBrowserEvent);
+    source.onerror = () => {
+      setServerBridgeConnected(false);
+    };
+
+    return () => {
+      source.removeEventListener('status', onStatus);
+      source.removeEventListener('frame', onFrame);
+      source.removeEventListener('browser-event', onBrowserEvent);
+      source.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      closeChromeBridgePeer();
+      chromeBridgePendingRef.current.forEach(pending => {
+        window.clearTimeout(pending.timeout);
+        pending.reject(new Error('Browser panel unmounted'));
+      });
+      chromeBridgePendingRef.current.clear();
+    };
+  }, [closeChromeBridgePeer]);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -356,8 +679,93 @@ const BrowserPanel = memo(function BrowserPanel({
     event?.preventDefault();
     const url = normalizeUrl(urlInput);
     if (!url) return;
+    if (chromeBridgeConnected) {
+      setBusy('chrome-bridge-navigate');
+      setError(null);
+      setChromeBridgeError(null);
+      try {
+        const payload = await sendChromeBridgeCommand('NAVIGATE', { url });
+        if (payload.tab && typeof payload.tab === 'object') setChromeBridgeTab(payload.tab as ChromeBridgeTab);
+        setUrlInput(url);
+      } catch (err: any) {
+        setChromeBridgeStatus('error');
+        setChromeBridgeError(err.message || 'Chrome Bridge navigation failed');
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
+    if (serverBridgeConnected) {
+      setBusy('server-bridge-navigate');
+      setError(null);
+      setChromeBridgeError(null);
+      try {
+        await sendServerBridgeCommand('navigate', { url });
+        setUrlInput(url);
+      } catch (err: any) {
+        setChromeBridgeError(err.message || 'Server Chrome Bridge navigation failed');
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
     await runAction('navigate', { url, maxChars: 12000 });
-  }, [runAction, urlInput]);
+  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
+
+  const connectActiveChromeTab = useCallback(async () => {
+    if (!chromeBridgeConnected && serverBridgeConnected) {
+      onInsertContext([
+        'Truth Browser Bridge is connected through the server relay.',
+        'To connect a different real Chrome tab, switch to that tab and click the Truth Chrome Bridge extension icon.',
+        'The visible stream in Browser mode will update from the active bridge connection.',
+      ].join('\n'));
+      return;
+    }
+    setBusy('connect-active-tab');
+    setChromeBridgeError(null);
+    try {
+      const payload = await sendChromeBridgeCommand('CONNECT_ACTIVE_TAB', {});
+      setChromeBridgeStatus('connected');
+      if (payload.tab && typeof payload.tab === 'object') setChromeBridgeTab(payload.tab as ChromeBridgeTab);
+    } catch (err: any) {
+      setChromeBridgeStatus('error');
+      setChromeBridgeError(err.message || 'Unable to connect active Chrome tab');
+    } finally {
+      setBusy(null);
+    }
+  }, [chromeBridgeConnected, onInsertContext, sendChromeBridgeCommand, serverBridgeConnected]);
+
+  const startChromeBridgeCapture = useCallback(async () => {
+    setBusy('start-chrome-capture');
+    setChromeBridgeError(null);
+    try {
+      if (chromeBridgeConnected) await sendChromeBridgeCommand('START_CAPTURE', {});
+      else if (serverBridgeConnected) await sendServerBridgeCommand('capture', { action: 'start' });
+      else throw new Error('Install Truth Chrome Bridge or click the extension on a Chrome tab first');
+      setChromeBridgeStreamState('starting');
+    } catch (err: any) {
+      setChromeBridgeStatus('error');
+      setChromeBridgeError(err.message || 'Unable to start Chrome Bridge stream');
+    } finally {
+      setBusy(null);
+    }
+  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected]);
+
+  const installChromeBridge = useCallback(() => {
+    onInsertContext([
+      'Install Truth Chrome Bridge to make Browser mode use a real user-owned Chrome tab.',
+      '',
+      'Local install:',
+      '1. Open chrome://extensions',
+      '2. Enable Developer mode',
+      '3. Click Load unpacked',
+      '4. Select /Users/k.far.88/Developer/reverie/extensions/truth-chrome-bridge',
+      '5. Reload Truth and return to Browser mode',
+      '',
+      'After install, use Connect Active Tab or type a URL in Truth. The page streams back through WebRTC and agent actions go through auditable Chrome Bridge commands.',
+    ].join('\n'));
+    window.open('chrome://extensions', '_blank');
+  }, [onInsertContext]);
 
   const takeControl = useCallback(async () => {
     const target = await ensureSession();
@@ -434,13 +842,16 @@ const BrowserPanel = memo(function BrowserPanel({
   const insertAgentRead = useCallback(() => {
     onInsertContext([
       'Inspect the currently visible in-app browser page.',
+      chromeBridgeConnected ? 'Runtime: Truth Chrome Bridge real user-owned Chrome tab.' : 'Runtime: backend Browser Core fallback.',
       `Active URL: ${displayUrl || 'unknown'}`,
       `Page title: ${displayTitle}`,
       `Page ID: ${displayPageId}`,
-      'Use browser_evaluate/browser_extract_table/browser_screenshot against this rendered page state.',
+      chromeBridgeConnected
+        ? 'Use the Chrome Bridge tab state as visual source of truth. Request a fresh DOM read/screenshot before summarizing; do not capture credentials, MFA, cookies, payment data, or sensitive form values.'
+        : 'Use browser_evaluate/browser_extract_table/browser_screenshot against this rendered page state.',
       'Lead with visual proof, then summarize DOM/text/table findings. Stop before auth, MFA, CAPTCHA, payment, or sensitive fields.',
     ].join('\n'));
-  }, [displayPageId, displayTitle, displayUrl, onInsertContext]);
+  }, [chromeBridgeConnected, displayPageId, displayTitle, displayUrl, onInsertContext]);
 
   const insertBlockerFallback = useCallback(() => {
     if (!blocker || !blockerGuidance) return;
@@ -466,7 +877,34 @@ const BrowserPanel = memo(function BrowserPanel({
     screenRef.current?.focus();
   }, [ensureSession, runAction]);
 
+  const clickChromeBridgeVideo = useCallback(async (event: React.MouseEvent<HTMLVideoElement>) => {
+    if (!chromeBridgeConnected) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = event.currentTarget.videoWidth || 1280;
+    const height = event.currentTarget.videoHeight || 720;
+    const x = Math.round(((event.clientX - rect.left) / rect.width) * width);
+    const y = Math.round(((event.clientY - rect.top) / rect.height) * height);
+    await sendChromeBridgeCommand('NATIVE_CLICK', { x, y }).catch((err: any) => {
+      setChromeBridgeError(err.message || 'Chrome Bridge click failed');
+    });
+    screenRef.current?.focus();
+  }, [chromeBridgeConnected, sendChromeBridgeCommand]);
+
   const scrollScreen = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    if (chromeBridgeConnected) {
+      event.preventDefault();
+      if (wheelLockedRef.current) return;
+      wheelLockedRef.current = true;
+      sendChromeBridgeCommand('NATIVE_SCROLL', {
+        deltaX: Math.round(event.deltaX),
+        deltaY: Math.round(event.deltaY),
+      }, { awaitResponse: false }).catch(() => null).finally(() => {
+        window.setTimeout(() => {
+          wheelLockedRef.current = false;
+        }, 160);
+      });
+      return;
+    }
     if (!session?.pageId || wheelLockedRef.current) return;
     event.preventDefault();
     wheelLockedRef.current = true;
@@ -478,21 +916,43 @@ const BrowserPanel = memo(function BrowserPanel({
         wheelLockedRef.current = false;
       }, 220);
     });
-  }, [runAction, session?.pageId]);
+  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, session?.pageId]);
 
   const keyScreen = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-    if (!session?.pageId || !SAFE_KEYS.has(event.key)) return;
+    if (!SAFE_KEYS.has(event.key)) return;
+    if (chromeBridgeConnected) {
+      event.preventDefault();
+      sendChromeBridgeCommand('NATIVE_KEY', { key: event.key }, { awaitResponse: false }).catch(() => null);
+      return;
+    }
+    if (!session?.pageId) return;
     event.preventDefault();
     runAction('key', { key: event.key }).catch(() => null);
-  }, [runAction, session?.pageId]);
+  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, session?.pageId]);
 
   const sendTypedText = useCallback(async (event: FormEvent) => {
     event.preventDefault();
     const text = typedText;
     if (!text.trim()) return;
     setTypedText('');
+    if (chromeBridgeConnected) {
+      await sendChromeBridgeCommand('NATIVE_TEXT', { text }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge typing failed');
+      });
+      return;
+    }
     await runAction('text', { text });
-  }, [runAction, typedText]);
+  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, typedText]);
+
+  const runBrowserNavigationControl = useCallback((type: 'BACK' | 'FORWARD' | 'RELOAD', backendType: 'back' | 'forward' | 'reload') => {
+    if (chromeBridgeConnected) {
+      sendChromeBridgeCommand(type, {}, { awaitResponse: false }).catch((err: any) => {
+        setChromeBridgeError(err.message || `Chrome Bridge ${backendType} failed`);
+      });
+      return;
+    }
+    runAction(backendType).catch(() => null);
+  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand]);
 
   return (
     <div className="h-full min-w-0 flex flex-col bg-[var(--t-bg-primary)]">
@@ -518,8 +978,8 @@ const BrowserPanel = memo(function BrowserPanel({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => runAction('back').catch(() => null)}
-              disabled={!session?.pageId || Boolean(busy)}
+              onClick={() => runBrowserNavigationControl('BACK', 'back')}
+              disabled={(!chromeBridgeConnected && !session?.pageId) || Boolean(busy)}
               className="h-8 w-8 rounded-xl border border-[var(--b1)] text-[var(--t2)] disabled:opacity-35"
               title="Back"
             >
@@ -527,8 +987,8 @@ const BrowserPanel = memo(function BrowserPanel({
             </button>
             <button
               type="button"
-              onClick={() => runAction('forward').catch(() => null)}
-              disabled={!session?.pageId || Boolean(busy)}
+              onClick={() => runBrowserNavigationControl('FORWARD', 'forward')}
+              disabled={(!chromeBridgeConnected && !session?.pageId) || Boolean(busy)}
               className="h-8 w-8 rounded-xl border border-[var(--b1)] text-[var(--t2)] disabled:opacity-35"
               title="Forward"
             >
@@ -536,8 +996,8 @@ const BrowserPanel = memo(function BrowserPanel({
             </button>
             <button
               type="button"
-              onClick={() => runAction('reload').catch(() => null)}
-              disabled={!session?.pageId || Boolean(busy)}
+              onClick={() => runBrowserNavigationControl('RELOAD', 'reload')}
+              disabled={(!chromeBridgeConnected && !session?.pageId) || Boolean(busy)}
               className="h-8 w-8 rounded-xl border border-[var(--b1)] text-[var(--t2)] disabled:opacity-35"
               title="Reload"
             >
@@ -559,11 +1019,76 @@ const BrowserPanel = memo(function BrowserPanel({
           </div>
         </form>
 
+        <div className="rounded-2xl border border-[var(--b1)] bg-black/30 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--t4)]">Truth Chrome Bridge</div>
+              <div className="mt-1 text-xs font-semibold text-[var(--t1)]">
+                {chromeBridgeStatus === 'streaming'
+                  ? 'Real Chrome tab streaming'
+                  : chromeBridgeStatus === 'connected'
+                    ? 'Chrome Bridge connected'
+                    : chromeBridgeStatus === 'checking'
+                      ? 'Checking extension'
+                      : chromeBridgeStatus === 'error'
+                        ? 'Chrome Bridge needs attention'
+                        : 'Install extension for real Chrome'}
+              </div>
+              <div className="mt-1 truncate text-[11px] text-[var(--t3)]">
+                {chromeBridgeConnected
+                  ? `${chromeBridgeTab?.title || chromeBridgeTab?.url || 'Ready to open or connect a Chrome tab'} · ${chromeBridgeStreamState}`
+                  : serverBridgeConnected
+                    ? `Server bridge connected · ${serverBridgeConnections.length || 1} Chrome extension connection${serverBridgeConnections.length === 1 ? '' : 's'}`
+                  : 'Backend browser remains available, but the product browser is the Chrome Bridge.'}
+              </div>
+              {chromeBridgeError && (
+                <div className="mt-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
+                  {chromeBridgeError}
+                </div>
+              )}
+            </div>
+            <span className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${
+              chromeBridgeStatus === 'streaming'
+                ? 'bg-blue-400 animate-pulse'
+                : chromeBridgeStatus === 'connected'
+                  ? 'bg-emerald-400'
+                  : chromeBridgeStatus === 'error'
+                    ? 'bg-rose-400'
+                    : 'bg-zinc-500'
+            }`} />
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={installChromeBridge}
+              className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] px-2 py-2 text-[10px] font-semibold text-[var(--t2)] hover:text-[var(--t1)] hover:bg-[var(--s2)]"
+            >
+              Install
+            </button>
+            <button
+              type="button"
+              onClick={connectActiveChromeTab}
+              disabled={(!chromeBridgeConnected && !serverBridgeConnected) || Boolean(busy)}
+              className="rounded-xl border border-blue-400/20 bg-blue-400/10 px-2 py-2 text-[10px] font-semibold text-blue-200 hover:bg-blue-400/15 disabled:opacity-35"
+            >
+              Connect Tab
+            </button>
+            <button
+              type="button"
+              onClick={startChromeBridgeCapture}
+              disabled={!chromeBridgeConnected || Boolean(busy)}
+              className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-2 py-2 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-400/15 disabled:opacity-35"
+            >
+              Stream
+            </button>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-3">
             <div className="text-[10px] uppercase tracking-wider text-[var(--t4)]">Control</div>
             <div className="mt-1 font-semibold text-[var(--t1)]">
-              {blocker ? 'Human checkpoint' : session?.controller === 'human' ? 'Human driving' : mode === 'remote' ? 'Handoff ready' : 'Shared browser'}
+              {chromeBridgeConnected ? 'Real Chrome Bridge' : blocker ? 'Human checkpoint' : session?.controller === 'human' ? 'Human driving' : mode === 'remote' ? 'Handoff ready' : 'Shared browser'}
             </div>
           </div>
           <div className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-3">
@@ -623,7 +1148,27 @@ const BrowserPanel = memo(function BrowserPanel({
             <span className="text-[10px] text-[var(--t4)]">{formatBytes(screenshot?.sizeBytes)}</span>
           </div>
 
-          {blocker && blockerGuidance ? (
+          {chromeBridgeStreaming ? (
+            <div className="overflow-hidden rounded-xl border border-black/60 bg-black">
+              <video
+                ref={chromeBridgeVideoRef}
+                autoPlay
+                playsInline
+                muted
+                onClick={clickChromeBridgeVideo}
+                className="mx-auto block max-h-[calc(100vh-330px)] w-full cursor-crosshair select-none bg-black object-contain"
+              />
+            </div>
+          ) : serverBridgeFrame?.dataUrl ? (
+            <div className="overflow-hidden rounded-xl border border-black/60 bg-black">
+              <img
+                src={serverBridgeFrame.dataUrl}
+                alt="Real Chrome tab stream"
+                className="mx-auto block max-h-[calc(100vh-330px)] w-full select-none bg-black object-contain"
+                draggable={false}
+              />
+            </div>
+          ) : blocker && blockerGuidance ? (
             <div className="flex min-h-[490px] xl:min-h-[610px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-950/25 px-6 text-center">
               <div className="max-w-sm">
                 <div className="mx-auto mb-3 h-10 w-10 rounded-2xl border border-amber-300/30 bg-amber-300/10 flex items-center justify-center text-amber-200">
@@ -660,7 +1205,7 @@ const BrowserPanel = memo(function BrowserPanel({
                   <span className="text-lg">◉</span>
                 </div>
                 <p className="text-xs text-[var(--t3)] leading-relaxed">
-                  Enter a URL above. The rendered page appears here as the shared human/agent browser screen.
+                  Enter a URL above. With Truth Chrome Bridge installed, a real Chrome tab streams here through WebRTC. Without it, Truth falls back to the backend browser surface.
                 </p>
               </div>
             </div>
@@ -678,11 +1223,11 @@ const BrowserPanel = memo(function BrowserPanel({
             placeholder="Type into focused page element — not secrets"
             className="min-w-0 flex-1 rounded-xl border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-xs text-[var(--t1)] outline-none focus:border-amber-300/60"
           />
-          <button
-            type="submit"
-            disabled={!session?.pageId || !typedText || Boolean(busy)}
-            className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-200 disabled:opacity-35"
-          >
+            <button
+              type="submit"
+              disabled={(!session?.pageId && !chromeBridgeConnected) || !typedText || Boolean(busy)}
+              className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-200 disabled:opacity-35"
+            >
             Type
           </button>
         </form>

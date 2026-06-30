@@ -29,3 +29,13 @@ Feature: Hybrid Browser Lane Shared Execution
     And the assistant must not secretly crawl, parallel-fetch, retry-loop, fan out, stealth, or bypass site challenges
     When the human explicitly asks for multi-source research
     Then the assistant may switch to a bounded research or crawler layer with audit logs
+
+  Scenario: Truth Chrome Bridge is the first-class human browser
+    Given the human installed the Truth Chrome Bridge MV3 extension
+    When the human enters "https://espn.com" in Truth's browser URL bar
+    Then the extension creates or updates a real Chrome tab
+    And the extension streams that tab into Truth with WebRTC
+    And Truth renders the live tab as the primary browser surface
+    When the human clicks, scrolls, types, or presses keys in the Truth browser surface
+    Then the extension dispatches native CDP input to the same Chrome tab
+    And the agent can inspect sanitized DOM and screenshots only after explicit user intent

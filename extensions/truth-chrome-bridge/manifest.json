@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Truth Chrome Bridge",
+  "short_name": "Truth Bridge",
+  "version": "1.0.0",
+  "description": "Connects Truth to a real user-owned Chrome tab with WebRTC tab streaming and auditable agent assistance.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "offscreen",
+    "scripting",
+    "storage",
+    "tabCapture",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Truth Chrome Bridge"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mcptruth.com/*",
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://mcptruth.com/*",
+      "http://localhost:3000/*",
+      "http://127.0.0.1:3000/*"
+    ]
+  }
+}

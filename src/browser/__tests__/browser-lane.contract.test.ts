@@ -14,6 +14,10 @@ describe("Hybrid Browser Lane contract", () => {
     const feature = readFileSync(resolve(root, "features/browser-lane.feature"), "utf8");
 
     expect(manifest).toContain("name: hybrid-browser-lane");
+    expect(manifest).toContain("Truth Chrome Bridge");
+    expect(manifest).toContain("Chrome MV3 extension");
+    expect(manifest).toContain("chrome.tabCapture + offscreen document + WebRTC PeerConnection");
+    expect(manifest).toContain("chrome.debugger CDP Input domain");
     expect(manifest).toContain("AI operations must execute on the identical CDP target as the human viewport.");
     expect(manifest).toContain("Default web-page handling is a single normal browser page session");
     expect(manifest).toContain("Assistant clicks, typing, scrolling, retries, research, crawling, and multi-source fan-out require explicit user intent");
@@ -23,6 +27,7 @@ describe("Hybrid Browser Lane contract", () => {
     expect(feature).toContain("AI and Human share the identical session");
     expect(feature).toContain("Human handles secure authentication");
     expect(feature).toContain("Browser core is not a hidden crawler");
+    expect(feature).toContain("Truth Chrome Bridge is the first-class human browser");
   });
 
   it("keeps browser core separate from crawler and stealth language", () => {
@@ -44,6 +49,47 @@ describe("Hybrid Browser Lane contract", () => {
     expect(chatClient).toContain("Browser mode promotes this area into the primary surface.");
     expect(browserPanel).toContain("First-class browser");
     expect(browserPanel).toContain("min-h-[520px] xl:min-h-[640px]");
+  });
+
+  it("ships a first-class MV3 Chrome Bridge with WebRTC streaming and CDP input", () => {
+    const extensionRoot = resolve(root, "extensions/truth-chrome-bridge");
+    const extensionManifest = JSON.parse(readFileSync(resolve(extensionRoot, "manifest.json"), "utf8"));
+    const background = readFileSync(resolve(extensionRoot, "background.js"), "utf8");
+    const offscreen = readFileSync(resolve(extensionRoot, "offscreen.js"), "utf8");
+    const contentScript = readFileSync(resolve(extensionRoot, "content-script.js"), "utf8");
+    const readme = readFileSync(resolve(extensionRoot, "README.md"), "utf8");
+    const browserPanel = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");
+
+    expect(extensionManifest.manifest_version).toBe(3);
+    expect(extensionManifest.name).toBe("Truth Chrome Bridge");
+    expect(extensionManifest.permissions).toEqual(expect.arrayContaining([
+      "debugger",
+      "offscreen",
+      "scripting",
+      "tabCapture",
+      "tabs",
+    ]));
+    expect(extensionManifest.content_scripts[0].matches).toEqual(expect.arrayContaining([
+      "https://mcptruth.com/*",
+      "http://localhost:3000/*",
+      "http://127.0.0.1:3000/*",
+    ]));
+
+    expect(background).toContain("chrome.tabCapture.getMediaStreamId");
+    expect(background).toContain("chrome.offscreen.createDocument");
+    expect(background).toContain("chrome.debugger.sendCommand");
+    expect(background).toContain("Input.dispatchMouseEvent");
+    expect(background).toContain("Input.insertText");
+    expect(offscreen).toContain("navigator.mediaDevices.getUserMedia");
+    expect(offscreen).toContain("new RTCPeerConnection");
+    expect(contentScript).toContain("truth-chrome-bridge");
+    expect(readme).toContain("real, user-owned Chrome tab");
+
+    expect(browserPanel).toContain("Truth Chrome Bridge");
+    expect(browserPanel).toContain("sendChromeBridgeCommand('NAVIGATE'");
+    expect(browserPanel).toContain("CONNECT_ACTIVE_TAB");
+    expect(browserPanel).toContain("NATIVE_CLICK");
+    expect(browserPanel).toContain("chromeBridgeVideoRef");
   });
 
   it("classifies public-site challenges as human-control blockers", () => {

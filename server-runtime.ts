@@ -23,6 +23,8 @@ import notebookMcpRoutes from "./src/routes/notebookMcpRoutes";
 import spannerMcpRoutes from "./src/routes/spannerMcpRoutes";
 import browserMcpRoutes from "./src/routes/browserMcpRoutes";
 import browserSessionRoutes from "./src/routes/browserSession.routes";
+import { browserBridgeRoutes } from "./src/browser/browser-bridge.routes";
+import { extensionBridge } from "./src/browser/extension-bridge";
 import modelRegistryRoutes from "./src/routes/modelRegistryRoutes";
 import modelRegistryMcpRoutes from "./src/routes/modelRegistryMcpRoutes";
 
@@ -94,6 +96,7 @@ app.use("/api/mcp/linear", linearMcpRoutes);
 app.use("/api/mcp/notebook", notebookMcpRoutes);
 app.use("/api/mcp/spanner", spannerMcpRoutes);
 app.use("/api/mcp/browser", browserMcpRoutes);
+app.use("/api/browser", browserBridgeRoutes);
 app.use("/api/browser", browserSessionRoutes);
 
 // --- Model Registry API + MCP ---
@@ -134,6 +137,7 @@ async function startServer() {
 
   // 1. Create the native HTTP server explicitly
   const server = http.createServer(app);
+  extensionBridge.attach(server);
 
   // ── SSE / Long-Running Request Timeouts ──────────────────────────────
   // GKE load balancers enforce backend service timeoutSec (default 30s).

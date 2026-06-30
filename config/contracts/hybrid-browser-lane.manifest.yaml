@@ -5,6 +5,25 @@ metadata:
   version: 1.0.0
   description: Shared-state interactive Chrome session for human-AI co-piloting.
 spec:
+  chrome_bridge:
+    name: "Truth Chrome Bridge"
+    distribution: "Chrome MV3 extension"
+    install_required: true
+    source: "extensions/truth-chrome-bridge"
+    role: "First-class product browser for user-owned Chrome sessions."
+    transport:
+      command_channel: "content-script to MV3 runtime port"
+      video: "chrome.tabCapture + offscreen document + WebRTC PeerConnection"
+      input: "chrome.debugger CDP Input domain"
+      dom: "chrome.scripting sanitized DOM read"
+    modes:
+      - "Open URL"
+      - "Connect Active Tab"
+      - "Review Mode"
+    safety:
+      - "Extension install is the user permission boundary."
+      - "Agent actions are explicit, auditable, and revocable."
+      - "Credentials, MFA, cookies, payment data, and sensitive form values remain human-controlled."
   environments:
     local:
       transport: direct
