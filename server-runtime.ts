@@ -22,6 +22,7 @@ import linearMcpRoutes from "./src/routes/linearMcpRoutes";
 import notebookMcpRoutes from "./src/routes/notebookMcpRoutes";
 import spannerMcpRoutes from "./src/routes/spannerMcpRoutes";
 import browserMcpRoutes from "./src/routes/browserMcpRoutes";
+import browserSessionRoutes from "./src/routes/browserSession.routes";
 import modelRegistryRoutes from "./src/routes/modelRegistryRoutes";
 import modelRegistryMcpRoutes from "./src/routes/modelRegistryMcpRoutes";
 
@@ -93,6 +94,7 @@ app.use("/api/mcp/linear", linearMcpRoutes);
 app.use("/api/mcp/notebook", notebookMcpRoutes);
 app.use("/api/mcp/spanner", spannerMcpRoutes);
 app.use("/api/mcp/browser", browserMcpRoutes);
+app.use("/api/browser", browserSessionRoutes);
 
 // --- Model Registry API + MCP ---
 app.use("/api/models", modelRegistryRoutes);

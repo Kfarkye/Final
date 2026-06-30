@@ -8,6 +8,7 @@ metadata:
     cloud.google.com/backend-config: '{"default": "reverie-backend"}'
 spec:
   type: ClusterIP
+  sessionAffinity: ClientIP
   ports:
     - port: 80
       targetPort: 8080

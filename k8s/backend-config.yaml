@@ -4,5 +4,8 @@ metadata:
   name: reverie-backend
 spec:
   timeoutSec: 3600
+  sessionAffinity:
+    affinityType: GENERATED_COOKIE
+    affinityCookieTtlSec: 300
   connectionDraining:
     drainingTimeoutSec: 60
