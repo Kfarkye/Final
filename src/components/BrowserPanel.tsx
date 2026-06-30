@@ -16,6 +16,13 @@ type BrowserStatus = 'ready' | 'agent_controlled' | 'human_controlled' | 'paused
 type Controller = 'agent' | 'human' | 'none';
 type JsonObject = Record<string, unknown>;
 
+interface BrowserBlockerView {
+  kind: string;
+  status: 'BLOCKED_FOR_AUTH';
+  message: string;
+  evidence: string;
+}
+
 interface BrowserPanelProps {
   entries: ToolTraceEntry[];
   laneActive: boolean;
@@ -34,13 +41,14 @@ interface BrowserActionView {
   actionId: string;
   sessionId: string;
   type: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'blocked';
   startedAt: string;
   completedAt: string;
   urlBefore: string | null;
   urlAfter: string | null;
   controller: Controller;
   data?: unknown;
+  blocker?: BrowserBlockerView | null;
   error?: {
     code: string;
     message: string;
@@ -58,6 +66,7 @@ interface BrowserSessionView {
   viewport: { width: number; height: number };
   updatedAt: string;
   failureReason: string | null;
+  blocker?: BrowserBlockerView | null;
   lastScreenshot: BrowserScreenshotView | null;
   recentActions?: BrowserActionView[];
 }
@@ -90,7 +99,7 @@ const BROWSER_TOOL_NAMES = new Set<string>([
   'browser_handoff_resumed',
 ]);
 
-const HANDOFF_RE = /\b(login|sign in|oauth|mfa|2fa|captcha|cloudflare|forbidden|403|payment|session|credential|auth)\b/i;
+const HANDOFF_RE = /\b(login|sign in|oauth|mfa|2fa|captcha|cloudflare|challenge|forbidden|403|payment|session|credential|auth|access denied|verify you are human)\b/i;
 const SAFE_KEYS = new Set([
   'Enter',
   'Escape',
@@ -226,6 +235,7 @@ function statusClass(status?: string): string {
     case 'ready': return 'bg-emerald-400';
     case 'failed':
     case 'error': return 'bg-rose-400';
+    case 'blocked': return 'bg-amber-300';
     case 'human_controlled': return 'bg-amber-300';
     case 'paused': return 'bg-zinc-400';
     default: return 'bg-zinc-500';
@@ -270,12 +280,18 @@ const BrowserPanel = memo(function BrowserPanel({
   const traceSummary = getTraceSummary(browserEntries);
   const mode = getBrowserMode(browserEntries, session);
   const displayUrl = session?.currentUrl || activeBrowser?.url || traceSummary.latestUrl || '';
-  const displayTitle = session?.title || activeBrowser?.title || 'No page loaded';
   const displayPageId = session?.pageId || activeBrowser?.pageId || traceSummary.latestPageId || 'pending';
   const screenshot = session?.lastScreenshot || (activeBrowser?.lastScreenshot
     ? { ...activeBrowser.lastScreenshot, actionId: 'active-browser' }
     : null);
-  const hasHandoff = Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
+  const latestBlockedAction = useMemo(
+    () => [...(session?.recentActions || [])].reverse().find(action => action.status === 'blocked' || action.blocker),
+    [session?.recentActions],
+  );
+  const blocker = session?.blocker || latestBlockedAction?.blocker || null;
+  const displayTitle = session?.title || activeBrowser?.title || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
+  const pageStatusLabel = blocker?.message || displayTitle;
+  const hasHandoff = Boolean(blocker) || Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
   const actionRows = session?.recentActions || [];
 
   const refreshSessions = useCallback(async () => {
@@ -533,7 +549,7 @@ const BrowserPanel = memo(function BrowserPanel({
           <div className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-3">
             <div className="text-[10px] uppercase tracking-wider text-[var(--t4)]">Control</div>
             <div className="mt-1 font-semibold text-[var(--t1)]">
-              {session?.controller === 'human' ? 'Human driving' : mode === 'remote' ? 'Handoff ready' : 'Shared browser'}
+              {blocker ? 'Human checkpoint' : session?.controller === 'human' ? 'Human driving' : mode === 'remote' ? 'Handoff ready' : 'Shared browser'}
             </div>
           </div>
           <div className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-3">
@@ -546,8 +562,13 @@ const BrowserPanel = memo(function BrowserPanel({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] uppercase tracking-wider text-[var(--t4)] mb-1">Current Page</div>
-              <div className="text-xs font-semibold text-[var(--t1)] truncate">{displayTitle}</div>
+              <div className="text-xs font-semibold text-[var(--t1)] truncate">{pageStatusLabel}</div>
               <div className="mt-1 text-[11px] text-[var(--t3)] break-all">{displayUrl || 'No active browser URL yet'}</div>
+              {blocker && (
+                <div className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[11px] text-amber-100">
+                  {blocker.evidence}
+                </div>
+              )}
             </div>
             <span className={`h-2 w-2 rounded-full flex-shrink-0 ${statusClass(session?.status)}`} />
           </div>
@@ -558,6 +579,13 @@ const BrowserPanel = memo(function BrowserPanel({
         {error && (
           <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
             {error}
+          </div>
+        )}
+
+        {blocker && (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+            <div className="font-bold uppercase tracking-wider text-[10px] text-amber-300">Human browser checkpoint</div>
+            <div className="mt-1">{blocker.message}. The page is visible; keep sensitive or anti-bot interaction human-controlled, then resume the agent from a fresh snapshot.</div>
           </div>
         )}
 
@@ -683,6 +711,7 @@ const BrowserPanel = memo(function BrowserPanel({
           <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--t4)]">Action Log</div>
           <div className="text-[10px] text-[var(--t4)]">
             {traceSummary.successCount + actionRows.filter(action => action.status === 'completed').length} ok · {traceSummary.runningCount} live · {traceSummary.errorCount + actionRows.filter(action => action.status === 'failed').length} failed
+            {actionRows.some(action => action.status === 'blocked') ? ` · ${actionRows.filter(action => action.status === 'blocked').length} blocked` : ''}
           </div>
         </div>
 
@@ -709,6 +738,11 @@ const BrowserPanel = memo(function BrowserPanel({
                     {action.error && (
                       <div className="mt-2 rounded-lg bg-rose-500/10 px-2 py-1 text-[11px] text-rose-300">
                         {action.error.message}
+                      </div>
+                    )}
+                    {action.blocker && (
+                      <div className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+                        {action.blocker.message}: {action.blocker.evidence}
                       </div>
                     )}
                   </div>

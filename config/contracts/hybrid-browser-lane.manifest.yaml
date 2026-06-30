@@ -1,0 +1,39 @@
+apiVersion: truth.system/v1alpha1
+kind: FeatureImplementationContract
+metadata:
+  name: hybrid-browser-lane
+  version: 1.0.0
+  description: Shared-state interactive Chrome session for human-AI co-piloting.
+spec:
+  environments:
+    local:
+      transport: direct
+      display: local_window_or_iframe
+      browserArgs:
+        - "--remote-debugging-port=9222"
+        - "--user-data-dir=./.browser_data"
+      routes:
+        frontend: "http://localhost:3000/browser"
+        cdp: "ws://localhost:9222/devtools/browser"
+    gcp_production:
+      transport: webrtc_or_novnc
+      display: virtual_framebuffer_xvfb
+      container: "google-cloud-workstations/headless-chrome:latest"
+      ports:
+        cdp: 9222
+        stream: 6080
+
+  constraints:
+    - isolation: true
+      rule: "AI operations must execute on the identical CDP target as the human viewport."
+    - security: true
+      rule: "Human handles sensitive input (Auth/CAPTCHA). AI acts post-auth."
+    - observability: true
+      rule: "All AI CDP actions must pipe through ToolTrace logger."
+
+  acceptance_criteria:
+    - "Real Chrome/Chromium session launches."
+    - "Human sees the browser immediately."
+    - "Human can type URLs, search, click, scroll, log in, and browse normally."
+    - "AI browser tools attach to the same session via WS/CDP."
+    - "AI can navigate, inspect DOM, extract text/tables, screenshot, click, and scroll."

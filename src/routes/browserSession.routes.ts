@@ -6,6 +6,10 @@ import {
   getBrowserPageMetadata,
   getLatestBrowserVisualSnapshot,
 } from "../tools/browser.tools";
+import {
+  detectBrowserLaneBlocker,
+  type BrowserLaneBlocker,
+} from "../browser/browser-lane.contract";
 
 type BrowserSessionStatus =
   | "ready"
@@ -21,13 +25,14 @@ type BrowserActionResult = {
   actionId: string;
   sessionId: string;
   type: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "blocked";
   startedAt: string;
   completedAt: string;
   urlBefore: string | null;
   urlAfter: string | null;
   controller: Controller;
   data?: unknown;
+  blocker?: BrowserLaneBlocker | null;
   error?: {
     code: string;
     message: string;
@@ -61,6 +66,7 @@ type BrowserSession = {
   lastHeartbeatAt: string;
   idleTimeoutMs: number;
   failureReason: string | null;
+  blocker: BrowserLaneBlocker | null;
   lastScreenshot: BrowserScreenshotState | null;
   actionHistory: BrowserActionResult[];
 };
@@ -112,6 +118,7 @@ function createSession(seed?: {
     lastHeartbeatAt: timestamp,
     idleTimeoutMs: 5 * 60 * 1000,
     failureReason: null,
+    blocker: null,
     lastScreenshot: seed?.lastScreenshot ?? null,
     actionHistory: [],
   };
@@ -171,6 +178,39 @@ async function syncSessionFromPage(session: BrowserSession) {
   session.failureReason = null;
   session.status = getStatusForController(session.controller);
   return metadata;
+}
+
+async function getVisibleTextForBlocker(session: BrowserSession): Promise<string> {
+  if (!session.pageId) return "";
+  const page = await getBrowserPageById(session.pageId);
+  if (!page) return "";
+  return page.evaluate(() => document.body?.innerText?.slice(0, 4000) || "").catch(() => "");
+}
+
+async function detectCurrentBlocker(session: BrowserSession, result: any): Promise<BrowserLaneBlocker | null> {
+  const visibleText = typeof result?.text === "string" && result.text
+    ? result.text
+    : await getVisibleTextForBlocker(session);
+
+  return detectBrowserLaneBlocker({
+    url: result?.url || session.currentUrl,
+    title: result?.title || session.title,
+    text: visibleText,
+    error: result?.error,
+  });
+}
+
+function pauseForBlocker(session: BrowserSession, action: BrowserActionResult, blocker: BrowserLaneBlocker) {
+  session.controller = "human";
+  session.status = "human_controlled";
+  session.blocker = blocker;
+  session.failureReason = `${blocker.message}: ${blocker.evidence}`;
+  action.status = "blocked";
+  action.blocker = blocker;
+  action.data = {
+    ...(action.data && typeof action.data === "object" && !Array.isArray(action.data) ? action.data : {}),
+    blocker,
+  };
 }
 
 async function captureSessionPreview(session: BrowserSession, actionId: string) {
@@ -378,6 +418,17 @@ async function executeSessionAction(session: BrowserSession, body: any): Promise
     }
 
     updateSessionFromToolResult(session, result);
+    const previousBlocker = session.blocker;
+    const blocker = await detectCurrentBlocker(session, result);
+    if (blocker) {
+      pauseForBlocker(session, action, blocker);
+    } else {
+      session.blocker = null;
+      if (previousBlocker) {
+        session.failureReason = null;
+      }
+    }
+
     if (type !== "screenshot") {
       await captureSessionPreview(session, action.actionId).catch(() => null);
     }
@@ -518,6 +569,8 @@ router.post("/sessions/:sessionId/resume-agent", (req, res) => {
   session.controller = "agent";
   session.status = "agent_controlled";
   session.controlLease = null;
+  session.blocker = null;
+  session.failureReason = null;
   session.updatedAt = nowIso();
   session.lastHeartbeatAt = session.updatedAt;
   res.json({

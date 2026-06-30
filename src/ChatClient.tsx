@@ -78,14 +78,14 @@ type RightPanelTab = 'workspace' | 'mcp' | 'integrations' | 'browser';
 
 const BROWSER_LANE_PROMPT = [
   'Hybrid Browser Lane active.',
-  'Use browser tools as a first-class execution surface, not as hidden incidental calls.',
+  'Use the visible in-app browser as the source of truth for web tasks, not hidden incidental fetches.',
   '',
   'Routing policy:',
-  '- Public pages, documentation, articles, tables, dashboards, and JS-heavy pages: use headless browser tools first.',
-  '- Prefer browser_navigate for rendered pages, browser_evaluate/read DOM for targeted inspection, browser_screenshot for visual proof, and browser_extract_table for tables.',
-  '- If you encounter login, OAuth, MFA, CAPTCHA, payment walls, session locks, Cloudflare challenges, or repeated automation failure, stop before sensitive input and request human handoff.',
+  '- Public pages, documentation, articles, tables, dashboards, and JS-heavy pages: open/render in the browser lane first.',
+  '- Prefer browser_navigate for rendered pages, browser_evaluate/read DOM for targeted inspection, browser_screenshot for visual proof, and browser_extract_table for tables on the same visible page.',
+  '- If you encounter login, OAuth, MFA, CAPTCHA, payment walls, session locks, Cloudflare/browser challenges, or repeated automation failure, stop before sensitive input and request human control.',
   '- Never capture, store, replay, or quote credentials, one-time auth codes, MFA codes, cookies, or sensitive form values.',
-  '- After human handoff, resume only from a fresh DOM snapshot/screenshot and explain what changed.',
+  '- After human control, resume only from a fresh DOM snapshot/screenshot and explain what changed.',
   '- Keep every browser action auditable through ToolTrace: URL, action, timing, status, result summary, and blocker.',
   '',
   'User request:',
@@ -1550,7 +1550,7 @@ export default function ChatClient() {
                 <div className="t-h1 mb-3">Ready to start.</div>
                 <p className="mb-8 font-light text-lg">
                   {mode === 'browser' ? (
-                    <>Browser Lane: <span className="font-semibold text-[var(--t1)]">Headless first, human handoff when needed</span></>
+                    <>Browser Lane: <span className="font-semibold text-[var(--t1)]">Visible shared browser, agent assistance on demand</span></>
                   ) : (
                     <>Domain: <span className="font-semibold text-[var(--t1)]">{topic}</span></>
                   )}
