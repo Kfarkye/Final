@@ -84,6 +84,7 @@
     "schema-stream": "^3.2.2",
     "stripe": "^22.2.1",
     "vite": "^6.2.3",
+    "ws": "^8.18.0",
     "zod": "^3.25.76",
     "zod-stream": "^3.0.0",
     "zod-to-json-schema": "^3.25.2"
@@ -97,6 +98,7 @@
     "@types/node": "^22.14.0",
     "@types/opossum": "^8.1.9",
     "@types/pg": "^8.20.0",
+    "@types/ws": "^8.5.12",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "pino-pretty": "^13.1.3",
