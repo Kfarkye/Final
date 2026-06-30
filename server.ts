@@ -45,6 +45,9 @@ import sourceRoutes from "./src/routes/source.routes";
 import artifactRoutes from "./src/routes/artifacts.routes";
 import bindExternalServiceRoute from "./src/routes/workers/bind-external-service.route";
 
+// Browser Runtime — real isolated browser session control plane (Phase A)
+import { browserSessionRoutes } from "./src/browser/browser-session.routes";
+
 const app = express();
 const PORT = env.PORT;
 
@@ -69,6 +72,7 @@ app.use("/api/vault", vaultRoutes);
 app.use("/api/design-systems", designSystemRoutes);
 app.use("/api/truth", suggestRoutes);
 app.use("/api/source", sourceRoutes);
+app.use("/api/browser", browserSessionRoutes); // Browser Runtime: sessions, actions, take-control, SSE stream
 app.use(artifactRoutes); // SSR artifacts + sitemap.xml (indexable by construction)
 app.use(bindExternalServiceRoute);
 
@@ -156,6 +160,15 @@ async function startServer() {
       // Step B: Stop background workers
       stopBackfill();
       logger.info({ msg: "Background workers stopped." });
+
+      // Step B2: Close all browser sessions (reap Chromium workers cleanly)
+      try {
+        const { browserSessionService } = await import("./src/browser/browser-session.service");
+        await browserSessionService.shutdown();
+        logger.info({ msg: "Browser sessions closed." });
+      } catch (e: any) {
+        logger.warn({ msg: "Browser session shutdown skipped", err: e?.message });
+      }
 
       // Step C: Flush Server-Sent Events (SSE) connections explicitly
       if (sseManager && typeof sseManager.shutdown === 'function') {
