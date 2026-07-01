@@ -6,7 +6,7 @@ SA="70323048967-compute@developer.gserviceaccount.com"
 if git rev-parse --short HEAD >/dev/null 2>&1; then SHA="$(git rev-parse --short HEAD)"; else SHA="manual-$(date +%s)"; fi
 IMG="${REPO}:${SHA}"
 export GCP_PROJECT="${PROJECT}" GOOGLE_CLOUD_PROJECT="${PROJECT}" NODE_ENV="production"
-npm run predeploy
+npm run verify:deploy
 gcloud builds submit --tag "${IMG}" --project "${PROJECT}" .
 gcloud run deploy "${SERVICE}" \
   --image "${IMG}" --region "${REGION}" --project "${PROJECT}" \
