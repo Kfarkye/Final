@@ -14,8 +14,9 @@
  *      so events are isTrusted:true and pierce CSP / shadow DOM / iframes.
  *
  * Wire protocol (must match server src/browser/extension-bridge.ts):
- *   Up:   BRIDGE_READY | BRIDGE_EVENT | BROWSER_FRAME
+ *   Up:   BRIDGE_READY | BRIDGE_EVENT
  *   Down: NAVIGATE | CLICK | FILL | START_CAPTURE | STOP_CAPTURE
+ *         WEBRTC_ANSWER | ICE_CANDIDATE
  */
 
 const BRIDGE_URL = "ws://localhost:3000/api/browser/bridge";
@@ -25,6 +26,7 @@ let socket = null;
 let reconnectTimer = null;
 let managedTabId = null;
 let debuggerAttached = false;
+let streamSessionId = null;
 
 // ── WebSocket command channel ────────────────────────────────────────────
 
@@ -94,11 +96,29 @@ async function handleCommand(msg) {
     case "FILL":
       await fillSelector(msg.payload && msg.payload.selector, msg.payload && msg.payload.value);
       break;
+    case "NATIVE_CLICK":
+      await nativeClick(msg.payload || {});
+      break;
+    case "NATIVE_SCROLL":
+      await nativeScroll(msg.payload || {});
+      break;
+    case "NATIVE_TEXT":
+      await nativeText(msg.payload || {});
+      break;
+    case "NATIVE_KEY":
+      await nativeKey(msg.payload || {});
+      break;
     case "START_CAPTURE":
       await startCapture();
       break;
     case "STOP_CAPTURE":
       await stopCapture();
+      break;
+    case "WEBRTC_ANSWER":
+      await forwardToOffscreen("WEBRTC_ANSWER", msg.payload || {});
+      break;
+    case "ICE_CANDIDATE":
+      await forwardToOffscreen("ICE_CANDIDATE", msg.payload || {});
       break;
     default:
       break;
@@ -150,6 +170,71 @@ async function fillSelector(selector, value) {
   // Select-all + delete to clear, then insert the new value as trusted input.
   await cdp(tabId, "Input.insertText", { text: value == null ? "" : String(value) });
   emitEvent({ type: "FILL_COMPLETE", selector });
+}
+
+async function nativeClick({ x, y }) {
+  if (typeof x !== "number" || typeof y !== "number") throw new Error("x and y required");
+  const tabId = await ensureManagedTab();
+  await ensureDebugger(tabId);
+  await cdp(tabId, "Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  await cdp(tabId, "Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  emitEvent({ type: "NATIVE_CLICK_COMPLETE", x, y });
+}
+
+async function nativeScroll({ deltaX = 0, deltaY = 0, x = 500, y = 400 }) {
+  const tabId = await ensureManagedTab();
+  await ensureDebugger(tabId);
+  await cdp(tabId, "Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x,
+    y,
+    deltaX,
+    deltaY,
+  });
+  emitEvent({ type: "NATIVE_SCROLL_COMPLETE", deltaX, deltaY });
+}
+
+async function nativeText({ text }) {
+  const tabId = await ensureManagedTab();
+  await ensureDebugger(tabId);
+  await cdp(tabId, "Input.insertText", { text: String(text || "") });
+  emitEvent({ type: "NATIVE_TEXT_COMPLETE", length: String(text || "").length });
+}
+
+async function nativeKey({ key }) {
+  if (!key) throw new Error("key required");
+  const tabId = await ensureManagedTab();
+  const windowsVirtualKeyCode =
+    key === "Enter" ? 13 :
+    key === "Escape" ? 27 :
+    key === "Tab" ? 9 :
+    key === "Backspace" ? 8 :
+    key === "Delete" ? 46 :
+    0;
+  await ensureDebugger(tabId);
+  await cdp(tabId, "Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key,
+    windowsVirtualKeyCode,
+  });
+  await cdp(tabId, "Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key,
+    windowsVirtualKeyCode,
+  });
+  emitEvent({ type: "NATIVE_KEY_COMPLETE", key });
 }
 
 // ── Selector → coordinates (read-only DOM query, no untrusted clicks) ──────
@@ -214,25 +299,64 @@ async function ensureOffscreen() {
   });
 }
 
+async function forwardToOffscreen(type, payload) {
+  await chrome.runtime.sendMessage({
+    target: "offscreen",
+    type,
+    payload,
+  });
+}
+
+function isCapturePermissionError(error) {
+  const message = String(error && error.message ? error.message : error || "");
+  return /activeTab|gesture|permission|not invoked|Cannot access/i.test(message);
+}
+
 async function startCapture() {
   const tabId = await ensureManagedTab();
   await ensureOffscreen();
-  // Get a tab-capture stream id bound to the managed tab; hand it to offscreen.
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-  chrome.runtime.sendMessage({ target: "offscreen", type: "START_STREAM", streamId });
-  emitEvent({ type: "CAPTURE_STARTED", tabId });
+  try {
+    // Get a tab-capture stream id bound to the managed tab; hand it to offscreen.
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    streamSessionId = `truth-server-bridge-${Date.now().toString(36)}`;
+    await forwardToOffscreen("START_STREAM", { streamId, sessionId: streamSessionId });
+    emitEvent({ type: "CAPTURE_STARTED", tabId, sessionId: streamSessionId, transport: "webrtc" });
+  } catch (error) {
+    if (isCapturePermissionError(error)) {
+      emitEvent({
+        type: "CAPTURE_PERMISSION_REQUIRED",
+        tabId,
+        message: "Switch to the target Chrome tab and click the Truth Browser Bridge extension icon to grant tab capture.",
+      });
+    }
+    throw error;
+  }
 }
 
 async function stopCapture() {
-  chrome.runtime.sendMessage({ target: "offscreen", type: "STOP_STREAM" });
+  await forwardToOffscreen("STOP_STREAM", {}).catch(() => null);
+  streamSessionId = null;
   emitEvent({ type: "CAPTURE_STOPPED", tabId: managedTabId });
 }
 
-// Relay frames produced by the offscreen document up to the bridge.
+// Relay WebRTC signaling produced by the offscreen document up to the bridge.
 chrome.runtime.onMessage.addListener((message) => {
-  if (message && message.target === "background" && message.type === "FRAME") {
-    send({ type: "BROWSER_FRAME", payload: { dataUrl: message.dataUrl, timestamp: Date.now() } });
+  if (message && message.target === "background" && message.type === "RTC_SIGNAL") {
+    emitEvent({
+      ...(message.payload || {}),
+      sessionId: message.payload?.sessionId || streamSessionId,
+    });
+    return false;
   }
+
+  if (message && message.target === "background" && message.type === "OFFSCREEN_ERROR") {
+    emitEvent({
+      type: "STREAM_ERROR",
+      message: String(message.error || "Offscreen stream failed"),
+      sessionId: streamSessionId,
+    });
+  }
+  return false;
 });
 
 // Toolbar click = "connect this tab": adopt active tab, connect, start capture.

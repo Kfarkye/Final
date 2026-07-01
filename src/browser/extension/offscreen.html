@@ -5,10 +5,8 @@
     <title>Truth Browser Bridge — Offscreen</title>
   </head>
   <body>
-    <!-- Offscreen document: redeems the tabCapture stream id into a MediaStream
-         and pumps frames to the service worker. No UI; never visible. -->
-    <video id="cap" autoplay muted playsinline style="display:none"></video>
-    <canvas id="frame" style="display:none"></canvas>
+    <!-- Offscreen document: redeems tabCapture into a MediaStream and publishes
+         live WebRTC video to the Truth app. No UI; never visible. -->
     <script src="offscreen.js"></script>
   </body>
 </html>

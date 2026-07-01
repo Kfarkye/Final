@@ -154,6 +154,24 @@ async function startCapture(tabId = managedTabId) {
   return { tabId, sessionId: streamSessionId };
 }
 
+function isCapturePermissionError(error) {
+  const message = String(error?.message || error || "");
+  return /activeTab|gesture|permission|not invoked|Cannot access/i.test(message);
+}
+
+async function tryStartCapture(tabId) {
+  try {
+    return await startCapture(tabId);
+  } catch (error) {
+    if (!isCapturePermissionError(error)) throw error;
+    broadcast("CAPTURE_PERMISSION_REQUIRED", {
+      tabId,
+      message: "Switch to the target tab and click the Truth Chrome Bridge extension icon to grant live browser streaming.",
+    });
+    return null;
+  }
+}
+
 async function stopCapture() {
   await chrome.runtime.sendMessage({
     target: "truth-offscreen",
@@ -342,14 +360,14 @@ async function handleCommand(port, message) {
   if (type === "NAVIGATE") {
     const tab = await ensureManagedTab(payload.url, payload.active !== false);
     respond(port, requestId, { tab: tabToPayload(tab) });
-    await startCapture(tab.id);
+    await tryStartCapture(tab.id);
     return;
   }
 
   if (type === "CONNECT_ACTIVE_TAB") {
     const tab = await connectActiveTab();
     respond(port, requestId, { tab: tabToPayload(tab) });
-    await startCapture(tab.id);
+    await tryStartCapture(tab.id);
     return;
   }
 

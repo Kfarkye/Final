@@ -1,87 +1,132 @@
 /**
  * Truth Browser Bridge — Offscreen Document (offscreen.js)
  * --------------------------------------------------------
- * Redeems a tabCapture stream id into a live MediaStream and pumps frames to
- * the service worker, which relays them to the Truth bridge as BROWSER_FRAME.
- *
- * Transport today: canvas -> JPEG dataURL @ ~15fps (the "Good" tier). This is
- * what the server bridge + BrowserPanel consume right now.
- *
- * ELITE UPGRADE SEAM (tracked follow-up): replace the canvas pump with an
- * RTCPeerConnection that sends getTracks() over WebRTC for hardware-accelerated,
- * sub-50ms streaming. The SDP/ICE signaling would flow over the same bridge
- * channel via new BRIDGE_EVENT subtypes (SDP_OFFER/SDP_ANSWER/ICE). Until that
- * lands, the JPEG pump keeps the lane fully functional end-to-end.
+ * Redeems a tabCapture stream id into a real MediaStream and publishes it to
+ * Truth over WebRTC. This is intentionally live video, not a canvas/JPEG frame
+ * pump: the human browser surface should feel like a browser tab, not a
+ * periodically refreshed screenshot.
  */
 
-const FPS = 15;
-const JPEG_QUALITY = 0.55;
-const MAX_WIDTH = 1280;
-
 let stream = null;
-let rafTimer = null;
+let peerConnection = null;
 
-const video = document.getElementById("cap");
-const canvas = document.getElementById("frame");
-const ctx = canvas.getContext("2d", { alpha: false });
+function sendToBackground(type, payload = {}) {
+  chrome.runtime.sendMessage({
+    target: "background",
+    type: "RTC_SIGNAL",
+    payload: {
+      type,
+      ...payload,
+    },
+  });
+}
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message || message.target !== "offscreen") return;
-  if (message.type === "START_STREAM") {
-    startStream(message.streamId).catch((err) => {
-      chrome.runtime.sendMessage({
-        target: "background",
-        type: "OFFSCREEN_ERROR",
-        error: String(err && err.message ? err.message : err),
-      });
+async function stopStream() {
+  if (peerConnection) {
+    peerConnection.getSenders().forEach((sender) => {
+      try {
+        sender.track?.stop();
+      } catch {
+        // Best-effort cleanup.
+      }
     });
-  } else if (message.type === "STOP_STREAM") {
-    stopStream();
+    peerConnection.close();
+    peerConnection = null;
   }
-});
 
-async function startStream(streamId) {
-  stopStream();
+  if (stream) {
+    stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+  }
+
+  sendToBackground("STREAM_STOPPED");
+}
+
+async function startStream({ streamId, sessionId }) {
+  await stopStream();
+
   stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       mandatory: {
         chromeMediaSource: "tab",
         chromeMediaSourceId: streamId,
+        minWidth: 1280,
         maxWidth: 1920,
+        minHeight: 720,
         maxHeight: 1080,
-        maxFrameRate: 30,
+        minFrameRate: 30,
+        maxFrameRate: 60,
       },
     },
   });
-  video.srcObject = stream;
-  await video.play().catch(() => {});
-  beginPump();
+
+  peerConnection = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+
+  peerConnection.onicecandidate = (event) => {
+    if (!event.candidate) return;
+    sendToBackground("ICE_CANDIDATE", {
+      candidate: event.candidate.toJSON(),
+      sessionId,
+    });
+  };
+
+  peerConnection.onconnectionstatechange = () => {
+    sendToBackground("RTC_STATE", {
+      state: peerConnection?.connectionState || "closed",
+      sessionId,
+    });
+  };
+
+  stream.getTracks().forEach((track) => {
+    peerConnection?.addTrack(track, stream);
+  });
+
+  const offer = await peerConnection.createOffer({
+    offerToReceiveAudio: false,
+    offerToReceiveVideo: false,
+  });
+  await peerConnection.setLocalDescription(offer);
+
+  sendToBackground("SDP_OFFER", {
+    sdp: peerConnection.localDescription?.toJSON(),
+    sessionId,
+  });
 }
 
-function beginPump() {
-  const interval = Math.round(1000 / FPS);
-  rafTimer = setInterval(() => {
-    if (!video.videoWidth || !video.videoHeight) return;
-    const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
-    const w = Math.round(video.videoWidth * scale);
-    const h = Math.round(video.videoHeight * scale);
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-    ctx.drawImage(video, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-    chrome.runtime.sendMessage({ target: "background", type: "FRAME", dataUrl });
-  }, interval);
+async function applyAnswer({ sdp }) {
+  if (!peerConnection) throw new Error("No active peer connection");
+  await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
 }
 
-function stopStream() {
-  if (rafTimer) {
-    clearInterval(rafTimer);
-    rafTimer = null;
-  }
-  if (stream) {
-    for (const track of stream.getTracks()) track.stop();
-    stream = null;
-  }
-  if (video) video.srcObject = null;
+async function addIceCandidate({ candidate }) {
+  if (!peerConnection || !candidate) return;
+  await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
 }
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!message || message.target !== "offscreen") return false;
+
+  (async () => {
+    if (message.type === "START_STREAM") {
+      await startStream(message.payload || {});
+    } else if (message.type === "WEBRTC_ANSWER") {
+      await applyAnswer(message.payload || {});
+    } else if (message.type === "ICE_CANDIDATE") {
+      await addIceCandidate(message.payload || {});
+    } else if (message.type === "STOP_STREAM") {
+      await stopStream();
+    }
+
+    sendResponse({ ok: true });
+  })().catch((error) => {
+    sendToBackground("STREAM_ERROR", {
+      message: error.message || String(error),
+    });
+    sendResponse({ ok: false, error: error.message || String(error) });
+  });
+
+  return true;
+});

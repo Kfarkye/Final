@@ -45,10 +45,12 @@ describe("Hybrid Browser Lane contract", () => {
     expect(registry).toContain("Browser Core");
     expect(chatClient).toContain("Default = browser. Automation = explicit. Research/crawling = separate bounded mode only when the user asks for it.");
     expect(chatClient).toContain("const browserSurfaceActive = workspaceOpen && activeRightTab === 'browser';");
-    expect(chatClient).toContain("const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 420px)' : 380;");
+    expect(chatClient).toContain("const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 320px)' : 380;");
+    expect(chatClient).toContain("sidebarOpen && !browserSurfaceActive");
     expect(chatClient).toContain("Browser mode promotes this area into the primary surface.");
     expect(browserPanel).toContain("First-class browser");
-    expect(browserPanel).toContain("min-h-[520px] xl:min-h-[640px]");
+    expect(browserPanel).toContain("min-h-[calc(100vh-300px)]");
+    expect(browserPanel).toContain("Frame fallback — not live video");
   });
 
   it("ships a first-class MV3 Chrome Bridge with WebRTC streaming and CDP input", () => {
@@ -59,6 +61,8 @@ describe("Hybrid Browser Lane contract", () => {
     const contentScript = readFileSync(resolve(extensionRoot, "content-script.js"), "utf8");
     const readme = readFileSync(resolve(extensionRoot, "README.md"), "utf8");
     const browserPanel = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");
+    const serverExtension = readFileSync(resolve(root, "src/browser/extension/offscreen.js"), "utf8");
+    const bridgeRoutes = readFileSync(resolve(root, "src/browser/browser-bridge.routes.ts"), "utf8");
 
     expect(extensionManifest.manifest_version).toBe(3);
     expect(extensionManifest.name).toBe("Truth Chrome Bridge");
@@ -90,6 +94,12 @@ describe("Hybrid Browser Lane contract", () => {
     expect(browserPanel).toContain("CONNECT_ACTIVE_TAB");
     expect(browserPanel).toContain("NATIVE_CLICK");
     expect(browserPanel).toContain("chromeBridgeVideoRef");
+    expect(browserPanel).toContain("webrtc/answer");
+    expect(browserPanel).toContain("native/click");
+    expect(serverExtension).toContain("new RTCPeerConnection");
+    expect(serverExtension).not.toContain("canvas.toDataURL");
+    expect(bridgeRoutes).toContain('"/bridge/webrtc/answer"');
+    expect(bridgeRoutes).toContain('"/bridge/native/click"');
   });
 
   it("classifies public-site challenges as human-control blockers", () => {

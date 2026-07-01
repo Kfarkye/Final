@@ -77,9 +77,14 @@ if (!packageJson.devDependencies?.["@types/ws"]) fail("package.json must declare
 assertFileContains("server-runtime.ts", "browserBridgeRoutes", "browser bridge route mount");
 assertFileContains("server-runtime.ts", "extensionBridge.attach(server)", "extension bridge HTTP upgrade hook");
 assertFileContains("src/browser/extension-bridge.ts", "WebSocketServer", "WebSocket server bridge");
+assertFileContains("src/browser/extension-bridge.ts", "WEBRTC_ANSWER", "server bridge WebRTC answer command");
+assertFileContains("src/browser/extension-bridge.ts", "NATIVE_CLICK", "server bridge native click command");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/stream"', "SSE bridge stream route");
+assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/webrtc/answer"', "WebRTC answer route");
+assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/click"', "native click route");
 assertFileContains("src/browser/browser-bridge.routes.ts", "sseManager.addClient", "real SSEManager addClient API");
 assertFileContains("src/components/BrowserPanel.tsx", "/api/browser/bridge/stream", "BrowserPanel server bridge stream");
-assertFileContains("src/components/BrowserPanel.tsx", "serverBridgeFrame.dataUrl", "BrowserPanel visible server stream rendering");
+assertFileContains("src/components/BrowserPanel.tsx", "webrtc/answer", "BrowserPanel server bridge WebRTC answer");
+assertFileContains("src/components/BrowserPanel.tsx", "Frame fallback — not live video", "BrowserPanel labels screenshot fallback");
 
 console.log("✓ Truth Chrome Bridge MV3/WebRTC/CDP + server bridge contract verified");

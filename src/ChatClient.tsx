@@ -1212,7 +1212,7 @@ export default function ChatClient() {
   };
 
   const browserSurfaceActive = workspaceOpen && activeRightTab === 'browser';
-  const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 420px)' : 380;
+  const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 320px)' : 380;
 
   return (
     <div className="app pb-safe pt-safe">
@@ -1450,7 +1450,7 @@ export default function ChatClient() {
       <div className="body flex flex-1 relative">
         {/* Sidebar */}
         <AnimatePresence initial={false}>
-          {sidebarOpen && (
+          {sidebarOpen && !browserSurfaceActive && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 260, opacity: 1 }}
@@ -1546,7 +1546,7 @@ export default function ChatClient() {
 
         {/* Chat Area */}
         <main
-          className={`overflow-y-auto flex flex-col space-y-12 transition-all duration-300 ${browserSurfaceActive ? 'w-[420px] flex-none px-3 py-8 border-r border-[var(--b1)] bg-black/20' : 'flex-1 px-4 py-10'}`}
+          className={`overflow-y-auto flex flex-col space-y-12 transition-all duration-300 ${browserSurfaceActive ? 'w-[320px] flex-none px-3 py-8 border-r border-[var(--b1)] bg-black/20' : 'flex-1 px-4 py-10'}`}
           onClick={() => showMenu && setShowMenu(false)}
         >
           <div className="max-w-[1400px] w-full mx-auto flex flex-col space-y-12">
