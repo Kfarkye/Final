@@ -611,6 +611,102 @@ const browserEvaluateTool: RegisteredTool<any> = {
 // TOOL 5: browser_click
 // ═════════════════════════════════════════════════════════════════════════════
 
+const browserReadDomTool: RegisteredTool<any> = {
+  definition: {
+    name: "browser_read_dom",
+    description:
+      "Read the rendered DOM state for the current browser page. " +
+      "Use after browser_navigate when the user asks what is visible on a page, or to inspect a selector before extracting/clicking. " +
+      "Returns bounded visible text, optional truncated HTML, links, title, and URL from the same pageId. " +
+      "Do not use for credentials, MFA codes, payment details, cookies, or sensitive form values.",
+    schema: z.object({
+      pageId: z.string().describe("Page ID from a previous browser_navigate call"),
+      selector: z.string().optional().describe("Optional CSS selector to inspect instead of the whole body"),
+      maxChars: z.number().int().min(100).max(100000).default(50000).describe("Max characters of visible text/HTML to return"),
+      includeHtml: z.boolean().default(false).describe("Include truncated outerHTML for the selected node/body"),
+    }),
+  },
+  handler: async (args) => {
+    try {
+      if (!pages.has(args.pageId)) {
+        return { success: false, error: `Page '${args.pageId}' not found. Navigate first.` };
+      }
+      const page = pages.get(args.pageId)!;
+      const title = await page.title().catch(() => "");
+      const url = page.url();
+
+      const dom = await page.evaluate(({ selector, maxChars, includeHtml }) => {
+        const root = selector ? document.querySelector(selector) : document.body || document.documentElement;
+        if (!root) {
+          return {
+            found: false,
+            text: "",
+            textLength: 0,
+            html: null,
+            links: [],
+          };
+        }
+
+        const element = root as HTMLElement;
+        const rawText = (element.innerText || element.textContent || "").replace(/\s+\n/g, "\n").trim();
+        const links = Array.from(element.querySelectorAll("a[href]"))
+          .slice(0, 100)
+          .map(anchor => ({
+            text: ((anchor as HTMLElement).innerText || anchor.textContent || "").trim().slice(0, 200),
+            href: (anchor as HTMLAnchorElement).href,
+          }))
+          .filter(link => link.text || link.href);
+
+        return {
+          found: true,
+          text: rawText.slice(0, maxChars),
+          textLength: rawText.length,
+          html: includeHtml ? element.outerHTML.slice(0, maxChars) : null,
+          links,
+        };
+      }, {
+        selector: args.selector,
+        maxChars: args.maxChars,
+        includeHtml: args.includeHtml,
+      });
+
+      if (!dom.found) {
+        return {
+          success: false,
+          pageId: args.pageId,
+          url,
+          title,
+          error: args.selector ? `Selector '${args.selector}' not found on page.` : "No DOM root found on page.",
+        };
+      }
+
+      updateLatestVisualSnapshot(args.pageId, {
+        title,
+        url,
+        updatedAt: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        pageId: args.pageId,
+        url,
+        title,
+        selector: args.selector || null,
+        textLength: dom.textLength,
+        text: dom.text,
+        html: dom.html,
+        links: dom.links,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TOOL 6: browser_click
+// ═════════════════════════════════════════════════════════════════════════════
+
 const browserClickTool: RegisteredTool<any> = {
   definition: {
     name: "browser_click",
@@ -663,7 +759,7 @@ const browserClickTool: RegisteredTool<any> = {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TOOL 6: browser_fill
+// TOOL 7: browser_fill
 // ═════════════════════════════════════════════════════════════════════════════
 
 const browserFillTool: RegisteredTool<any> = {
@@ -712,7 +808,7 @@ const browserFillTool: RegisteredTool<any> = {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TOOL 7: browser_close
+// TOOL 8: browser_close
 // ═════════════════════════════════════════════════════════════════════════════
 
 const browserCloseTool: RegisteredTool<any> = {
@@ -762,6 +858,7 @@ export const browserTools: RegisteredTool<any>[] = [
   browserScreenshotTool,
   browserExtractTableTool,
   browserEvaluateTool,
+  browserReadDomTool,
   browserClickTool,
   browserFillTool,
   browserCloseTool,

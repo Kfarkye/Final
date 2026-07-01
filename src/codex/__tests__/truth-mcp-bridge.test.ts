@@ -16,6 +16,14 @@ vi.mock('../../tools/index.js', () => ({
     getSchemas: vi.fn().mockReturnValue({
       get_odds: { description: 'Get live odds', properties: { team: { type: 'string' } }, required: ['team'] },
       get_scores: { description: 'Get live scores', properties: {}, required: [] },
+      browser_navigate: { description: 'Navigate browser', properties: { url: { type: 'string' } }, required: ['url'] },
+      browser_read_dom: { description: 'Read rendered DOM', properties: { pageId: { type: 'string' } }, required: ['pageId'] },
+      browser_evaluate: { description: 'Evaluate in browser', properties: { pageId: { type: 'string' }, expression: { type: 'string' } }, required: ['pageId', 'expression'] },
+      browser_screenshot: { description: 'Screenshot browser', properties: { pageId: { type: 'string' } }, required: ['pageId'] },
+      browser_extract_table: { description: 'Extract tables', properties: { pageId: { type: 'string' } }, required: ['pageId'] },
+      browser_click: { description: 'Click browser element', properties: { pageId: { type: 'string' }, selector: { type: 'string' } }, required: ['pageId', 'selector'] },
+      browser_fill: { description: 'Fill browser field', properties: { pageId: { type: 'string' }, selector: { type: 'string' }, value: { type: 'string' } }, required: ['pageId', 'selector', 'value'] },
+      browser_close: { description: 'Close browser page', properties: {} },
       deploy_staged_mcp: { description: 'Deploy to staging', properties: {} },
       trigger_deploy: { description: 'Trigger deploy', properties: {} },
       rotate_odds_key: { description: 'Rotate API key', properties: {} },
@@ -44,6 +52,14 @@ describe('Truth MCP Bridge', () => {
     vi.mocked(toolRegistry.getSchemas).mockReturnValue({
       get_odds: { name: 'get_odds', description: 'Get live odds', parameters: { type: 'object', properties: { team: { type: 'string' } }, required: ['team'] }, properties: { team: { type: 'string' } }, required: ['team'] },
       get_scores: { name: 'get_scores', description: 'Get live scores', parameters: { type: 'object', properties: {}, required: [] }, properties: {}, required: [] },
+      browser_navigate: { name: 'browser_navigate', description: 'Navigate browser', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] }, properties: { url: { type: 'string' } }, required: ['url'] },
+      browser_read_dom: { name: 'browser_read_dom', description: 'Read rendered DOM', parameters: { type: 'object', properties: { pageId: { type: 'string' } }, required: ['pageId'] }, properties: { pageId: { type: 'string' } }, required: ['pageId'] },
+      browser_evaluate: { name: 'browser_evaluate', description: 'Evaluate in browser', parameters: { type: 'object', properties: { pageId: { type: 'string' }, expression: { type: 'string' } }, required: ['pageId', 'expression'] }, properties: { pageId: { type: 'string' }, expression: { type: 'string' } }, required: ['pageId', 'expression'] },
+      browser_screenshot: { name: 'browser_screenshot', description: 'Screenshot browser', parameters: { type: 'object', properties: { pageId: { type: 'string' } }, required: ['pageId'] }, properties: { pageId: { type: 'string' } }, required: ['pageId'] },
+      browser_extract_table: { name: 'browser_extract_table', description: 'Extract tables', parameters: { type: 'object', properties: { pageId: { type: 'string' } }, required: ['pageId'] }, properties: { pageId: { type: 'string' } }, required: ['pageId'] },
+      browser_click: { name: 'browser_click', description: 'Click browser element', parameters: { type: 'object', properties: { pageId: { type: 'string' }, selector: { type: 'string' } }, required: ['pageId', 'selector'] }, properties: { pageId: { type: 'string' }, selector: { type: 'string' } }, required: ['pageId', 'selector'] },
+      browser_fill: { name: 'browser_fill', description: 'Fill browser field', parameters: { type: 'object', properties: { pageId: { type: 'string' }, selector: { type: 'string' }, value: { type: 'string' } }, required: ['pageId', 'selector', 'value'] }, properties: { pageId: { type: 'string' }, selector: { type: 'string' }, value: { type: 'string' } }, required: ['pageId', 'selector', 'value'] },
+      browser_close: { name: 'browser_close', description: 'Close browser page', parameters: { type: 'object', properties: {} }, properties: {} },
       deploy_staged_mcp: { name: 'deploy_staged_mcp', description: 'Deploy to staging', parameters: { type: 'object', properties: {} }, properties: {} },
       trigger_deploy: { name: 'trigger_deploy', description: 'Trigger deploy', parameters: { type: 'object', properties: {} }, properties: {} },
       rotate_odds_key: { name: 'rotate_odds_key', description: 'Rotate API key', parameters: { type: 'object', properties: {} }, properties: {} },
@@ -116,6 +132,8 @@ describe('Truth MCP Bridge', () => {
       // All tools should be visible — approval is checked at execution time, not at listing
       expect(allowed).toContain('get_odds');
       expect(allowed).toContain('get_scores');
+      expect(allowed).toContain('browser_navigate');
+      expect(allowed).toContain('browser_read_dom');
       expect(allowed).toContain('github_write_file');
       expect(allowed).toContain('github_create_pr');
       expect(allowed).toContain('deploy_staged_mcp');
@@ -123,6 +141,21 @@ describe('Truth MCP Bridge', () => {
       expect(allowed).toContain('rotate_odds_key');
       expect(allowed).toContain('run_odds_ingestor_once');
       expect(allowed).toContain('spanner_admin_execute');
+    });
+
+    it('prioritizes browser tools inside the Codex function-tool cap', () => {
+      const allowed = getCodexAllowedTools();
+
+      expect(allowed.slice(0, 8)).toEqual([
+        'browser_navigate',
+        'browser_read_dom',
+        'browser_evaluate',
+        'browser_screenshot',
+        'browser_extract_table',
+        'browser_click',
+        'browser_fill',
+        'browser_close',
+      ]);
     });
   });
 
@@ -133,6 +166,8 @@ describe('Truth MCP Bridge', () => {
 
       expect(names).toContain('get_odds');
       expect(names).toContain('get_scores');
+      expect(names).toContain('browser_navigate');
+      expect(names).toContain('browser_read_dom');
       expect(names).toContain('deploy_staged_mcp');
       expect(names).toContain('spanner_admin_execute');
     });

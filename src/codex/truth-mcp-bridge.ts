@@ -37,6 +37,16 @@ const APPROVAL_REQUIRED_TOOLS = new Set<string>([
 ]);
 
 const CODEX_PRIORITY_TOOLS = [
+  // Browser-first web inspection surface. These must stay inside the
+  // Responses API function-tool cap so Codex can actually call them.
+  'browser_navigate',
+  'browser_read_dom',
+  'browser_evaluate',
+  'browser_screenshot',
+  'browser_extract_table',
+  'browser_click',
+  'browser_fill',
+  'browser_close',
   'local_service_status',
   'local_shell',
   'local_file_write',
