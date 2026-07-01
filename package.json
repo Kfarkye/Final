@@ -29,7 +29,8 @@
     "deploy": "bash scripts/ship-run.sh",
     "deploy:legacy-gke": "gcloud builds submit --tag us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:latest . && kubectl apply -f k8s/ && kubectl rollout restart deployment/reverie && kubectl rollout status deployment/reverie --timeout=300s",
     "verify:contracts": "tsx src/hub/__tests__/verify-contracts.ts",
-    "verify:deploy": "npm run verify:contracts && npm run chrome-bridge:validate && tsc --noEmit"
+    "verify:deploy": "npm run verify:contracts && npm run chrome-bridge:validate && tsc --noEmit",
+    "predeploy": "npm run verify:deploy"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
