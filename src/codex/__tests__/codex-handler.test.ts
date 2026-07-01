@@ -14,6 +14,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OpenAI from 'openai';
 
 afterEach(() => {
+  delete process.env.CODEX_FILE_SEARCH_VECTOR_STORE_IDS;
+  delete process.env.OPENAI_FILE_SEARCH_VECTOR_STORE_IDS;
   vi.clearAllMocks();
   vi.resetAllMocks();
 });
@@ -254,6 +256,46 @@ describe('Codex Handler — Responses API', () => {
       const ciTool = createCall.tools.find((t: any) => t.type === 'code_interpreter');
       expect(ciTool).toBeDefined();
       expect(ciTool.container).toEqual({ type: 'auto' });
+    });
+
+    it('includes file_search when vector store ids are provided in request', async () => {
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_file_search_req' } },
+        { type: 'response.completed', response: { id: 'resp_file_search_req', usage: {} } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq({ fileSearchVectorStoreIds: ['vs_req_1', 'vs_req_2'] });
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const createCall = mockCreate.mock.calls[0][0];
+      const fsTool = createCall.tools.find((t: any) => t.type === 'file_search');
+      expect(fsTool).toBeDefined();
+      expect(fsTool.vector_store_ids).toEqual(['vs_req_1', 'vs_req_2']);
+      expect(createCall.include).toContain('file_search_call.results');
+    });
+
+    it('includes file_search when vector store ids are configured via env', async () => {
+      process.env.CODEX_FILE_SEARCH_VECTOR_STORE_IDS = 'vs_env_1,vs_env_2';
+
+      mockCreate.mockResolvedValueOnce(createMockStream([
+        { type: 'response.created', response: { id: 'resp_file_search_env' } },
+        { type: 'response.completed', response: { id: 'resp_file_search_env', usage: {} } },
+      ]));
+
+      const { handleCodexChat } = await import('../../../lib/codex-chat-handler');
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await handleCodexChat(req as any, res as any);
+
+      const createCall = mockCreate.mock.calls[0][0];
+      const fsTool = createCall.tools.find((t: any) => t.type === 'file_search');
+      expect(fsTool).toBeDefined();
+      expect(fsTool.vector_store_ids).toEqual(['vs_env_1', 'vs_env_2']);
+      expect(createCall.include).toContain('file_search_call.results');
     });
 
     it('configures long autonomous research loops', async () => {

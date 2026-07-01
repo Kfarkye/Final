@@ -99,6 +99,7 @@ interface CodexChatRequest {
   userTimezone?: string;
   modelVersion?: string;
   workspaceRoot?: string;
+  fileSearchVectorStoreIds?: string[] | string;
 }
 
 interface PendingFunctionCall {
@@ -131,6 +132,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     userTimezone,
     modelVersion,
     workspaceRoot: requestedWorkspaceRoot,
+    fileSearchVectorStoreIds: requestedFileSearchVectorStoreIds,
   } = req.body as CodexChatRequest;
 
   if (!prompt?.trim()) {
@@ -188,6 +190,13 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
   // ── Build tools ────────────────────────────────────────────────────────
   const truthToolDefs = getCodexToolDefinitions().slice(0, MAX_CODEX_TOOLS);
   const workspaceRoot = resolveSessionWorkspaceRoot(requestedWorkspaceRoot);
+  const fileSearchVectorStoreIds = resolveFileSearchVectorStoreIds(requestedFileSearchVectorStoreIds);
+  const includeFields: OpenAI.Responses.ResponseIncludable[] = [
+    'web_search_call.results' as OpenAI.Responses.ResponseIncludable,
+    ...(fileSearchVectorStoreIds.length > 0
+      ? ['file_search_call.results' as OpenAI.Responses.ResponseIncludable]
+      : []),
+  ];
 
   const tools: OpenAI.Responses.Tool[] = [
     // Built-in: grounded web search (current identifier, not legacy preview)
@@ -197,6 +206,13 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       type: 'code_interpreter' as const,
       container: { type: 'auto' as const },
     },
+    // Built-in: vector store retrieval for private docs/code knowledge
+    ...(fileSearchVectorStoreIds.length > 0
+      ? [{
+          type: 'file_search' as const,
+          vector_store_ids: fileSearchVectorStoreIds,
+        } as OpenAI.Responses.Tool]
+      : []),
     // Truth platform function tools
     ...truthToolDefs.map(t => {
       const strictSchema = toStrictSchema(t.inputSchema);
@@ -221,6 +237,8 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
     timestamp: new Date().toISOString(),
     realCodex: true,
     workspaceRoot,
+    fileSearchEnabled: fileSearchVectorStoreIds.length > 0,
+    fileSearchVectorStoreCount: fileSearchVectorStoreIds.length,
   });
 
   if (requestedModel && requestedModel !== codexModel) {
@@ -288,12 +306,12 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         prompt_cache_retention: '24h',
         truncation: 'auto',
         ...(currentPreviousResponseId ? { previous_response_id: currentPreviousResponseId } : {}),
-        include: ['web_search_call.results'],
+        include: includeFields,
       };
 
       let turnHadFunctionCalls = false;
 
-      const recordHostedToolCompleted = (tool: 'web_search' | 'code_interpreter', callId?: string) => {
+      const recordHostedToolCompleted = (tool: 'web_search' | 'code_interpreter' | 'file_search', callId?: string) => {
         hostedToolCallsCompleted++;
         hostedToolCallsWithoutText++;
 
@@ -327,7 +345,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
       try {
         await consumeResponseStream(
           {
-            createStream: () => getOpenAIClient().responses.create(createParams),
+            createStream: () => getOpenAIClient().responses.create(createParams) as unknown as Promise<AsyncIterable<any>>,
             resumeStream: (state) => {
               const retrieveParams: OpenAI.Responses.ResponseRetrieveParamsStreaming = {
                 stream: true,
@@ -403,6 +421,36 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
               result: 'Web search completed',
             });
             recordHostedToolCompleted('web_search', event.item_id);
+            break;
+          }
+
+          // ── File search events ────────────────────────────────────
+          case 'response.file_search_call.in_progress': {
+            emittedUserVisibleOutput = true;
+            sendSSE('tool_call_started', {
+              tool: 'file_search',
+              model: 'codex',
+              callId: event.item_id,
+            });
+            break;
+          }
+
+          case 'response.file_search_call.searching': {
+            sendSSE('tool_progress', {
+              tool: 'file_search',
+              status: 'searching',
+              callId: event.item_id,
+            });
+            break;
+          }
+
+          case 'response.file_search_call.completed': {
+            sendSSE('tool_call_completed', {
+              tool: 'file_search',
+              callId: event.item_id,
+              result: 'File search completed',
+            });
+            recordHostedToolCompleted('file_search', event.item_id);
             break;
           }
 
@@ -1151,6 +1199,36 @@ function resolveCodexModel(modelVersion?: string): string {
     return requested;
   }
   return DEFAULT_CODEX_MODEL;
+}
+
+function resolveFileSearchVectorStoreIds(requested?: string[] | string): string[] {
+  const requestedIds = normalizeVectorStoreIds(requested);
+  if (requestedIds.length > 0) {
+    return requestedIds;
+  }
+
+  const envIds = process.env.CODEX_FILE_SEARCH_VECTOR_STORE_IDS
+    || process.env.OPENAI_FILE_SEARCH_VECTOR_STORE_IDS
+    || '';
+
+  return normalizeVectorStoreIds(envIds);
+}
+
+function normalizeVectorStoreIds(input: string[] | string | undefined): string[] {
+  if (Array.isArray(input)) {
+    return input
+      .map(id => id?.trim())
+      .filter((id): id is string => Boolean(id));
+  }
+
+  if (typeof input === 'string') {
+    return input
+      .split(',')
+      .map(id => id.trim())
+      .filter(Boolean);
+  }
+
+  return [];
 }
 
 function resolveSessionWorkspaceRoot(requestedWorkspaceRoot?: string): string {
