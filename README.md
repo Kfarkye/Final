@@ -1,37 +1,75 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Truth Platform (`reverie`)
 
-# Run and deploy your AI Studio app
+Production chat + agent runtime with:
+- Multi-model orchestration (Gemini, ChatGPT, Claude, Grok, DeepSeek, Codex)
+- Codex Responses API governed tool loop
+- Browser Lane (built-in browser + optional Truth Chrome Bridge)
+- Cloud Spanner-backed operational data
 
-This contains everything you need to run your app locally.
+Last refreshed: **July 1, 2026**.
 
-View your app in AI Studio: https://ai.studio/apps/73e9ce7f-7347-4837-a758-ccae784691f2
+## Local Development
 
-## Run Locally
+### Prerequisites
+- Node.js (repo uses `tsx` + Vite)
+- `gcloud` authenticated for project operations
 
-**Prerequisites:**  Node.js
+### Start
+```bash
+npm install
+npm run dev
+```
 
+App server entrypoint is `server.ts` (bootstraps secrets, then imports `server-runtime.ts`).
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Local Autonomous Service (Mac)
+
+Authoritative local workspace:
+`/Users/k.far.88/Developer/reverie`
+
+Local always-on service assets:
+- LaunchAgent plist: `launchd/com.truth.reverie.local.plist`
+- Startup script: `scripts/truth-local-service.sh`
+
+## Model Configuration (Current)
+
+Codex defaults to:
+- `gpt-5.3-codex` (default)
+
+Also available:
+- `gpt-5.5`
+- `o3-pro` (when available via provider access)
+
+Added July 1 model options:
+- `claude-fable-5`
+- `claude-sonnet-5`
+- `gpt-5.3-codex`
+
+## OpenAI File Search (Current Behavior)
+
+Codex handler now supports Responses API `file_search` when vector stores are configured.
+
+Configuration inputs:
+- Request field: `fileSearchVectorStoreIds`
+- Env var fallback: `CODEX_FILE_SEARCH_VECTOR_STORE_IDS`
+- Alternate env var: `OPENAI_FILE_SEARCH_VECTOR_STORE_IDS`
+
+Important: this repo currently **consumes vector store IDs**; it does not yet provide a full in-app end-user upload/index UI for OpenAI vector stores.
 
 ## Workspace Integrity
 
-This repo ships a **workspace manifest** (`workspace.manifest.json`) that declares the canonical shape of the monorepo — every required file and directory, grouped by component.
-
-Any runtime (CI, Cloud Run shell, agent exec, bare terminal) can verify the tree is complete:
-
+Verify workspace completeness:
 ```bash
-node scripts/verify-workspace.mjs              # verify all components
-node scripts/verify-workspace.mjs --only app   # verify one component
-node scripts/verify-workspace.mjs --json       # machine-readable output
+node scripts/verify-workspace.mjs
+node scripts/verify-workspace.mjs --only app
+node scripts/verify-workspace.mjs --json
 ```
 
-**A non-zero exit means the mount is partial** — `src/`, `server.ts`, or another required path is missing. Re-sync from the full repo root before building, deploying, or reviewing.
+If verification fails, treat the mount as partial and re-sync before build/deploy.
 
-The verifier is wired into `prebuild`, so `npm run build` automatically fails closed on an incomplete tree. It has zero dependencies (Node builtins only) and runs on Node ≥16.
+## Build and Verification
 
+```bash
+npm run lint
+npm run build
+```
