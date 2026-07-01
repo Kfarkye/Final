@@ -6,6 +6,7 @@ SA="70323048967-compute@developer.gserviceaccount.com"
 if git rev-parse --short HEAD >/dev/null 2>&1; then SHA="$(git rev-parse --short HEAD)"; else SHA="manual-$(date +%s)"; fi
 IMG="${REPO}:${SHA}"
 export GCP_PROJECT="${PROJECT}" GOOGLE_CLOUD_PROJECT="${PROJECT}" NODE_ENV="production"
+export ODDS_API_KEY="$(gcloud secrets versions access latest --secret=ODDS_API_KEY --project="${PROJECT}")"
 npm run verify:deploy
 gcloud builds submit --tag "${IMG}" --project "${PROJECT}" .
 gcloud run deploy "${SERVICE}" \
@@ -14,7 +15,7 @@ gcloud run deploy "${SERVICE}" \
   --execution-environment gen2 --min-instances 1 --max-instances 1 \
   --concurrency 40 --timeout 3600 --session-affinity --allow-unauthenticated \
   --service-account "${SA}" \
-  --set-env-vars GCP_PROJECT=${PROJECT},GOOGLE_CLOUD_PROJECT=${PROJECT},NODE_ENV=production,SPANNER_INSTANCE_ID=clearspace,SPANNER_DATABASE_ID=sports-mlb-db \
+  --set-env-vars GCP_PROJECT=${PROJECT},GOOGLE_CLOUD_PROJECT=${PROJECT},NODE_ENV=production,SPANNER_INSTANCE_ID=clearspace,SPANNER_DATABASE_ID=sports-mlb-db,BUILD_SHA=${SHA} \
   --set-secrets ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_PERSONAL_ACCESS_TOKEN=GITHUB_PERSONAL_ACCESS_TOKEN:latest,ODDS_API_KEY=ODDS_API_KEY:latest
 URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --project "${PROJECT}" --format='value(status.url)')"
 curl -fsS "${URL}/api/healthz" >/dev/null && echo "healthz OK"

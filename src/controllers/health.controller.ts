@@ -11,7 +11,14 @@ import { config } from "../config";
  * ship.sh step [4/4] polls /healthz for this value to prove the deploy is live.
  */
 declare const __BUILD_SHA__: string;
-const BUILD_SHA = typeof __BUILD_SHA__ !== "undefined" ? __BUILD_SHA__ : "local-dev";
+
+const COMPILED_BUILD_SHA =
+  typeof __BUILD_SHA__ !== "undefined" ? __BUILD_SHA__ : "";
+
+const BUILD_SHA =
+  COMPILED_BUILD_SHA && COMPILED_BUILD_SHA !== "unknown"
+    ? COMPILED_BUILD_SHA
+    : process.env.BUILD_SHA?.trim() || "local-dev";
 
 export const healthController = {
   /**
