@@ -857,10 +857,19 @@ const BrowserPanel = memo(function BrowserPanel({
     setBusy('start-chrome-capture');
     setChromeBridgeError(null);
     try {
-      if (chromeBridgeConnected) await sendChromeBridgeCommand('START_CAPTURE', {});
-      else if (serverBridgeConnected) await sendServerBridgeCommand('capture', { action: 'start' });
+      let needsUserGesture = false;
+      if (chromeBridgeConnected) {
+        const payload = await sendChromeBridgeCommand('START_CAPTURE', {});
+        needsUserGesture = Boolean((payload as { needsUserGesture?: boolean } | null)?.needsUserGesture);
+      } else if (serverBridgeConnected) await sendServerBridgeCommand('capture', { action: 'start' });
       else throw new Error('Install Truth Chrome Bridge or click the extension on a Chrome tab first');
-      setChromeBridgeStreamState('starting');
+      if (needsUserGesture) {
+        setChromeBridgeStatus(current => current === 'streaming' ? current : 'connected');
+        setChromeBridgeStreamState('needs-extension-click');
+        setChromeBridgeError('Switch to the target Chrome tab and click the Truth Chrome Bridge extension icon to grant live browser streaming.');
+      } else {
+        setChromeBridgeStreamState('starting');
+      }
     } catch (err: any) {
       setChromeBridgeStatus('error');
       setChromeBridgeError(err.message || 'Unable to start Chrome Bridge stream');

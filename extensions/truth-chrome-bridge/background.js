@@ -8,6 +8,10 @@ let managedWindowId = null;
 let streamSessionId = null;
 let debuggerAttachedTabId = null;
 
+function isRestrictedTabUrl(url) {
+  return /^(chrome|chrome-extension|devtools|edge|brave|about):/i.test(String(url || ""));
+}
+
 function normalizeUrl(input) {
   const value = String(input || "").trim();
   if (!value) throw new Error("Missing URL");
@@ -98,6 +102,9 @@ async function ensureManagedTab(url, active = true) {
 async function connectActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("No active Chrome tab found");
+  if (isRestrictedTabUrl(tab.url)) {
+    throw new Error("Chrome internal pages cannot be captured. Open a normal web page and click the Truth Chrome Bridge icon there.");
+  }
   managedTabId = tab.id;
   managedWindowId = tab.windowId;
   broadcast("TAB_CONNECTED", tabToPayload(tab));
@@ -138,8 +145,8 @@ async function startCapture(tabId = managedTabId) {
   if (!tabId) throw new Error("No managed Chrome tab to capture");
   await ensureOffscreenDocument();
 
-  streamSessionId = `truth-stream-${Date.now().toString(36)}`;
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+  streamSessionId = `truth-stream-${Date.now().toString(36)}`;
 
   await chrome.runtime.sendMessage({
     target: "truth-offscreen",
@@ -163,9 +170,12 @@ async function tryStartCapture(tabId) {
   try {
     return await startCapture(tabId);
   } catch (error) {
+    streamSessionId = null;
     if (!isCapturePermissionError(error)) throw error;
     broadcast("CAPTURE_PERMISSION_REQUIRED", {
       tabId,
+      recoverable: true,
+      reason: "active_tab_required",
       message: "Switch to the target tab and click the Truth Chrome Bridge extension icon to grant live browser streaming.",
     });
     return null;
@@ -372,7 +382,11 @@ async function handleCommand(port, message) {
   }
 
   if (type === "START_CAPTURE") {
-    respond(port, requestId, await startCapture(payload.tabId || managedTabId));
+    const capture = await tryStartCapture(payload.tabId || managedTabId);
+    respond(port, requestId, capture || {
+      tabId: payload.tabId || managedTabId,
+      needsUserGesture: true,
+    });
     return;
   }
 
@@ -458,6 +472,31 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onDisconnect.addListener(() => {
     appPorts.delete(port);
+  });
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  (async () => {
+    if (!tab?.id) throw new Error("No active Chrome tab found");
+    if (isRestrictedTabUrl(tab.url)) {
+      broadcast("CAPTURE_PERMISSION_REQUIRED", {
+        tabId: tab.id,
+        recoverable: true,
+        reason: "restricted_tab",
+        message: "Chrome internal pages cannot be captured. Open a normal web page and click the Truth Chrome Bridge icon there.",
+      });
+      return;
+    }
+    managedTabId = tab.id;
+    managedWindowId = tab.windowId;
+    broadcast("TAB_CONNECTED", tabToPayload(tab));
+    await tryStartCapture(tab.id);
+  })().catch((error) => {
+    streamSessionId = null;
+    broadcast("BRIDGE_ERROR", {
+      recoverable: true,
+      message: error?.message || String(error),
+    });
   });
 });
 

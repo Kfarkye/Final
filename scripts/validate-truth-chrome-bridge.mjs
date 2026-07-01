@@ -57,6 +57,8 @@ for (const match of ["https://mcptruth.com/*", "http://localhost:3000/*", "http:
 
 assertContains("background.js", "chrome.tabCapture.getMediaStreamId");
 assertContains("background.js", "chrome.offscreen.createDocument");
+assertContains("background.js", "chrome.action.onClicked.addListener", "toolbar click connect handler");
+assertContains("background.js", "CAPTURE_PERMISSION_REQUIRED", "recoverable capture permission event");
 assertContains("background.js", "chrome.debugger.sendCommand");
 assertContains("background.js", "Input.dispatchMouseEvent");
 assertContains("offscreen.js", "new RTCPeerConnection");
