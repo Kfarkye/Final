@@ -41,10 +41,10 @@ export default function SettingsDialog({
   // Custom input toggles or inputs
   const [geminiCustom, setGeminiCustom] = useState(!['gemini-3.5-flash', 'gemini-3.5-flash-puppeteer', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-live-preview', 'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-tts-preview'].includes(modelConfigs.gemini));
   const [chatgptCustom, setChatgptCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'].includes(modelConfigs.chatgpt));
-  const [claudeCustom, setClaudeCustom] = useState(!['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
+  const [claudeCustom, setClaudeCustom] = useState(!['claude-fable-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'].includes(modelConfigs.claude));
   const [grokCustom, setGrokCustom] = useState(!['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning'].includes(modelConfigs.grok));
   const [deepseekCustom, setDeepseekCustom] = useState(!['deepseek-v3.2-maas', 'deepseek-r1-0528-maas', 'deepseek-v3.1-maas', 'deepseek-ocr-maas'].includes(modelConfigs.deepseek));
-  const [codexCustom, setCodexCustom] = useState(!['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'].includes(modelConfigs.codex || 'gpt-5.5'));
+  const [codexCustom, setCodexCustom] = useState(!['gpt-5.3-codex', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'].includes(modelConfigs.codex || 'gpt-5.3-codex'));
 
   const handleSave = async () => {
     if (!currentUser) return;
@@ -243,6 +243,8 @@ export default function SettingsDialog({
                   onChange={(e) => handleModelChange('claude', e.target.value)}
                   className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
+                  <option value="claude-fable-5">Claude Fable 5 (Reasoning)</option>
+                  <option value="claude-sonnet-5">Claude Sonnet 5 (Fast)</option>
                   <option value="claude-opus-4-8">Claude Opus 4.8 (First Choice)</option>
                   <option value="claude-opus-4-6">Claude Opus 4.6</option>
                   <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Fast)</option>
@@ -330,17 +332,18 @@ export default function SettingsDialog({
               {codexCustom ? (
                 <input
                   type="text"
-                  value={configs.codex || 'gpt-5.5'}
+                  value={configs.codex || 'gpt-5.3-codex'}
                   onChange={(e) => handleModelChange('codex', e.target.value)}
                   className="w-full bg-[var(--s2)] border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm font-mono text-[var(--t3)] focus:border-[var(--b2)]"
-                  placeholder="e.g. gpt-5.5"
+                  placeholder="e.g. gpt-5.3-codex"
                 />
               ) : (
                 <select
-                  value={configs.codex || 'gpt-5.5'}
+                  value={configs.codex || 'gpt-5.3-codex'}
                   onChange={(e) => handleModelChange('codex', e.target.value)}
                   className="w-full bg-black border border-[var(--b1)] rounded-xl px-4 py-2.5 text-sm text-[var(--t3)] focus:border-[var(--b2)]"
                 >
+                  <option value="gpt-5.3-codex">GPT-5.3 Codex (Runtime)</option>
                   <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
                   <option value="gpt-5.4">GPT-5.4 (Strong)</option>
                   <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast)</option>

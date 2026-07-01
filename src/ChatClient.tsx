@@ -81,6 +81,7 @@ const BROWSER_LANE_PROMPT = [
   'Use the visible in-app browser as the source of truth for web tasks, not hidden incidental fetches.',
   '',
   'Routing policy:',
+  '- Use the built-in in-app browser by default. Use a real Chrome session only when the user explicitly asks for personal Chrome context.',
   '- Public pages, documentation, articles, tables, dashboards, and JS-heavy pages: open/render in the browser lane first.',
   '- Default = browser. Automation = explicit. Research/crawling = separate bounded mode only when the user asks for it.',
   '- Do not secretly crawl, parallel-fetch, scrape, retry-loop, or fan out when the user asked to open, inspect, verify, read, extract, or interact with a page.',
@@ -236,7 +237,7 @@ export default function ChatClient() {
     claude: 'claude-opus-4-8',
     grok: 'grok-4.3',
     deepseek: 'deepseek-v3.2-maas',
-    codex: 'gpt-5.5',
+    codex: 'gpt-5.3-codex',
   });
   const [replyTargetModel, setReplyTargetModel] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; tool: string; args: any } | null>(null);
@@ -668,7 +669,7 @@ export default function ChatClient() {
               history,
               connectionId: conversationId,
               userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              modelVersion: modelConfigs.codex || 'gpt-5.5',
+              modelVersion: modelConfigs.codex || 'gpt-5.3-codex',
               ...(codexResponseId ? { previousResponseId: codexResponseId } : {}),
             })
           : JSON.stringify({
@@ -695,7 +696,7 @@ export default function ChatClient() {
             history,
             connectionId: conversationId,
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            modelVersion: modelConfigs.codex || 'gpt-5.5',
+            modelVersion: modelConfigs.codex || 'gpt-5.3-codex',
             ...(codexResponseId ? { previousResponseId: codexResponseId } : {}),
           }),
         }).then(async (codexRes) => {
@@ -1138,6 +1139,8 @@ export default function ChatClient() {
       return `ChatGPT (${version})`;
     }
     if (id === 'claude') {
+      if (version === 'claude-fable-5') return 'Claude Fable 5';
+      if (version === 'claude-sonnet-5') return 'Claude Sonnet 5';
       if (version === 'claude-opus-4-8') return 'Claude Opus 4.8';
       if (version === 'claude-opus-4-6') return 'Claude Opus 4.6';
       if (version === 'claude-sonnet-4-6') return 'Claude Sonnet 4.6';
@@ -1158,6 +1161,7 @@ export default function ChatClient() {
       return `DeepSeek (${version})`;
     }
     if (id === 'codex') {
+      if (version === 'gpt-5.3-codex') return 'Codex GPT-5.3';
       if (version === 'gpt-5.5') return 'Codex GPT-5.5';
       if (version === 'gpt-5.4') return 'Codex GPT-5.4';
       if (version === 'gpt-5.4-mini') return 'Codex GPT-5.4 Mini';

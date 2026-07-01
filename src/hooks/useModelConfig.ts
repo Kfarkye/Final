@@ -61,6 +61,8 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     name: 'Claude',
     accent: '#D97706',
     versions: [
+      { id: 'claude-fable-5', label: 'Fable 5', hint: 'reasoning' },
+      { id: 'claude-sonnet-5', label: 'Sonnet 5', hint: 'fast' },
       { id: 'claude-opus-4-8', label: 'Opus 4.8', hint: 'balanced' },
       { id: 'claude-opus-4-6', label: 'Opus 4.6', hint: 'balanced' },
       { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'fast' },
@@ -93,6 +95,7 @@ export const MODEL_REGISTRY: ModelProvider[] = [
     name: 'Codex',
     accent: '#22C55E',
     versions: [
+      { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', hint: 'reasoning' },
       { id: 'gpt-5.5', label: 'GPT-5.5', hint: 'reasoning' },
       { id: 'gpt-5.4', label: 'GPT-5.4', hint: 'balanced' },
       { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', hint: 'fast' },
@@ -112,7 +115,7 @@ export function useModelConfig(initial?: Partial<ModelState>) {
       claude: 'claude-opus-4-8',
       grok: 'grok-4.3',
       deepseek: 'deepseek-v4-pro',
-      codex: 'gpt-5.5',
+      codex: 'gpt-5.3-codex',
     }
   );
   const [selectedProviders, setSelectedProviders] = useState<string[]>(

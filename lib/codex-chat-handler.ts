@@ -30,8 +30,8 @@ import { logger } from '../src/utils/logger.js';
 
 const codexLog = logger.child({ component: 'codex-chat' });
 
-const DEFAULT_CODEX_MODEL = 'gpt-5.5';
-const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'o3-pro']);
+const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex';
+const SUPPORTED_CODEX_MODELS = new Set([DEFAULT_CODEX_MODEL, 'gpt-5.5', 'o3-pro']);
 const DEFAULT_CODEX_TOOL_CALL_BUDGET = 500;
 const DEFAULT_CODEX_REPEATED_TOOL_CALL_BUDGET = 200;
 const DEFAULT_CODEX_HOSTED_TOOL_SILENCE_BUDGET = 200;

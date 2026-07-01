@@ -619,7 +619,7 @@ function useChat(config: ChatConfig = {}) {
             history,
             connectionId: `mobile_${Date.now()}`,
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            modelVersion: modelConfig || 'gpt-5.5',
+            modelVersion: modelConfig || 'gpt-5.3-codex',
             ...(codexResponseIdRef.current ? { previousResponseId: codexResponseIdRef.current } : {}),
           }
         : {
@@ -1160,9 +1160,12 @@ export default function MobileChat() {
               <option value="gemini:gemini-3.1-pro-preview" className="text-[var(--bg)]">Gemini 3.1 Pro</option>
               <option value="gemini:gemini-3.5-flash" className="text-[var(--bg)]">Gemini 3.5 Flash</option>
               <option value="chatgpt:gpt-5.5" className="text-[var(--bg)]">GPT 5.5</option>
+              <option value="claude:claude-fable-5" className="text-[var(--bg)]">Claude 5 Fable</option>
+              <option value="claude:claude-sonnet-5" className="text-[var(--bg)]">Claude 5 Sonnet</option>
               <option value="claude:claude-sonnet-4-6" className="text-[var(--bg)]">Claude 4.6 Sonnet</option>
               <option value="claude:claude-opus-4-8" className="text-[var(--bg)]">Claude 4.8 Opus</option>
               <option value="grok:grok-4.3" className="text-[var(--bg)]">Grok 4.3</option>
+              <option value="codex:gpt-5.3-codex" className="text-[var(--bg)]">Codex GPT-5.3</option>
               <option value="codex:gpt-5.5" className="text-[var(--bg)]">Codex GPT-5.5</option>
               <option value="codex:gpt-5.4" className="text-[var(--bg)]">Codex GPT-5.4</option>
             </select>

@@ -328,7 +328,7 @@ describe('Codex Handler — Responses API', () => {
       expect(started!.data.defaultedModel).toBe(false);
     });
 
-    it('defaults unsupported modelVersion values to gpt-5.5', async () => {
+    it('defaults unsupported modelVersion values to gpt-5.3-codex', async () => {
       mockCreate.mockResolvedValueOnce(createMockStream([
         { type: 'response.created', response: { id: 'resp_default_model' } },
         { type: 'response.completed', response: { id: 'resp_default_model', usage: {} } },
@@ -341,13 +341,13 @@ describe('Codex Handler — Responses API', () => {
       await handleCodexChat(req as any, res as any);
 
       const createCall = mockCreate.mock.calls[0][0];
-      expect(createCall.model).toBe('gpt-5.5');
+      expect(createCall.model).toBe('gpt-5.3-codex');
       const started = res.events.find(e => e.event === 'codex_turn_started');
       expect(started!.data.defaultedModel).toBe(true);
       const fallback = res.events.find(e => e.event === 'model_fallback');
       expect(fallback!.data).toMatchObject({
         requestedModel: 'not-a-real-codex-model',
-        fallbackModel: 'gpt-5.5',
+        fallbackModel: 'gpt-5.3-codex',
         reason: 'unsupported_model',
       });
     });
@@ -899,11 +899,11 @@ describe('Codex Handler — Responses API', () => {
       await handleCodexChat(req as any, res as any);
 
       expect(mockCreate.mock.calls[0][0].model).toBe('o3-pro');
-      expect(mockCreate.mock.calls[1][0].model).toBe('gpt-5.5');
+      expect(mockCreate.mock.calls[1][0].model).toBe('gpt-5.3-codex');
       const fallback = res.events.find(e => e.event === 'model_fallback');
       expect(fallback!.data).toMatchObject({
         requestedModel: 'o3-pro',
-        fallbackModel: 'gpt-5.5',
+        fallbackModel: 'gpt-5.3-codex',
         reason: 'api_unavailable',
       });
     });

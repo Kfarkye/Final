@@ -447,7 +447,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
   const VISION_CAPABLE_MODELS: Record<string, string[]> = {
     gemini: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-next', 'gemini-3.1-pre-preview', 'gemini-3.1-flash-lite'],
     chatgpt: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
-    claude: ['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'],
+    claude: ['claude-fable-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6'],
     grok: ['grok-4.3', 'grok-4.20-reasoning', 'grok-4.20-non-reasoning', 'grok-4.1-fast-reasoning'],
     deepseek: ['deepseek-ocr-maas'],
   };
