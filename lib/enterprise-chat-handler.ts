@@ -66,6 +66,19 @@ function withDeadline<T>(p: Promise<T>, ms: number, signal: AbortSignal, label: 
   });
 }
 
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+const MAX_PROVIDER_TOOL_TURNS = parsePositiveIntegerEnv('TRUTH_MAX_PROVIDER_TOOL_TURNS', 500);
+
+function toolTurnLimitMessage(): string {
+  return `\n\n[Reached tool-call safety budget of ${MAX_PROVIDER_TOOL_TURNS}; stopping here. Set TRUTH_MAX_PROVIDER_TOOL_TURNS higher for longer autonomous runs.]`;
+}
+
 function truncateToolResult(result: any, maxLen = 150000): any {
   if (result === null || result === undefined) return result;
   if (typeof result !== 'object') {
@@ -775,7 +788,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let runCount = 0;
         let continueLoop = true;
 
-        while (runCount < 50 && continueLoop && !signal.aborted) {
+        while (runCount < MAX_PROVIDER_TOOL_TURNS && continueLoop && !signal.aborted) {
           runCount++;
           let genStream = await deps.ai.models.generateContentStream({
             model: actualModelId,
@@ -833,8 +846,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
             continueLoop = false;
           }
 
-          if (runCount >= 50 && continueLoop && !signal.aborted) {
-            sendSse('message', { model: 'gemini', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          if (runCount >= MAX_PROVIDER_TOOL_TURNS && continueLoop && !signal.aborted) {
+            sendSse('message', { model: 'gemini', chunk: toolTurnLimitMessage() });
           }
         }
       })()));
@@ -882,7 +895,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 50 && !signal.aborted) {
+        while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           const stream = await deps.openai.chat.completions.create({
             model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
             messages: currentMessages,
@@ -952,8 +965,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
           currentMessages.push(...toolResults);
           runCount++;
 
-          if (runCount >= 50 && !signal.aborted) {
-            sendSse('message', { model: 'chatgpt', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          if (runCount >= MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
+            sendSse('message', { model: 'chatgpt', chunk: toolTurnLimitMessage() });
           }
         }
       })()));
@@ -998,7 +1011,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 50 && !signal.aborted) {
+        while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
 
           // Opus 4 supports up to 128k output tokens.
@@ -1105,8 +1118,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
           }
           runCount++;
 
-          if (runCount >= 50 && hasToolUse && !signal.aborted) {
-            sendSse('message', { model: 'claude', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          if (runCount >= MAX_PROVIDER_TOOL_TURNS && hasToolUse && !signal.aborted) {
+            sendSse('message', { model: 'claude', chunk: toolTurnLimitMessage() });
           }
         }
       })()));
@@ -1163,7 +1176,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 50 && !signal.aborted) {
+        while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           const stream = await grokClient.chat.completions.create({
             model: modelConfigs.grok || "grok-4.3",
             messages: currentMessages,
@@ -1233,8 +1246,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
           currentMessages.push(...toolResults);
           runCount++;
 
-          if (runCount >= 50 && !signal.aborted) {
-            sendSse('message', { model: 'grok', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          if (runCount >= MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
+            sendSse('message', { model: 'grok', chunk: toolTurnLimitMessage() });
           }
         }
       })()));
@@ -1310,7 +1323,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
-        while (runCount < 50 && !signal.aborted) {
+        while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           // Per official docs: thinking and reasoning_effort are top-level params
           // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
            const createParams: any = {
@@ -1412,8 +1425,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
           currentMessages.push(...toolResults);
           runCount++;
 
-          if (runCount >= 50 && !signal.aborted) {
-            sendSse('message', { model: 'deepseek', chunk: '\n\n[Reached tool-call limit of 50; stopping here.]' });
+          if (runCount >= MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
+            sendSse('message', { model: 'deepseek', chunk: toolTurnLimitMessage() });
           }
         }
       })()));
