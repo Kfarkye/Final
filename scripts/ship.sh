@@ -45,8 +45,8 @@ fi
 
 # ── 1. Local pre-flight gate (real script names, verified) ──────────────────
 if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
-  echo "[1/4] Pre-flight gate: npm run predeploy  (verify:contracts && tsc --noEmit)"
-  npm run predeploy
+  echo "[1/4] Pre-flight gate: npm run verify:deploy  (verify:contracts && tsc --noEmit)"
+  npm run verify:deploy
 else
   echo "[1/4] Pre-flight gate: SKIPPED (SKIP_PREFLIGHT=1)"
 fi
