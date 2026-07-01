@@ -5,6 +5,7 @@ REPO="us-central1-docker.pkg.dev/${PROJECT}/truth/reverie"
 SA="70323048967-compute@developer.gserviceaccount.com"
 if git rev-parse --short HEAD >/dev/null 2>&1; then SHA="$(git rev-parse --short HEAD)"; else SHA="manual-$(date +%s)"; fi
 IMG="${REPO}:${SHA}"
+export GCP_PROJECT="${PROJECT}" GOOGLE_CLOUD_PROJECT="${PROJECT}" NODE_ENV="production"
 npm run predeploy
 gcloud builds submit --tag "${IMG}" --project "${PROJECT}" .
 gcloud run deploy "${SERVICE}" \
