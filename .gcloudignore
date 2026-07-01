@@ -2,3 +2,8 @@ node_modules/
 .external/
 .git/
 .git/modules/
+dist/
+source.tar.gz
+deploy*.log
+data/local-execution/
+mcp-servers/*/node_modules/
