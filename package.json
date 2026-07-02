@@ -27,7 +27,9 @@
     "test:codex-quality": "vitest run src/codex/__tests__/codex-quality-harness.test.ts src/codex/__tests__/codex-handler.test.ts --reporter=verbose",
     "test:watch": "vitest --reporter=verbose",
     "deploy": "bash scripts/ship-run.sh",
-    "deploy:legacy-gke": "gcloud builds submit --tag us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:latest . && kubectl apply -f k8s/ && kubectl rollout restart deployment/reverie && kubectl rollout status deployment/reverie --timeout=300s",
+    "deploy:verify:merge-payload": "bash scripts/deploy-gates/verify-merge-payload.sh",
+    "deploy:verify:live": "bash scripts/deploy-gates/verify-cloud-run-live.sh",
+    "deploy:legacy-gke": "bash -lc 'set -euo pipefail; SHA=${DEPLOY_SHA:-$(git rev-parse --verify HEAD)}; IMG=us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:${SHA}; gcloud builds submit --tag \"$IMG\" . && kubectl apply -f k8s/ && kubectl set image deployment/reverie reverie=\"$IMG\" && kubectl rollout status deployment/reverie --timeout=300s'",
     "verify:contracts": "tsx src/hub/__tests__/verify-contracts.ts",
     "verify:deploy": "npm run verify:contracts && npm run chrome-bridge:validate && tsc --noEmit",
     "smoke:runtime": "node scripts/smoke-runtime.mjs"
