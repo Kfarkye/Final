@@ -1370,7 +1370,17 @@ CRITICAL TOOL USE INSTRUCTIONS:
           msgs.push({ role: "system", content: systemPrompt });
         }
         if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', governedPrompt) });
+        const deepseekTemporalAndComparisonGuard = `
+${buildTemporalContext(userTimezone)}
+
+<model_comparison_guard>
+When asked about model strengths, benchmark scores, pricing, context limits, or availability:
+1) Prefer verified tool output and cited sources.
+2) Do NOT invent specific numbers, dates, or claims.
+3) If precise values are unverified, say so explicitly and provide qualitative guidance only.
+</model_comparison_guard>`;
+        const deepseekPrompt = `${governedPrompt}\n\n${deepseekTemporalAndComparisonGuard}`;
+        msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', deepseekPrompt) });
 
         // Build tool declarations — V4 supports tools with thinking enabled
         const deepseekTools: any[] = [];
