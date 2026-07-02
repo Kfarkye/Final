@@ -45,7 +45,8 @@ async function run() {
         sport: 'baseball_mlb',
         markets: 'h2h',
       }) as any;
-      const events: any[] = Array.isArray(live?.odds) ? live.odds : [];
+      const source = live?.data?.odds ?? live?.data?.events ?? live?.odds ?? [];
+      const events: any[] = Array.isArray(source) ? source : [];
       const pick = events.find((e) => Array.isArray(e?.bookmakers) && e.bookmakers.length > 0)
         || events[0];
       if (pick?.id) {
