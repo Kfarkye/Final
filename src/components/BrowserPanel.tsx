@@ -325,6 +325,7 @@ const BrowserPanel = memo(function BrowserPanel({
   const serverBridgeStreaming = serverBridgeStreamState === 'connected' || serverBridgeStreamState === 'live';
   const liveVideoStreaming = chromeBridgeStreaming || serverBridgeStreaming;
   const bridgeSurfaceReady = liveVideoStreaming || Boolean(serverBridgeFrame?.dataUrl);
+  const bridgeInteractive = bridgeSurfaceReady && (chromeBridgeConnected || serverBridgeConnected);
   const displayUrl = chromeBridgeTab?.url || (typeof serverBridgeEvent?.url === 'string' ? serverBridgeEvent.url : '') || session?.currentUrl || activeBrowser?.url || traceSummary.latestUrl || '';
   const serverConnectionId = typeof serverBridgeEvent?.connectionId === 'string'
     ? serverBridgeEvent.connectionId
@@ -436,18 +437,18 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [bridgeSurfaceReady, chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
 
   const sendBridgeContextMenu = useCallback(async (x: number, y: number) => {
-    if (chromeBridgeConnected) {
+    if (chromeBridgeConnected && bridgeSurfaceReady) {
       await sendChromeBridgeCommand('NATIVE_CONTEXT_MENU', { x, y }).catch((err: any) => {
         setChromeBridgeError(err.message || 'Chrome Bridge context menu failed');
       });
       return;
     }
-    if (serverBridgeConnected) {
+    if (serverBridgeConnected && bridgeSurfaceReady) {
       await sendServerBridgeCommand('native/context-menu', { x, y, connectionId: serverConnectionId }).catch((err: any) => {
         setChromeBridgeError(err.message || 'Chrome Bridge context menu failed');
       });
     }
-  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+  }, [bridgeSurfaceReady, chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
 
   const syncUrlInputFromRuntime = useCallback((nextUrl?: string | null) => {
     if (urlInputEditingRef.current) return;
@@ -680,11 +681,7 @@ const BrowserPanel = memo(function BrowserPanel({
 
       if (message.type === 'CAPTURE_PERMISSION_REQUIRED') {
         setChromeBridgeStatus(current => current === 'streaming' ? current : 'connected');
-        setChromeBridgeError(
-          typeof payload.message === 'string'
-            ? payload.message
-            : 'Live browser streaming needs a user gesture.',
-        );
+        setChromeBridgeError(null);
         return;
       }
 
@@ -784,11 +781,13 @@ const BrowserPanel = memo(function BrowserPanel({
       }
 
       if (eventType === 'STREAM_ERROR' || eventType === 'CAPTURE_PERMISSION_REQUIRED' || eventType === 'ERROR') {
-        const message = typeof payload.message === 'string'
-          ? payload.message
-          : typeof payload.error === 'string'
-            ? payload.error
-            : 'Live browser streaming needs a user gesture.';
+        const message = eventType === 'CAPTURE_PERMISSION_REQUIRED'
+          ? null
+          : typeof payload.message === 'string'
+            ? payload.message
+            : typeof payload.error === 'string'
+              ? payload.error
+              : 'Live browser streaming needs a user gesture.';
         setServerBridgeStreamState('failed');
         setChromeBridgeError(message);
       }
@@ -892,7 +891,7 @@ const BrowserPanel = memo(function BrowserPanel({
     urlInputEditingRef.current = false;
     const url = normalizeUrl(urlInput);
     if (!url) return;
-    if (chromeBridgeConnected) {
+    if (chromeBridgeConnected && bridgeInteractive) {
       setBusy('chrome-bridge-navigate');
       setError(null);
       setChromeBridgeError(null);
@@ -908,7 +907,7 @@ const BrowserPanel = memo(function BrowserPanel({
       }
       return;
     }
-    if (serverBridgeConnected) {
+    if (serverBridgeConnected && bridgeInteractive) {
       setBusy('server-bridge-navigate');
       setError(null);
       setChromeBridgeError(null);
@@ -923,7 +922,7 @@ const BrowserPanel = memo(function BrowserPanel({
       return;
     }
     await runAction('navigate', { url, maxChars: 12000 });
-  }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
+  }, [bridgeInteractive, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
 
   const createTab = useCallback(async () => {
     const newSession = await createSession(null);
@@ -1252,13 +1251,13 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, session?.pageId]);
 
   const runBrowserNavigationControl = useCallback((type: 'BACK' | 'FORWARD' | 'RELOAD', backendType: 'back' | 'forward' | 'reload') => {
-    if (chromeBridgeConnected && bridgeSurfaceReady) {
+    if (chromeBridgeConnected && bridgeInteractive) {
       sendChromeBridgeCommand(type, {}, { awaitResponse: false }).catch((err: any) => {
         setChromeBridgeError(err.message || `Chrome Bridge ${backendType} failed`);
       });
       return;
     }
-    if (serverBridgeConnected && bridgeSurfaceReady) {
+    if (serverBridgeConnected && bridgeInteractive) {
       sendServerBridgeCommand('navigate', {
         action: backendType,
         connectionId: serverConnectionId,
@@ -1268,7 +1267,7 @@ const BrowserPanel = memo(function BrowserPanel({
       return;
     }
     runAction(backendType).catch(() => null);
-  }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+  }, [bridgeInteractive, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
 
   return (
     <div className="h-full min-w-0 flex flex-col bg-[var(--t-bg-primary)]">
