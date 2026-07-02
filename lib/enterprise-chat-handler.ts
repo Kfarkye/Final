@@ -112,9 +112,67 @@ When interpreting relative dates (today, tomorrow, yesterday), anchor to timezon
 }
 
 const MAX_PROVIDER_TOOL_TURNS = parsePositiveIntegerEnv('TRUTH_MAX_PROVIDER_TOOL_TURNS', 500);
+const CLAUDE_PROMPT_CACHE_ENABLED = process.env.CLAUDE_PROMPT_CACHE_ENABLED !== '0';
+const CLAUDE_PROMPT_CACHE_BETA = process.env.CLAUDE_PROMPT_CACHE_BETA || 'prompt-caching-2024-07-31';
+const CLAUDE_CACHE_CONTROL = { type: 'ephemeral' } as const;
 
 function toolTurnLimitMessage(): string {
   return `\n\n[Reached tool-call safety budget of ${MAX_PROVIDER_TOOL_TURNS}; stopping here. Set TRUTH_MAX_PROVIDER_TOOL_TURNS higher for longer autonomous runs.]`;
+}
+
+function withClaudeCacheControlOnContent(content: any): any {
+  if (!CLAUDE_PROMPT_CACHE_ENABLED) return content;
+
+  if (typeof content === 'string') {
+    return [{ type: 'text', text: content, cache_control: CLAUDE_CACHE_CONTROL }];
+  }
+
+  if (!Array.isArray(content) || content.length === 0) return content;
+
+  const idx = content.length - 1;
+  const lastBlock = content[idx];
+  if (!lastBlock || typeof lastBlock !== 'object') return content;
+
+  if (lastBlock.type === 'text') {
+    const cloned = [...content];
+    cloned[idx] = {
+      ...lastBlock,
+      cache_control: lastBlock.cache_control || CLAUDE_CACHE_CONTROL,
+    };
+    return cloned;
+  }
+
+  return content;
+}
+
+function buildClaudeSystemPrompt(systemPrompt: string): any {
+  if (!CLAUDE_PROMPT_CACHE_ENABLED || !systemPrompt) return systemPrompt;
+  return [{ type: 'text', text: systemPrompt, cache_control: CLAUDE_CACHE_CONTROL }];
+}
+
+function buildClaudeToolsWithCacheControl(tools: any[]): any[] | undefined {
+  if (tools.length === 0) return undefined;
+  if (!CLAUDE_PROMPT_CACHE_ENABLED) return tools;
+
+  const cloned = tools.map((tool) => ({ ...tool }));
+  const idx = cloned.length - 1;
+  cloned[idx] = {
+    ...cloned[idx],
+    cache_control: cloned[idx].cache_control || CLAUDE_CACHE_CONTROL,
+  };
+  return cloned;
+}
+
+function buildClaudeMessagesForRequest(messages: any[]): any[] {
+  if (!CLAUDE_PROMPT_CACHE_ENABLED || messages.length === 0) return messages;
+
+  return messages.map((message, index) => {
+    if (index !== messages.length - 1) return message;
+    return {
+      ...message,
+      content: withClaudeCacheControlOnContent(message.content),
+    };
+  });
 }
 
 const GROK_MAAS_FALLBACK_MODEL = 'xai/grok-4.20-reasoning';
@@ -1072,6 +1130,9 @@ CRITICAL TOOL USE INSTRUCTIONS:
           });
         }
 
+        const claudeSystemPrompt = buildClaudeSystemPrompt(systemPrompt);
+        const claudeToolsForRequest = buildClaudeToolsWithCacheControl(claudeTools);
+
         let currentMessages = [...msgs];
         let runCount = 0;
 
@@ -1082,13 +1143,15 @@ CRITICAL TOOL USE INSTRUCTIONS:
           // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
           // Sonnet uses 16384 (cheaper, faster), Opus gets 65536 for deep work.
           const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 65536 : 16384;
+          const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages);
 
           const stream = deps.anthropic.messages.stream({
             model: selectedClaudeModel,
             max_tokens: claudeMaxTokens,
-            system: systemPrompt,
-            messages: currentMessages,
-            tools: claudeTools.length > 0 ? claudeTools : undefined
+            system: claudeSystemPrompt,
+            messages: claudeMessagesForRequest,
+            tools: claudeToolsForRequest,
+            betas: CLAUDE_PROMPT_CACHE_ENABLED ? [CLAUDE_PROMPT_CACHE_BETA] : undefined
           }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
 
           let currentToolUse: any = null;
