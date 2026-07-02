@@ -249,6 +249,18 @@ async function nativeClick({ x, y }) {
   broadcast("NATIVE_CLICK", { x, y });
 }
 
+async function nativeMove({ x, y }) {
+  if (!managedTabId) throw new Error("No managed tab for mouse move");
+  await withDebugger(managedTabId, async (target) => {
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y,
+      button: "none",
+    });
+  });
+}
+
 async function nativeScroll({ deltaX = 0, deltaY = 0, x = 500, y = 400 }) {
   if (!managedTabId) throw new Error("No managed tab for scroll");
   await withDebugger(managedTabId, async (target) => {
@@ -410,6 +422,12 @@ async function handleCommand(port, message) {
 
   if (type === "NATIVE_CLICK") {
     await nativeClick(payload);
+    respond(port, requestId, { ok: true });
+    return;
+  }
+
+  if (type === "NATIVE_MOUSE_MOVE") {
+    await nativeMove(payload);
     respond(port, requestId, { ok: true });
     return;
   }

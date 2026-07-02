@@ -116,6 +116,18 @@ interface ServerBridgeFrame {
   timestamp: number;
 }
 
+interface SurfaceCursorState {
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
+interface SurfaceClickState {
+  x: number;
+  y: number;
+  token: number;
+}
+
 const CHROME_BRIDGE_CHANNEL = 'truth-chrome-bridge';
 const CHROME_BRIDGE_APP_SOURCE = 'truth-app';
 const CHROME_BRIDGE_SOURCE = 'truth-chrome-bridge';
@@ -211,6 +223,21 @@ function normalizeUrl(value: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
+function projectPointerCoordinates(
+  event: React.MouseEvent<HTMLElement>,
+  sourceWidth: number,
+  sourceHeight: number,
+) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const safeWidth = Math.max(rect.width, 1);
+  const safeHeight = Math.max(rect.height, 1);
+  const localX = Math.max(0, Math.min(event.clientX - rect.left, safeWidth));
+  const localY = Math.max(0, Math.min(event.clientY - rect.top, safeHeight));
+  const sourceX = Math.round((localX / safeWidth) * Math.max(sourceWidth, 1));
+  const sourceY = Math.round((localY / safeHeight) * Math.max(sourceHeight, 1));
+  return { localX, localY, sourceX, sourceY };
+}
+
 async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/browser${path}`, {
     ...init,
@@ -255,6 +282,9 @@ const BrowserPanel = memo(function BrowserPanel({
   const serverBridgePendingIceRef = useRef<RTCIceCandidateInit[]>([]);
   const chromeBridgeRequestCounterRef = useRef(0);
   const chromeBridgePendingRef = useRef<Map<string, ChromeBridgePendingRequest>>(new Map());
+  const pendingNativeMoveRef = useRef<{ x: number; y: number } | null>(null);
+  const nativeMoveTimerRef = useRef<number | null>(null);
+  const clickFeedbackTimerRef = useRef<number | null>(null);
   const wheelLockedRef = useRef(false);
   const [chromeBridgeStatus, setChromeBridgeStatus] = useState<ChromeBridgeStatus>('checking');
   const [chromeBridgeTab, setChromeBridgeTab] = useState<ChromeBridgeTab | null>(null);
@@ -263,6 +293,12 @@ const BrowserPanel = memo(function BrowserPanel({
   const [serverBridgeFrame, setServerBridgeFrame] = useState<ServerBridgeFrame | null>(null);
   const [serverBridgeEvent, setServerBridgeEvent] = useState<JsonObject | null>(null);
   const [serverBridgeStreamState, setServerBridgeStreamState] = useState('idle');
+  const [surfaceCursor, setSurfaceCursor] = useState<SurfaceCursorState>({
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+  const [surfaceClick, setSurfaceClick] = useState<SurfaceClickState | null>(null);
   const traceSummary = getTraceSummary(browserEntries);
   const chromeBridgeConnected = chromeBridgeStatus === 'connected' || chromeBridgeStatus === 'streaming';
   const chromeBridgeStreaming = chromeBridgeStatus === 'streaming';
@@ -345,6 +381,67 @@ const BrowserPanel = memo(function BrowserPanel({
     }
     return payload as JsonObject;
   }, []);
+
+  const clearSurfaceCursor = useCallback(() => {
+    setSurfaceCursor(current => (current.visible ? { ...current, visible: false } : current));
+  }, []);
+
+  const showClickFeedback = useCallback((x: number, y: number) => {
+    setSurfaceClick({ x, y, token: Date.now() });
+    if (clickFeedbackTimerRef.current !== null) {
+      window.clearTimeout(clickFeedbackTimerRef.current);
+    }
+    clickFeedbackTimerRef.current = window.setTimeout(() => {
+      setSurfaceClick(null);
+      clickFeedbackTimerRef.current = null;
+    }, 170);
+  }, []);
+
+  const flushNativeMove = useCallback(() => {
+    nativeMoveTimerRef.current = null;
+    const pendingMove = pendingNativeMoveRef.current;
+    if (!pendingMove) return;
+    pendingNativeMoveRef.current = null;
+
+    if (chromeBridgeConnected) {
+      sendChromeBridgeCommand(
+        'NATIVE_MOUSE_MOVE',
+        { x: pendingMove.x, y: pendingMove.y },
+        { awaitResponse: false },
+      ).catch(() => null);
+      return;
+    }
+
+    if (serverBridgeConnected) {
+      sendServerBridgeCommand('native/move', {
+        x: pendingMove.x,
+        y: pendingMove.y,
+        connectionId: serverConnectionId,
+      }).catch(() => null);
+    }
+  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+
+  const queueNativeMove = useCallback((x: number, y: number) => {
+    pendingNativeMoveRef.current = { x, y };
+    if (nativeMoveTimerRef.current !== null) return;
+    nativeMoveTimerRef.current = window.setTimeout(
+      flushNativeMove,
+      chromeBridgeConnected ? 24 : 90,
+    );
+  }, [chromeBridgeConnected, flushNativeMove]);
+
+  const trackSurfacePointer = useCallback((
+    event: React.MouseEvent<HTMLElement>,
+    sourceWidth: number,
+    sourceHeight: number,
+    relayNativeMove: boolean,
+  ) => {
+    const { localX, localY, sourceX, sourceY } = projectPointerCoordinates(event, sourceWidth, sourceHeight);
+    setSurfaceCursor({ x: localX, y: localY, visible: true });
+    if (relayNativeMove) {
+      queueNativeMove(sourceX, sourceY);
+    }
+  }, [queueNativeMove]);
 
   const acceptChromeBridgeOffer = useCallback(async (sdp: unknown) => {
     if (!sdp) return;
@@ -640,6 +737,12 @@ const BrowserPanel = memo(function BrowserPanel({
   useEffect(() => {
     return () => {
       closeChromeBridgePeer();
+      if (nativeMoveTimerRef.current !== null) {
+        window.clearTimeout(nativeMoveTimerRef.current);
+      }
+      if (clickFeedbackTimerRef.current !== null) {
+        window.clearTimeout(clickFeedbackTimerRef.current);
+      }
       chromeBridgePendingRef.current.forEach(pending => {
         window.clearTimeout(pending.timeout);
         pending.reject(new Error('Browser panel unmounted'));
@@ -781,22 +884,22 @@ const BrowserPanel = memo(function BrowserPanel({
   const clickScreen = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
     const target = await ensureSession();
     if (!target.pageId) return;
-    const rect = event.currentTarget.getBoundingClientRect();
     const width = target.viewport?.width || 1280;
     const height = target.viewport?.height || 900;
-    const x = Math.round(((event.clientX - rect.left) / rect.width) * width);
-    const y = Math.round(((event.clientY - rect.top) / rect.height) * height);
+    const { localX, localY, sourceX: x, sourceY: y } = projectPointerCoordinates(event, width, height);
+    showClickFeedback(localX, localY);
+    setSurfaceCursor({ x: localX, y: localY, visible: true });
     await runAction('pointer_click', { x, y });
     screenRef.current?.focus();
-  }, [ensureSession, runAction]);
+  }, [ensureSession, runAction, showClickFeedback]);
 
   const clickChromeBridgeVideo = useCallback(async (event: React.MouseEvent<HTMLVideoElement>) => {
     if (!chromeBridgeConnected && !serverBridgeConnected) return;
-    const rect = event.currentTarget.getBoundingClientRect();
     const width = event.currentTarget.videoWidth || 1280;
     const height = event.currentTarget.videoHeight || 720;
-    const x = Math.round(((event.clientX - rect.left) / rect.width) * width);
-    const y = Math.round(((event.clientY - rect.top) / rect.height) * height);
+    const { localX, localY, sourceX: x, sourceY: y } = projectPointerCoordinates(event, width, height);
+    showClickFeedback(localX, localY);
+    setSurfaceCursor({ x: localX, y: localY, visible: true });
     if (chromeBridgeConnected) {
       await sendChromeBridgeCommand('NATIVE_CLICK', { x, y }).catch((err: any) => {
         setChromeBridgeError(err.message || 'Chrome Bridge click failed');
@@ -807,7 +910,19 @@ const BrowserPanel = memo(function BrowserPanel({
       });
     }
     screenRef.current?.focus();
-  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, showClickFeedback]);
+
+  const moveChromeBridgeVideo = useCallback((event: React.MouseEvent<HTMLVideoElement>) => {
+    const width = event.currentTarget.videoWidth || 1280;
+    const height = event.currentTarget.videoHeight || 720;
+    trackSurfacePointer(event, width, height, chromeBridgeConnected || serverBridgeConnected);
+  }, [chromeBridgeConnected, serverBridgeConnected, trackSurfacePointer]);
+
+  const moveScreenshotSurface = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
+    const width = session?.viewport?.width || 1280;
+    const height = session?.viewport?.height || 900;
+    trackSurfacePointer(event, width, height, false);
+  }, [session?.viewport?.height, session?.viewport?.width, trackSurfacePointer]);
 
   const scrollScreen = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (chromeBridgeConnected) {
@@ -1013,15 +1128,30 @@ const BrowserPanel = memo(function BrowserPanel({
           className="h-full rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-2 outline-none focus:border-blue-400/60"
         >
           {liveVideoStreaming ? (
-            <div className="h-full overflow-hidden rounded-lg border border-black/60 bg-black">
+            <div className="relative h-full overflow-hidden rounded-lg border border-black/60 bg-black">
               <video
                 ref={chromeBridgeVideoRef}
                 autoPlay
                 playsInline
                 muted
                 onClick={clickChromeBridgeVideo}
-                className="mx-auto block h-full w-full cursor-crosshair select-none bg-black object-contain"
+                onMouseMove={moveChromeBridgeVideo}
+                onMouseLeave={clearSurfaceCursor}
+                className="mx-auto block h-full w-full cursor-default select-none bg-black object-contain"
               />
+              {surfaceCursor.visible && (
+                <div
+                  className="pointer-events-none absolute z-20 h-4 w-4 rounded-full border border-blue-300/80 bg-blue-300/15 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                  style={{ left: surfaceCursor.x, top: surfaceCursor.y, transform: 'translate(-3px, -3px)' }}
+                />
+              )}
+              {surfaceClick && (
+                <div
+                  key={surfaceClick.token}
+                  className="pointer-events-none absolute z-20 h-8 w-8 rounded-full border border-blue-300/70 bg-blue-300/10"
+                  style={{ left: surfaceClick.x, top: surfaceClick.y, transform: 'translate(-50%, -50%)' }}
+                />
+              )}
             </div>
           ) : serverBridgeFrame?.dataUrl ? (
             <div className="h-full overflow-hidden rounded-lg border border-[var(--b1)] bg-black">
@@ -1051,14 +1181,29 @@ const BrowserPanel = memo(function BrowserPanel({
               </div>
             </div>
           ) : screenshot ? (
-            <div className="h-full overflow-hidden rounded-lg border border-black/60 bg-black">
+            <div className="relative h-full overflow-hidden rounded-lg border border-black/60 bg-black">
               <img
                 src={`data:${screenshot.mimeType};base64,${screenshot.base64}`}
                 alt="Current in-app browser page"
                 onClick={clickScreen}
-                className="mx-auto block h-full w-full cursor-crosshair select-none object-contain"
+                onMouseMove={moveScreenshotSurface}
+                onMouseLeave={clearSurfaceCursor}
+                className="mx-auto block h-full w-full cursor-default select-none object-contain"
                 draggable={false}
               />
+              {surfaceCursor.visible && (
+                <div
+                  className="pointer-events-none absolute z-20 h-4 w-4 rounded-full border border-blue-300/80 bg-blue-300/15 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                  style={{ left: surfaceCursor.x, top: surfaceCursor.y, transform: 'translate(-3px, -3px)' }}
+                />
+              )}
+              {surfaceClick && (
+                <div
+                  key={surfaceClick.token}
+                  className="pointer-events-none absolute z-20 h-8 w-8 rounded-full border border-blue-300/70 bg-blue-300/10"
+                  style={{ left: surfaceClick.x, top: surfaceClick.y, transform: 'translate(-50%, -50%)' }}
+                />
+              )}
             </div>
           ) : (
             <div className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-dashed border-[var(--b1)] bg-black/35 px-6 text-center">

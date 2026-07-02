@@ -163,6 +163,17 @@ browserBridgeRoutes.post("/bridge/native/click", (req: Request, res: Response) =
   res.json({ ok: true });
 });
 
+// POST /api/browser/bridge/native/move
+browserBridgeRoutes.post("/bridge/native/move", (req: Request, res: Response) => {
+  const { x, y, connectionId } = req.body ?? {};
+  if (typeof x !== "number" || typeof y !== "number") {
+    return fail(res, 400, "BAD_ARGUMENT", "x and y required");
+  }
+  const ok = extensionBridge.nativeMove(Math.round(x), Math.round(y), connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
 // POST /api/browser/bridge/native/scroll
 browserBridgeRoutes.post("/bridge/native/scroll", (req: Request, res: Response) => {
   const { deltaX = 0, deltaY = 0, connectionId } = req.body ?? {};

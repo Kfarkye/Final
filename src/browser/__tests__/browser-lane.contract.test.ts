@@ -92,13 +92,16 @@ describe("Hybrid Browser Lane contract", () => {
 
     expect(browserPanel).toContain("sendChromeBridgeCommand('NAVIGATE'");
     expect(browserPanel).toContain("NATIVE_CLICK");
+    expect(browserPanel).toContain("NATIVE_MOUSE_MOVE");
     expect(browserPanel).toContain("chromeBridgeVideoRef");
     expect(browserPanel).toContain("webrtc/answer");
     expect(browserPanel).toContain("native/click");
+    expect(browserPanel).toContain("native/move");
     expect(serverExtension).toContain("startStream");
     expect(serverExtension).toContain("canvas.toDataURL");
     expect(bridgeRoutes).toContain('"/bridge/webrtc/answer"');
     expect(bridgeRoutes).toContain('"/bridge/native/click"');
+    expect(bridgeRoutes).toContain('"/bridge/native/move"');
   });
 
   it("classifies public-site challenges as human-control blockers", () => {

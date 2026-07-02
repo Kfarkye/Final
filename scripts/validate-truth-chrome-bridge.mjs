@@ -81,12 +81,15 @@ assertFileContains("server-runtime.ts", "extensionBridge.attach(server)", "exten
 assertFileContains("src/browser/extension-bridge.ts", "WebSocketServer", "WebSocket server bridge");
 assertFileContains("src/browser/extension-bridge.ts", "WEBRTC_ANSWER", "server bridge WebRTC answer command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_CLICK", "server bridge native click command");
+assertFileContains("src/browser/extension-bridge.ts", "NATIVE_MOUSE_MOVE", "server bridge native mouse move command");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/stream"', "SSE bridge stream route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/webrtc/answer"', "WebRTC answer route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/click"', "native click route");
+assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/move"', "native move route");
 assertFileContains("src/browser/browser-bridge.routes.ts", "sseManager.addClient", "real SSEManager addClient API");
 assertFileContains("src/components/BrowserPanel.tsx", "/api/browser/bridge/stream", "BrowserPanel server bridge stream");
 assertFileContains("src/components/BrowserPanel.tsx", "webrtc/answer", "BrowserPanel server bridge WebRTC answer");
+assertFileContains("src/components/BrowserPanel.tsx", "NATIVE_MOUSE_MOVE", "BrowserPanel native mouse move relay");
 assertFileContains("src/components/BrowserPanel.tsx", "Live preview syncing", "BrowserPanel labels fallback preview");
 assertFileContains("src/components/BrowserPanel.tsx", "+ Tab", "BrowserPanel tab UX");
 const browserPanelSource = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");

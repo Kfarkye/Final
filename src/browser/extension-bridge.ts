@@ -53,6 +53,7 @@ type DownstreamCommand =
   | { type: 'FILL'; payload: { selector: string; value: string } }
   | { type: 'WEBRTC_ANSWER'; payload: { sdp: unknown } }
   | { type: 'ICE_CANDIDATE'; payload: { candidate: unknown } }
+  | { type: 'NATIVE_MOUSE_MOVE'; payload: { x: number; y: number } }
   | { type: 'NATIVE_CLICK'; payload: { x: number; y: number } }
   | { type: 'NATIVE_SCROLL'; payload: { deltaX: number; deltaY: number } }
   | { type: 'NATIVE_TEXT'; payload: { text: string } }
@@ -188,6 +189,9 @@ class ExtensionBridgeManager extends EventEmitter {
   }
   webrtcIce(candidate: unknown, connectionId?: string): boolean {
     return this.sendCommand({ type: 'ICE_CANDIDATE', payload: { candidate } }, connectionId);
+  }
+  nativeMove(x: number, y: number, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_MOUSE_MOVE', payload: { x, y } }, connectionId);
   }
   nativeClick(x: number, y: number, connectionId?: string): boolean {
     return this.sendCommand({ type: 'NATIVE_CLICK', payload: { x, y } }, connectionId);
