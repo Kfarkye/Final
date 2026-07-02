@@ -336,6 +336,7 @@ const BrowserPanel = memo(function BrowserPanel({
   const [chromeBridgeTab, setChromeBridgeTab] = useState<ChromeBridgeTab | null>(null);
   const [chromeBridgeStreamState, setChromeBridgeStreamState] = useState('idle');
   const [chromeBridgeError, setChromeBridgeError] = useState<string | null>(null);
+  const [preferRealChrome, setPreferRealChrome] = useState(false);
   const [serverBridgeConnected, setServerBridgeConnected] = useState(false);
   const [serverBridgeConnections, setServerBridgeConnections] = useState<ServerBridgeConnection[]>([]);
   const [serverBridgeFrame, setServerBridgeFrame] = useState<ServerBridgeFrame | null>(null);
@@ -365,6 +366,7 @@ const BrowserPanel = memo(function BrowserPanel({
   const pageStatusLabel = blockerGuidance?.title || displayTitle;
   const hasHandoff = Boolean(blocker) || Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
   const actionRows = session?.recentActions || [];
+  const usingRealChromeSession = preferRealChrome && (chromeBridgeConnected || serverBridgeConnected);
 
   const sendChromeBridgeCommand = useCallback((
     type: string,
@@ -797,7 +799,7 @@ const BrowserPanel = memo(function BrowserPanel({
     event?.preventDefault();
     const url = normalizeUrl(urlInput);
     if (!url) return;
-    if (chromeBridgeConnected) {
+    if (preferRealChrome && chromeBridgeConnected) {
       setBusy('chrome-bridge-navigate');
       setError(null);
       setChromeBridgeError(null);
@@ -813,7 +815,7 @@ const BrowserPanel = memo(function BrowserPanel({
       }
       return;
     }
-    if (serverBridgeConnected) {
+    if (preferRealChrome && serverBridgeConnected) {
       setBusy('server-bridge-navigate');
       setError(null);
       setChromeBridgeError(null);
@@ -827,10 +829,14 @@ const BrowserPanel = memo(function BrowserPanel({
       }
       return;
     }
+    if (preferRealChrome && !chromeBridgeConnected && !serverBridgeConnected) {
+      setChromeBridgeError('Real Chrome session is not connected yet. Using in-app browser for now.');
+    }
     await runAction('navigate', { url, maxChars: 12000 });
-  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
+  }, [chromeBridgeConnected, preferRealChrome, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
 
   const connectActiveChromeTab = useCallback(async () => {
+    setPreferRealChrome(true);
     if (!chromeBridgeConnected && serverBridgeConnected) {
       onInsertContext([
         'Truth Browser Bridge is connected through the server relay.',
@@ -1183,24 +1189,28 @@ const BrowserPanel = memo(function BrowserPanel({
             <div className="min-w-0">
               <div className="text-[10px] uppercase tracking-wider text-[var(--t4)]">Truth Chrome Bridge</div>
               <div className="mt-1 text-xs font-semibold text-[var(--t1)]">
-                {chromeBridgeStatus === 'streaming'
-                  ? 'Real Chrome tab streaming'
-                  : chromeBridgeStatus === 'connected'
-                    ? 'Chrome Bridge connected'
-                    : chromeBridgeStatus === 'checking'
-                      ? 'Checking extension'
-                      : chromeBridgeStatus === 'error'
-                        ? 'Chrome Bridge needs attention'
-                        : 'Install extension for real Chrome'}
+                {!preferRealChrome
+                  ? 'In-app browser active (default)'
+                  : chromeBridgeStatus === 'streaming'
+                    ? 'Real Chrome tab streaming'
+                    : chromeBridgeStatus === 'connected'
+                      ? 'Chrome Bridge connected'
+                      : chromeBridgeStatus === 'checking'
+                        ? 'Checking extension'
+                        : chromeBridgeStatus === 'error'
+                          ? 'Chrome Bridge needs attention'
+                          : 'Install extension for real Chrome'}
               </div>
               <div className="mt-1 truncate text-[11px] text-[var(--t3)]">
-                {chromeBridgeConnected
-                  ? `${chromeBridgeTab?.title || chromeBridgeTab?.url || 'Ready to open or connect a Chrome tab'} · ${chromeBridgeStreamState}`
-                  : serverBridgeConnected
-                    ? `Server bridge connected · ${serverBridgeStreamState} · ${serverBridgeConnections.length || 1} Chrome extension connection${serverBridgeConnections.length === 1 ? '' : 's'}`
-                  : 'Backend browser remains available, but the product browser is the Chrome Bridge.'}
+                {!preferRealChrome
+                  ? 'No extension clicks needed. Open pages directly in the in-app browser.'
+                  : chromeBridgeConnected
+                    ? `${chromeBridgeTab?.title || chromeBridgeTab?.url || 'Ready to open or connect a Chrome tab'} · ${chromeBridgeStreamState}`
+                    : serverBridgeConnected
+                      ? `Server bridge connected · ${serverBridgeStreamState} · ${serverBridgeConnections.length || 1} Chrome extension connection${serverBridgeConnections.length === 1 ? '' : 's'}`
+                    : 'Real Chrome mode is optional. Connect only when you need your existing Chrome session.'}
               </div>
-              {chromeBridgeError && (
+              {preferRealChrome && chromeBridgeError && (
                 <div className="mt-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
                   {chromeBridgeError}
                 </div>
@@ -1216,7 +1226,7 @@ const BrowserPanel = memo(function BrowserPanel({
                     : 'bg-zinc-500'
             }`} />
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-4 gap-2">
             <button
               type="button"
               onClick={installChromeBridge}
@@ -1226,16 +1236,27 @@ const BrowserPanel = memo(function BrowserPanel({
             </button>
             <button
               type="button"
+              onClick={() => {
+                setPreferRealChrome(false);
+                setChromeBridgeError(null);
+              }}
+              disabled={Boolean(busy)}
+              className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] px-2 py-2 text-[10px] font-semibold text-[var(--t2)] hover:text-[var(--t1)] hover:bg-[var(--s2)] disabled:opacity-35"
+            >
+              In-App
+            </button>
+            <button
+              type="button"
               onClick={connectActiveChromeTab}
-              disabled={(!chromeBridgeConnected && !serverBridgeConnected) || Boolean(busy)}
+              disabled={Boolean(busy)}
               className="rounded-xl border border-blue-400/20 bg-blue-400/10 px-2 py-2 text-[10px] font-semibold text-blue-200 hover:bg-blue-400/15 disabled:opacity-35"
             >
-              Connect Tab
+              Real Chrome
             </button>
             <button
               type="button"
               onClick={startChromeBridgeCapture}
-              disabled={(!chromeBridgeConnected && !serverBridgeConnected) || Boolean(busy)}
+              disabled={!preferRealChrome || (!chromeBridgeConnected && !serverBridgeConnected) || Boolean(busy)}
               className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-2 py-2 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-400/15 disabled:opacity-35"
             >
               Stream
@@ -1247,7 +1268,7 @@ const BrowserPanel = memo(function BrowserPanel({
           <div className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-3">
             <div className="text-[10px] uppercase tracking-wider text-[var(--t4)]">Control</div>
             <div className="mt-1 font-semibold text-[var(--t1)]">
-              {chromeBridgeConnected ? 'Real Chrome Bridge' : blocker ? 'Human checkpoint' : session?.controller === 'human' ? 'Human driving' : mode === 'remote' ? 'Handoff ready' : 'Shared browser'}
+              {usingRealChromeSession ? 'Real Chrome Bridge' : blocker ? 'Human checkpoint' : session?.controller === 'human' ? 'Human driving' : mode === 'remote' ? 'Handoff ready' : 'In-app browser'}
             </div>
           </div>
           <div className="rounded-xl border border-[var(--b1)] bg-[var(--s1)] p-3">
@@ -1367,7 +1388,7 @@ const BrowserPanel = memo(function BrowserPanel({
                   <span className="text-lg">◉</span>
                 </div>
                 <p className="text-xs text-[var(--t3)] leading-relaxed">
-                  Enter a URL above. With Truth Chrome Bridge installed, a real Chrome tab streams here through WebRTC. Without it, Truth falls back to the backend browser surface.
+                  Enter a URL above to browse immediately in-app. Real Chrome session is optional via the Real Chrome button when you need your existing Chrome profile/session.
                 </p>
               </div>
             </div>
