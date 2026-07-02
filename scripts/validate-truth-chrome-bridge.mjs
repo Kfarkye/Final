@@ -87,6 +87,11 @@ assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/clic
 assertFileContains("src/browser/browser-bridge.routes.ts", "sseManager.addClient", "real SSEManager addClient API");
 assertFileContains("src/components/BrowserPanel.tsx", "/api/browser/bridge/stream", "BrowserPanel server bridge stream");
 assertFileContains("src/components/BrowserPanel.tsx", "webrtc/answer", "BrowserPanel server bridge WebRTC answer");
-assertFileContains("src/components/BrowserPanel.tsx", "Frame fallback — not live video", "BrowserPanel labels screenshot fallback");
+assertFileContains("src/components/BrowserPanel.tsx", "Live preview syncing", "BrowserPanel labels fallback preview");
+assertFileContains("src/components/BrowserPanel.tsx", "+ Tab", "BrowserPanel tab UX");
+const browserPanelSource = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");
+if (browserPanelSource.includes("Truth Chrome Bridge")) {
+  fail("BrowserPanel should not expose bridge wording in primary UX");
+}
 
 console.log("✓ Truth Chrome Bridge MV3/WebRTC/CDP + server bridge contract verified");

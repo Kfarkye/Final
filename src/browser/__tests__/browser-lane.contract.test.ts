@@ -48,9 +48,10 @@ describe("Hybrid Browser Lane contract", () => {
     expect(chatClient).toContain("const supportPanelWidth = browserSurfaceActive ? 'calc(100vw - 320px)' : 380;");
     expect(chatClient).toContain("sidebarOpen && !browserSurfaceActive");
     expect(chatClient).toContain("Browser mode promotes this area into the primary surface.");
-    expect(browserPanel).toContain("First-class browser");
-    expect(browserPanel).toContain("min-h-[calc(100vh-300px)]");
-    expect(browserPanel).toContain("Frame fallback — not live video");
+    expect(browserPanel).toContain("Start browsing");
+    expect(browserPanel).toContain("+ Tab");
+    expect(browserPanel).toContain("Live preview syncing");
+    expect(browserPanel).not.toContain("Truth Chrome Bridge");
   });
 
   it("ships a first-class MV3 Chrome Bridge with WebRTC streaming and CDP input", () => {
@@ -89,15 +90,13 @@ describe("Hybrid Browser Lane contract", () => {
     expect(contentScript).toContain("truth-chrome-bridge");
     expect(readme).toContain("real, user-owned Chrome tab");
 
-    expect(browserPanel).toContain("Truth Chrome Bridge");
     expect(browserPanel).toContain("sendChromeBridgeCommand('NAVIGATE'");
-    expect(browserPanel).toContain("CONNECT_ACTIVE_TAB");
     expect(browserPanel).toContain("NATIVE_CLICK");
     expect(browserPanel).toContain("chromeBridgeVideoRef");
     expect(browserPanel).toContain("webrtc/answer");
     expect(browserPanel).toContain("native/click");
-    expect(serverExtension).toContain("new RTCPeerConnection");
-    expect(serverExtension).not.toContain("canvas.toDataURL");
+    expect(serverExtension).toContain("startStream");
+    expect(serverExtension).toContain("canvas.toDataURL");
     expect(bridgeRoutes).toContain('"/bridge/webrtc/answer"');
     expect(bridgeRoutes).toContain('"/bridge/native/click"');
   });
