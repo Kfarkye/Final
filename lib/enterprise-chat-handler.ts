@@ -73,6 +73,44 @@ function parsePositiveIntegerEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
+function buildTemporalContext(userTimezone?: string): string {
+  const timezone = (typeof userTimezone === 'string' && userTimezone.trim().length > 0)
+    ? userTimezone.trim()
+    : 'UTC';
+  const now = new Date();
+  const isoUtc = now.toISOString();
+
+  let localizedNow = isoUtc;
+  let currentYear = now.getUTCFullYear();
+
+  try {
+    localizedNow = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: 'long',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZoneName: 'short',
+    }).format(now);
+    currentYear = Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric' }).format(now),
+    );
+  } catch {
+    // Fallback to UTC formatting if timezone is invalid or unsupported
+  }
+
+  return `
+<temporal_context>
+Current time: ${localizedNow} (${timezone})
+Current date (UTC ISO): ${isoUtc}
+Current calendar year: ${currentYear}
+When interpreting relative dates (today, tomorrow, yesterday), anchor to timezone: ${timezone}.
+</temporal_context>`;
+}
+
 const MAX_PROVIDER_TOOL_TURNS = parsePositiveIntegerEnv('TRUTH_MAX_PROVIDER_TOOL_TURNS', 500);
 
 function toolTurnLimitMessage(): string {
@@ -347,6 +385,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
     targetModels = ['gemini', 'chatgpt', 'claude', 'grok', 'deepseek'],
     topic,
     googleAccessToken,
+    userTimezone,
     modelConfigs = {},
     mcpServers = [],
     apiIntegrations = [],
@@ -612,6 +651,7 @@ export const enterpriseChatHandler = async (req: Request, res: Response, deps: a
 
     // Build system prompt with tool catalog injection
     const toolCatalog = req.body._toolCatalog || '';
+    const temporalContext = buildTemporalContext(userTimezone);
     const baseSystemPrompt = `You are Truth. An objective, lightning-fast sports intelligence platform.
 Your voice is concise, data-driven, and strictly professional.
 NEVER use conversational filler. NEVER use disclaimers about financial advice. NEVER roleplay or use financial metaphors.
@@ -680,6 +720,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
 
     const systemPrompt = [
       baseSystemPrompt,
+      temporalContext,
       knowledgeBlock,
       skillBlock,
       artifactContract,
@@ -1177,39 +1218,79 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let runCount = 0;
 
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
-          const stream = await grokClient.chat.completions.create({
-            model: modelConfigs.grok || "grok-4.3",
-            messages: currentMessages,
-            tools: grokTools.length > 0 ? grokTools : undefined,
-            stream: true
-          }, { signal });
-
+          const selectedGrokModel = modelConfigs.grok || "grok-4.3";
           let toolCalls: any = {};
+          try {
+            const stream = await grokClient.chat.completions.create({
+              model: selectedGrokModel,
+              messages: currentMessages,
+              tools: grokTools.length > 0 ? grokTools : undefined,
+              stream: true
+            }, { signal });
 
-          for await (const chunk of stream) {
-            if (signal.aborted) break;
-            const delta = chunk.choices?.[0]?.delta;
-            if (!delta) continue;
+            for await (const chunk of stream) {
+              if (signal.aborted) break;
+              const delta = chunk.choices?.[0]?.delta;
+              if (!delta) continue;
 
-            if (delta.content) {
-              sendSse('message', { model: 'grok', chunk: delta.content });
-            }
+              if (delta.content) {
+                sendSse('message', { model: 'grok', chunk: delta.content });
+              }
 
-            if (delta.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (!toolCalls[tc.index]) {
-                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
-                }
-                if (tc.function?.arguments) {
-                  toolCalls[tc.index].function.arguments += tc.function.arguments;
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (!toolCalls[tc.index]) {
+                    toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                  }
+                  if (tc.function?.arguments) {
+                    toolCalls[tc.index].function.arguments += tc.function.arguments;
+                  }
                 }
               }
+            }
+          } catch (streamErr: any) {
+            if (signal.aborted || isAbortLikeError(streamErr)) {
+              throw streamErr;
+            }
+            ChatLogger.warn('grok_stream_error_fallback_to_nonstream', {
+              connectionId,
+              model: selectedGrokModel,
+              message: streamErr?.message || String(streamErr),
+              runCount,
+            });
+
+            const fallback = await grokClient.chat.completions.create({
+              model: selectedGrokModel,
+              messages: currentMessages,
+              tools: grokTools.length > 0 ? grokTools : undefined,
+              stream: false
+            }, { signal });
+
+            const fallbackMessage = fallback.choices?.[0]?.message as any;
+            if (typeof fallbackMessage?.content === 'string' && fallbackMessage.content.length > 0) {
+              sendSse('message', { model: 'grok', chunk: fallbackMessage.content });
+            }
+            if (Array.isArray(fallbackMessage?.tool_calls)) {
+              fallbackMessage.tool_calls.forEach((tc: any, idx: number) => {
+                if (!tc) return;
+                toolCalls[idx] = {
+                  id: tc.id || `grok_fallback_tool_call_${Date.now()}_${idx}`,
+                  type: "function",
+                  function: {
+                    name: tc.function?.name || "",
+                    arguments: tc.function?.arguments || "{}"
+                  }
+                };
+              });
             }
           }
 
           if (signal.aborted) break;
 
-          const tcKeys = Object.keys(toolCalls);
+          const tcKeys = Object.keys(toolCalls).filter((key) => {
+            const name = toolCalls[key]?.function?.name;
+            return typeof name === 'string' && name.trim().length > 0;
+          });
           if (tcKeys.length === 0) {
             break;
           }
