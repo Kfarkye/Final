@@ -300,7 +300,7 @@ export async function handleCodexChat(req: Request, res: Response): Promise<void
         reasoning: {
           effort: 'high',
           summary: 'auto',
-          context: 'all_turns',
+          context: 'auto',
         },
         store: true,
         prompt_cache_retention: '24h',

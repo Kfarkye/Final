@@ -319,7 +319,7 @@ describe('Codex Handler — Responses API', () => {
       expect(createCall.reasoning).toEqual({
         effort: 'high',
         summary: 'auto',
-        context: 'all_turns',
+        context: 'auto',
       });
       expect(createCall.instructions).toContain('Autonomous Deep Research Loop');
       expect(createCall.instructions).toContain('Use clean citations');
