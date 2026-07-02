@@ -63,6 +63,51 @@ export const espnTools: RegisteredTool<any>[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════════
+  //  GET MLB SCORES — Compatibility alias for scoreboard intent
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "get_mlb_scores",
+      description: "Compatibility alias for get_espn_scoreboard. Fetches the MLB scoreboard for a date from ESPN and returns game statuses, scores, pitchers, and venues.",
+      schema: z.object({
+        date: z.string().optional().describe("Date to fetch. Accepts: 'today', 'tomorrow', 'yesterday', YYYYMMDD, YYYY-MM-DD, or MM/DD. Default: today"),
+      })
+    },
+    handler: async (args) => {
+      const { events, evidence, dateLabel } = await fetchEspnScoreboard(args.date);
+
+      const live = events.filter(e => e.status === "live");
+      const final_ = events.filter(e => e.status === "final");
+      const upcoming = events.filter(e => e.status === "upcoming");
+
+      return {
+        date: dateLabel,
+        total_games: events.length,
+        live: live.length,
+        final: final_.length,
+        upcoming: upcoming.length,
+        games: events.map(e => ({
+          event_id: e.event_id,
+          matchup: `${e.away_team} @ ${e.home_team}`,
+          status: e.status,
+          score: e.score_summary,
+          inning: e.status === "live" ? `${e.inning_half || ""} ${e.inning || ""}`.trim() : undefined,
+          venue: e.venue,
+          home_pitcher: e.home_pitcher,
+          away_pitcher: e.away_pitcher,
+          home_pitcher_record: e.home_pitcher_record,
+          away_pitcher_record: e.away_pitcher_record,
+          espn_url: e.source_url,
+        })),
+        _source: evidence,
+      };
+    },
+    entityType: 'game',
+    renderType: 'game-card',
+    promptHint: 'MLB scoreboard alias. Respect game status. Never state a score for an upcoming game.',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
   //  GET ESPN GAME — Single game by event ID
   // ═══════════════════════════════════════════════════════════════════
   {
