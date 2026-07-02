@@ -1268,14 +1268,18 @@ CRITICAL TOOL USE INSTRUCTIONS:
             hasToolUse = false;
 
             try {
-              const stream = deps.anthropic.messages.stream({
+              const claudeRequest: any = {
                 model: selectedClaudeModel,
                 max_tokens: claudeMaxTokens,
                 system: claudeSystemPrompt,
                 messages: claudeMessagesForRequest,
                 tools: claudeToolsForRequest,
-                betas: promptCacheEnabledForModel ? [CLAUDE_PROMPT_CACHE_BETA] : undefined
-              }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
+              };
+              if (promptCacheEnabledForModel) {
+                claudeRequest.betas = [CLAUDE_PROMPT_CACHE_BETA];
+              }
+
+              const stream = deps.anthropic.messages.stream(claudeRequest, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
 
               for await (const chunk of stream) {
                 if (signal.aborted) break;
@@ -1322,7 +1326,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 break;
               }
 
-              if (promptCacheEnabledForModel && isClaudePromptCacheRejectedError(streamErr)) {
+              const canDisablePromptCache = !claudePromptCacheDisabledModels.has(selectedClaudeModel);
+              if (canDisablePromptCache && isClaudePromptCacheRejectedError(streamErr)) {
                 claudePromptCacheDisabledModels.add(selectedClaudeModel);
                 ChatLogger.warn('claude_prompt_cache_disabled_for_model', {
                   connectionId,
@@ -1331,7 +1336,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 });
                 sendSse('message', {
                   model: 'claude',
-                  chunk: '\n\n[Claude endpoint rejected prompt-caching headers for this model. Continuing without cache headers.]',
+                  chunk: '\n\n[Claude endpoint rejected beta/cache inputs for this model. Continuing with standard request shape.]',
                 });
                 continue;
               }
