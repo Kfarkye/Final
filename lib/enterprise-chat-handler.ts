@@ -115,6 +115,8 @@ const MAX_PROVIDER_TOOL_TURNS = parsePositiveIntegerEnv('TRUTH_MAX_PROVIDER_TOOL
 const CLAUDE_PROMPT_CACHE_ENABLED = process.env.CLAUDE_PROMPT_CACHE_ENABLED !== '0';
 const CLAUDE_PROMPT_CACHE_BETA = process.env.CLAUDE_PROMPT_CACHE_BETA || 'prompt-caching-2024-07-31';
 const CLAUDE_CACHE_CONTROL = { type: 'ephemeral' } as const;
+const CLAUDE_STREAM_RETRY_ATTEMPTS = parsePositiveIntegerEnv('CLAUDE_STREAM_RETRY_ATTEMPTS', 3);
+const CLAUDE_STREAM_RETRY_BASE_MS = parsePositiveIntegerEnv('CLAUDE_STREAM_RETRY_BASE_MS', 1200);
 
 function toolTurnLimitMessage(): string {
   return `\n\n[Reached tool-call safety budget of ${MAX_PROVIDER_TOOL_TURNS}; stopping here. Set TRUTH_MAX_PROVIDER_TOOL_TURNS higher for longer autonomous runs.]`;
@@ -172,6 +174,45 @@ function buildClaudeMessagesForRequest(messages: any[]): any[] {
       ...message,
       content: withClaudeCacheControlOnContent(message.content),
     };
+  });
+}
+
+function isClaudeTransientStreamError(err: any): boolean {
+  const status = Number(err?.status ?? err?.statusCode ?? err?.response?.status);
+  if (Number.isFinite(status) && [408, 429, 500, 502, 503, 504, 529].includes(status)) {
+    return true;
+  }
+
+  const message = String(err?.message || '');
+  return /overloaded|overload|rate limit|temporar|timeout|timed out|connection reset|socket hang up|econnreset|eai_again|service unavailable|internal server error/i.test(message);
+}
+
+function claudeRetryDelayMs(attempt: number): number {
+  const normalizedAttempt = Math.max(1, attempt);
+  return Math.min(CLAUDE_STREAM_RETRY_BASE_MS * Math.pow(2, normalizedAttempt - 1), 15_000);
+}
+
+async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -1143,69 +1184,112 @@ CRITICAL TOOL USE INSTRUCTIONS:
           // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
           // Sonnet uses 16384 (cheaper, faster), Opus gets 65536 for deep work.
           const claudeMaxTokens = selectedClaudeModel.includes("opus") ? 65536 : 16384;
-          const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages);
-
-          const stream = deps.anthropic.messages.stream({
-            model: selectedClaudeModel,
-            max_tokens: claudeMaxTokens,
-            system: claudeSystemPrompt,
-            messages: claudeMessagesForRequest,
-            tools: claudeToolsForRequest,
-            betas: CLAUDE_PROMPT_CACHE_ENABLED ? [CLAUDE_PROMPT_CACHE_BETA] : undefined
-          }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
-
-          let currentToolUse: any = null;
           let assistantContentBlocks: any[] = [];
           let hasToolUse = false;
+          let streamSucceeded = false;
+          let fatalStreamError: any = null;
 
-          try {
-            for await (const chunk of stream) {
-              if (signal.aborted) break;
-              if (chunk.type === 'content_block_start') {
-                if (chunk.content_block.type === 'tool_use') {
-                  hasToolUse = true;
-                  currentToolUse = {
-                    type: 'tool_use',
-                    id: chunk.content_block.id,
-                    name: chunk.content_block.name,
-                    input: ""
-                  };
-                  sendSse('tool_start', { model: 'claude', tool: chunk.content_block.name });
-                } else if (chunk.content_block.type === 'text') {
-                  // Don't emit empty text at block_start — wait for deltas
-                  assistantContentBlocks.push({ type: 'text', text: '' });
-                }
-              } else if (chunk.type === 'content_block_delta') {
-                if (chunk.delta.type === 'text_delta') {
-                  const lastBlock = assistantContentBlocks[assistantContentBlocks.length - 1];
-                  if (lastBlock && lastBlock.type === 'text') {
-                    lastBlock.text += chunk.delta.text;
+          for (let streamAttempt = 1; streamAttempt <= CLAUDE_STREAM_RETRY_ATTEMPTS && !signal.aborted; streamAttempt++) {
+            const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages);
+            let currentToolUse: any = null;
+            assistantContentBlocks = [];
+            hasToolUse = false;
+
+            try {
+              const stream = deps.anthropic.messages.stream({
+                model: selectedClaudeModel,
+                max_tokens: claudeMaxTokens,
+                system: claudeSystemPrompt,
+                messages: claudeMessagesForRequest,
+                tools: claudeToolsForRequest,
+                betas: CLAUDE_PROMPT_CACHE_ENABLED ? [CLAUDE_PROMPT_CACHE_BETA] : undefined
+              }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
+
+              for await (const chunk of stream) {
+                if (signal.aborted) break;
+                if (chunk.type === 'content_block_start') {
+                  if (chunk.content_block.type === 'tool_use') {
+                    hasToolUse = true;
+                    currentToolUse = {
+                      type: 'tool_use',
+                      id: chunk.content_block.id,
+                      name: chunk.content_block.name,
+                      input: ""
+                    };
+                    sendSse('tool_start', { model: 'claude', tool: chunk.content_block.name });
+                  } else if (chunk.content_block.type === 'text') {
+                    // Don't emit empty text at block_start — wait for deltas
+                    assistantContentBlocks.push({ type: 'text', text: '' });
                   }
-                  sendSse('message', { model: 'claude', chunk: chunk.delta.text });
-                } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
-                  currentToolUse.input += chunk.delta.partial_json;
-                }
-              } else if (chunk.type === 'content_block_stop') {
-                if (currentToolUse) {
-                  try {
-                    currentToolUse.input = currentToolUse.input ? JSON.parse(currentToolUse.input) : {};
-                  } catch (e) { currentToolUse.input = {}; }
-                  assistantContentBlocks.push(currentToolUse);
-                  currentToolUse = null;
+                } else if (chunk.type === 'content_block_delta') {
+                  if (chunk.delta.type === 'text_delta') {
+                    const lastBlock = assistantContentBlocks[assistantContentBlocks.length - 1];
+                    if (lastBlock && lastBlock.type === 'text') {
+                      lastBlock.text += chunk.delta.text;
+                    }
+                    sendSse('message', { model: 'claude', chunk: chunk.delta.text });
+                  } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
+                    currentToolUse.input += chunk.delta.partial_json;
+                  }
+                } else if (chunk.type === 'content_block_stop') {
+                  if (currentToolUse) {
+                    try {
+                      currentToolUse.input = currentToolUse.input ? JSON.parse(currentToolUse.input) : {};
+                    } catch (e) { currentToolUse.input = {}; }
+                    assistantContentBlocks.push(currentToolUse);
+                    currentToolUse = null;
+                  }
                 }
               }
-            }
-          } catch (streamErr: any) {
-            if (signal.aborted || isAbortLikeError(streamErr)) {
-              ChatLogger.info('claude_stream_aborted', { connectionId });
+
+              streamSucceeded = true;
+              break;
+            } catch (streamErr: any) {
+              if (signal.aborted || isAbortLikeError(streamErr)) {
+                ChatLogger.info('claude_stream_aborted', { connectionId });
+                break;
+              }
+
+              const shouldRetry =
+                isClaudeTransientStreamError(streamErr) &&
+                streamAttempt < CLAUDE_STREAM_RETRY_ATTEMPTS;
+
+              if (shouldRetry) {
+                const retryInMs = claudeRetryDelayMs(streamAttempt);
+                ChatLogger.warn('claude_stream_iteration_retry', {
+                  connectionId,
+                  streamAttempt,
+                  maxAttempts: CLAUDE_STREAM_RETRY_ATTEMPTS,
+                  retryInMs,
+                  status: streamErr?.status ?? streamErr?.statusCode ?? streamErr?.response?.status,
+                  error: streamErr?.message,
+                });
+                sendSse('message', {
+                  model: 'claude',
+                  chunk: `\n\n[Claude stream interrupted (${streamErr.message || 'transient error'}). Retrying ${streamAttempt + 1}/${CLAUDE_STREAM_RETRY_ATTEMPTS}…]`,
+                });
+                await sleepWithAbort(retryInMs, signal);
+                continue;
+              }
+
+              fatalStreamError = streamErr;
               break;
             }
-            ChatLogger.error('claude_stream_iteration_error', streamErr);
-            sendSse('message', { model: 'claude', chunk: `\n\n[Stream error: ${streamErr.message || 'Unknown'}]` });
+          }
+
+          if (fatalStreamError) {
+            ChatLogger.error('claude_stream_iteration_error', fatalStreamError);
+            sendSse('message', { model: 'claude', chunk: `\n\n[Claude stream error: ${fatalStreamError.message || 'Unknown'}]` });
+            sendSse('provider_degraded', {
+              model: 'claude',
+              reason: 'stream_error',
+              error: fatalStreamError.message || 'Unknown',
+            });
             break;
           }
 
           if (signal.aborted) break;
+          if (!streamSucceeded) break;
 
           if (!hasToolUse) {
             break;
