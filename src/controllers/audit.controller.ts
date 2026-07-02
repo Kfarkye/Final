@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
+import { Spanner } from "@google-cloud/spanner";
 import { edgeDb } from "../db/spanner";
 import { catchAsync } from "../middleware/catchAsync";
 import { NotFoundError } from "../utils/errors";
@@ -22,6 +23,7 @@ export const auditController = {
       Email: data.email,
       Action: data.action,
       Details: data.details ? JSON.stringify(data.details) : null,
+      CreatedAt: Spanner.COMMIT_TIMESTAMP,
     });
 
     res.status(201).json({ success: true });

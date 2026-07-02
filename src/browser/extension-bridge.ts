@@ -3,7 +3,7 @@
  * --------------------------------------------------------------
  * Accepts a WebSocket upgrade from the Truth MV3 Chrome extension at
  * `/api/browser/bridge`. The extension runs in the USER'S Chrome, captures
- * the active tab, and streams live WebRTC signaling here while accepting navigate/click/fill
+ * the active tab, and streams frames here while accepting navigate/click/fill
  * commands. This is intentionally a raw `ws` server hooked onto the existing
  * http.Server — it is the only transport the MV3 service worker speaks.
  *
@@ -11,14 +11,12 @@
  *   Extension -> Server (upstream):
  *     { type: "BRIDGE_READY", timestamp, mode }
  *     { type: "BRIDGE_EVENT", payload: { type, ... } }
- *     { type: "BRIDGE_EVENT", payload: { type: "SDP_OFFER" | "ICE_CANDIDATE" | "RTC_STATE", ... } }
+ *     { type: "BROWSER_FRAME", payload: { dataUrl, timestamp } }
  *   Server -> Extension (downstream):
  *     { type: "NAVIGATE", payload: { url } }
  *     { type: "CLICK",    payload: { selector } }
  *     { type: "FILL",     payload: { selector, value } }
  *     { type: "START_CAPTURE" } | { type: "STOP_CAPTURE" }
- *     { type: "WEBRTC_ANSWER", payload: { sdp } }
- *     { type: "ICE_CANDIDATE", payload: { candidate } }
  */
 
 import type { Server as HttpServer, IncomingMessage } from 'http';
@@ -54,13 +52,7 @@ type DownstreamCommand =
   | { type: 'CLICK'; payload: { selector: string } }
   | { type: 'FILL'; payload: { selector: string; value: string } }
   | { type: 'START_CAPTURE' }
-  | { type: 'STOP_CAPTURE' }
-  | { type: 'NATIVE_CLICK'; payload: { x: number; y: number } }
-  | { type: 'NATIVE_SCROLL'; payload: { deltaX: number; deltaY: number; x?: number; y?: number } }
-  | { type: 'NATIVE_TEXT'; payload: { text: string } }
-  | { type: 'NATIVE_KEY'; payload: { key: string } }
-  | { type: 'WEBRTC_ANSWER'; payload: { sdp: unknown } }
-  | { type: 'ICE_CANDIDATE'; payload: { candidate: unknown } };
+  | { type: 'STOP_CAPTURE' };
 
 /**
  * Singleton bridge manager. Owns the WebSocket server and the live
@@ -190,24 +182,6 @@ class ExtensionBridgeManager extends EventEmitter {
   }
   stopCapture(connectionId?: string): boolean {
     return this.sendCommand({ type: 'STOP_CAPTURE' }, connectionId);
-  }
-  nativeClick(x: number, y: number, connectionId?: string): boolean {
-    return this.sendCommand({ type: 'NATIVE_CLICK', payload: { x, y } }, connectionId);
-  }
-  nativeScroll(deltaX: number, deltaY: number, connectionId?: string, x?: number, y?: number): boolean {
-    return this.sendCommand({ type: 'NATIVE_SCROLL', payload: { deltaX, deltaY, x, y } }, connectionId);
-  }
-  nativeText(text: string, connectionId?: string): boolean {
-    return this.sendCommand({ type: 'NATIVE_TEXT', payload: { text } }, connectionId);
-  }
-  nativeKey(key: string, connectionId?: string): boolean {
-    return this.sendCommand({ type: 'NATIVE_KEY', payload: { key } }, connectionId);
-  }
-  sendWebRtcAnswer(sdp: unknown, connectionId?: string): boolean {
-    return this.sendCommand({ type: 'WEBRTC_ANSWER', payload: { sdp } }, connectionId);
-  }
-  sendIceCandidate(candidate: unknown, connectionId?: string): boolean {
-    return this.sendCommand({ type: 'ICE_CANDIDATE', payload: { candidate } }, connectionId);
   }
 
   private firstConnection(): BridgeConnection | undefined {

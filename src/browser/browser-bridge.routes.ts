@@ -6,22 +6,16 @@
  * surface the Truth web app (BrowserPanel) talks to:
  *
  *   GET  /api/browser/bridge/status            -> connection registry snapshot
- *   GET  /api/browser/bridge/stream            -> SSE: relays WebRTC events (+ frame fallback)
- *   POST /api/browser/bridge/webrtc/answer    -> { sdp }
- *   POST /api/browser/bridge/webrtc/ice       -> { candidate }
+ *   GET  /api/browser/bridge/stream            -> SSE: relays BROWSER_FRAME + events
  *   POST /api/browser/bridge/navigate          -> { url }
  *   POST /api/browser/bridge/click             -> { selector }
  *   POST /api/browser/bridge/fill              -> { selector, value }
  *   POST /api/browser/bridge/capture           -> { action: "start" | "stop" }
- *   POST /api/browser/bridge/native/click      -> { x, y }
- *   POST /api/browser/bridge/native/scroll     -> { deltaX, deltaY }
- *   POST /api/browser/bridge/native/text       -> { text }
- *   POST /api/browser/bridge/native/key        -> { key }
  *
- * WebRTC signaling arrives from the user's Chrome over WebSocket, is relayed to
- * BrowserPanel via SSE, and BrowserPanel answers through HTTP POST. The old
- * frame event remains as a compatibility fallback, but live video is the first
- * class path.
+ * Frames arrive from the user's Chrome over WebSocket, are emitted by the
+ * bridge, and are relayed to the browser via SSE using the platform's existing
+ * SSEManager (addClient/sendEvent) — the same transport the rest of the app
+ * uses, so the front end needs no new client.
  */
 
 import { Router, type Request, type Response } from "express";
@@ -89,28 +83,6 @@ browserBridgeRoutes.get("/bridge/stream", (req: Request, res: Response) => {
   });
 });
 
-// POST /api/browser/bridge/webrtc/answer — BrowserPanel answers the Chrome offer.
-browserBridgeRoutes.post("/bridge/webrtc/answer", (req: Request, res: Response) => {
-  const { sdp, connectionId } = req.body ?? {};
-  if (!sdp || typeof sdp !== "object") {
-    return fail(res, 400, "BAD_ARGUMENT", "sdp required");
-  }
-  const ok = extensionBridge.sendWebRtcAnswer(sdp, connectionId);
-  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
-  res.json({ ok: true });
-});
-
-// POST /api/browser/bridge/webrtc/ice — BrowserPanel sends local ICE candidates.
-browserBridgeRoutes.post("/bridge/webrtc/ice", (req: Request, res: Response) => {
-  const { candidate, connectionId } = req.body ?? {};
-  if (!candidate || typeof candidate !== "object") {
-    return fail(res, 400, "BAD_ARGUMENT", "candidate required");
-  }
-  const ok = extensionBridge.sendIceCandidate(candidate, connectionId);
-  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
-  res.json({ ok: true });
-});
-
 // POST /api/browser/bridge/navigate — drive the user's real Chrome tab.
 browserBridgeRoutes.post("/bridge/navigate", (req: Request, res: Response) => {
   const { url, connectionId } = req.body ?? {};
@@ -154,56 +126,6 @@ browserBridgeRoutes.post("/bridge/capture", (req: Request, res: Response) => {
   if (action === "start") ok = extensionBridge.startCapture(connectionId);
   else if (action === "stop") ok = extensionBridge.stopCapture(connectionId);
   else return fail(res, 400, "BAD_ARGUMENT", "action must be 'start' or 'stop'");
-  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
-  res.json({ ok: true });
-});
-
-// POST /api/browser/bridge/native/click — trusted coordinate click in Chrome.
-browserBridgeRoutes.post("/bridge/native/click", (req: Request, res: Response) => {
-  const { x, y, connectionId } = req.body ?? {};
-  if (typeof x !== "number" || typeof y !== "number") {
-    return fail(res, 400, "BAD_ARGUMENT", "x and y required");
-  }
-  const ok = extensionBridge.nativeClick(Math.round(x), Math.round(y), connectionId);
-  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
-  res.json({ ok: true });
-});
-
-// POST /api/browser/bridge/native/scroll — trusted mouse wheel in Chrome.
-browserBridgeRoutes.post("/bridge/native/scroll", (req: Request, res: Response) => {
-  const { deltaX = 0, deltaY = 0, x, y, connectionId } = req.body ?? {};
-  if (typeof deltaX !== "number" || typeof deltaY !== "number") {
-    return fail(res, 400, "BAD_ARGUMENT", "deltaX and deltaY required");
-  }
-  const ok = extensionBridge.nativeScroll(
-    Math.round(deltaX),
-    Math.round(deltaY),
-    connectionId,
-    typeof x === "number" ? Math.round(x) : undefined,
-    typeof y === "number" ? Math.round(y) : undefined,
-  );
-  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
-  res.json({ ok: true });
-});
-
-// POST /api/browser/bridge/native/text — trusted text insert in Chrome.
-browserBridgeRoutes.post("/bridge/native/text", (req: Request, res: Response) => {
-  const { text, connectionId } = req.body ?? {};
-  if (typeof text !== "string") {
-    return fail(res, 400, "BAD_ARGUMENT", "text required");
-  }
-  const ok = extensionBridge.nativeText(text, connectionId);
-  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
-  res.json({ ok: true });
-});
-
-// POST /api/browser/bridge/native/key — trusted key press in Chrome.
-browserBridgeRoutes.post("/bridge/native/key", (req: Request, res: Response) => {
-  const { key, connectionId } = req.body ?? {};
-  if (typeof key !== "string" || !key) {
-    return fail(res, 400, "BAD_ARGUMENT", "key required");
-  }
-  const ok = extensionBridge.nativeKey(key, connectionId);
   if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
   res.json({ ok: true });
 });
