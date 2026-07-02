@@ -111,12 +111,48 @@ When interpreting relative dates (today, tomorrow, yesterday), anchor to timezon
 </temporal_context>`;
 }
 
+function getCurrentYearForTimezone(userTimezone?: string): number {
+  const timezone = (typeof userTimezone === 'string' && userTimezone.trim().length > 0)
+    ? userTimezone.trim()
+    : 'UTC';
+  const now = new Date();
+  try {
+    return Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric' }).format(now),
+    );
+  } catch {
+    return now.getUTCFullYear();
+  }
+}
+
+function buildProviderTemporalAndComparisonGuard(userTimezone?: string): string {
+  const currentYear = getCurrentYearForTimezone(userTimezone);
+  return `
+${buildTemporalContext(userTimezone)}
+
+<temporal_and_comparison_guard>
+Authoritative current calendar year: ${currentYear}.
+Use this year for all relative-time interpretations ("today", "this season", "latest", "currently", etc.).
+For model availability, benchmark numbers, context windows, pricing, or release-date claims:
+1) Prefer verified tool output and cited sources.
+2) Do NOT invent exact values or dates.
+3) If exact values are unverified, explicitly say they are unverified and provide qualitative guidance.
+</temporal_and_comparison_guard>`;
+}
+
 const MAX_PROVIDER_TOOL_TURNS = parsePositiveIntegerEnv('TRUTH_MAX_PROVIDER_TOOL_TURNS', 500);
 const CLAUDE_PROMPT_CACHE_ENABLED = process.env.CLAUDE_PROMPT_CACHE_ENABLED !== '0';
 const CLAUDE_PROMPT_CACHE_BETA = process.env.CLAUDE_PROMPT_CACHE_BETA || 'prompt-caching-2024-07-31';
 const CLAUDE_CACHE_CONTROL = { type: 'ephemeral' } as const;
 const CLAUDE_STREAM_RETRY_ATTEMPTS = parsePositiveIntegerEnv('CLAUDE_STREAM_RETRY_ATTEMPTS', 3);
 const CLAUDE_STREAM_RETRY_BASE_MS = parsePositiveIntegerEnv('CLAUDE_STREAM_RETRY_BASE_MS', 1200);
+const GROK_STREAM_RETRY_ATTEMPTS = parsePositiveIntegerEnv('GROK_STREAM_RETRY_ATTEMPTS', 3);
+const GROK_STREAM_RETRY_BASE_MS = parsePositiveIntegerEnv('GROK_STREAM_RETRY_BASE_MS', 1200);
+const DEEPSEEK_STREAM_RETRY_ATTEMPTS = parsePositiveIntegerEnv('DEEPSEEK_STREAM_RETRY_ATTEMPTS', 3);
+const DEEPSEEK_STREAM_RETRY_BASE_MS = parsePositiveIntegerEnv('DEEPSEEK_STREAM_RETRY_BASE_MS', 1200);
+const GROK_MAX_TOKENS = parsePositiveIntegerEnv('GROK_MAX_TOKENS', 8192);
+const DEEPSEEK_MAX_TOKENS = parsePositiveIntegerEnv('DEEPSEEK_MAX_TOKENS', 8192);
+const DEEPSEEK_REASONING_EFFORT = (process.env.DEEPSEEK_REASONING_EFFORT || 'high').trim().toLowerCase();
 
 function toolTurnLimitMessage(): string {
   return `\n\n[Reached tool-call safety budget of ${MAX_PROVIDER_TOOL_TURNS}; stopping here. Set TRUTH_MAX_PROVIDER_TOOL_TURNS higher for longer autonomous runs.]`;
@@ -203,6 +239,25 @@ function isClaudeTransientStreamError(err: any): boolean {
 function claudeRetryDelayMs(attempt: number): number {
   const normalizedAttempt = Math.max(1, attempt);
   return Math.min(CLAUDE_STREAM_RETRY_BASE_MS * Math.pow(2, normalizedAttempt - 1), 15_000);
+}
+
+function providerRetryDelayMs(attempt: number, baseMs: number): number {
+  const normalizedAttempt = Math.max(1, attempt);
+  return Math.min(baseMs * Math.pow(2, normalizedAttempt - 1), 15_000);
+}
+
+function isOpenAICompatibleTransientStreamError(err: any): boolean {
+  const status = Number(err?.status ?? err?.statusCode ?? err?.response?.status);
+  if (Number.isFinite(status) && [408, 409, 425, 429, 500, 502, 503, 504, 529].includes(status)) {
+    return true;
+  }
+  const message = String(err?.message || '');
+  return /overloaded|overload|rate limit|temporar|timeout|timed out|connection reset|socket hang up|econnreset|eai_again|service unavailable|internal server error|upstream connect error/i.test(message);
+}
+
+function isOpenAICompatibleTerminationError(err: any): boolean {
+  const message = String(err?.message || '');
+  return /terminated|generation (?:was )?stopped|stream ended|connection closed/i.test(message);
 }
 
 async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
@@ -1384,7 +1439,8 @@ CRITICAL TOOL USE INSTRUCTIONS:
         const msgs: any[] = [];
         if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
         if (mode === 'shared' && history) msgs.push(...history);
-        msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', governedPrompt) });
+        const grokPrompt = `${governedPrompt}\n\n${buildProviderTemporalAndComparisonGuard(userTimezone)}`;
+        msgs.push({ role: "user", content: buildUserContent('grok', modelConfigs.grok || 'grok-4.3', grokPrompt) });
 
         const grokTools: any[] = [];
         for (const [toolName, canonical] of Object.entries(deps.NATIVE_TOOLS) as [string, any][]) {
@@ -1424,72 +1480,133 @@ CRITICAL TOOL USE INSTRUCTIONS:
 
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           let toolCalls: any = {};
-          try {
-            const stream = await grokClient.chat.completions.create({
-              model: actualGrokModel,
-              messages: currentMessages,
-              tools: grokTools.length > 0 ? grokTools : undefined,
-              stream: true
-            }, { signal });
+          let turnSucceeded = false;
 
-            for await (const chunk of stream) {
-              if (signal.aborted) break;
-              const delta = chunk.choices?.[0]?.delta;
-              if (!delta) continue;
+          for (let streamAttempt = 1; streamAttempt <= GROK_STREAM_RETRY_ATTEMPTS && !signal.aborted; streamAttempt++) {
+            toolCalls = {};
+            let emittedAnyContent = false;
 
-              if (delta.content) {
-                sendSse('message', { model: 'grok', chunk: delta.content });
-              }
+            try {
+              const stream = await grokClient.chat.completions.create({
+                model: actualGrokModel,
+                messages: currentMessages,
+                tools: grokTools.length > 0 ? grokTools : undefined,
+                tool_choice: grokTools.length > 0 ? 'auto' : undefined,
+                max_tokens: GROK_MAX_TOKENS,
+                stream: true
+              }, { signal });
 
-              if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  if (!toolCalls[tc.index]) {
-                    toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
-                  }
-                  if (tc.function?.arguments) {
-                    toolCalls[tc.index].function.arguments += tc.function.arguments;
+              for await (const chunk of stream) {
+                if (signal.aborted) break;
+                const delta = chunk.choices?.[0]?.delta;
+                if (!delta) continue;
+
+                if (delta.content) {
+                  emittedAnyContent = true;
+                  sendSse('message', { model: 'grok', chunk: delta.content });
+                }
+
+                if (delta.tool_calls) {
+                  for (const tc of delta.tool_calls) {
+                    const index = tc.index ?? 0;
+                    if (!toolCalls[index]) {
+                      toolCalls[index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                    }
+                    if (tc.function?.arguments) {
+                      toolCalls[index].function.arguments += tc.function.arguments;
+                    }
                   }
                 }
               }
-            }
-          } catch (streamErr: any) {
-            if (signal.aborted || isAbortLikeError(streamErr)) {
-              throw streamErr;
-            }
-            ChatLogger.warn('grok_stream_error_fallback_to_nonstream', {
-              connectionId,
-              model: actualGrokModel,
-              message: streamErr?.message || String(streamErr),
-              runCount,
-            });
 
-            const fallback = await grokClient.chat.completions.create({
-              model: actualGrokModel,
-              messages: currentMessages,
-              tools: grokTools.length > 0 ? grokTools : undefined,
-              stream: false
-            }, { signal });
+              turnSucceeded = true;
+              break;
+            } catch (streamErr: any) {
+              if (signal.aborted || isAbortLikeError(streamErr)) {
+                throw streamErr;
+              }
 
-            const fallbackMessage = fallback.choices?.[0]?.message as any;
-            if (typeof fallbackMessage?.content === 'string' && fallbackMessage.content.length > 0) {
-              sendSse('message', { model: 'grok', chunk: fallbackMessage.content });
-            }
-            if (Array.isArray(fallbackMessage?.tool_calls)) {
-              fallbackMessage.tool_calls.forEach((tc: any, idx: number) => {
-                if (!tc) return;
-                toolCalls[idx] = {
-                  id: tc.id || `grok_fallback_tool_call_${Date.now()}_${idx}`,
-                  type: "function",
-                  function: {
-                    name: tc.function?.name || "",
-                    arguments: tc.function?.arguments || "{}"
-                  }
-                };
+              // Some providers emit a terminal transport error after yielding useful content.
+              if (emittedAnyContent && isOpenAICompatibleTerminationError(streamErr)) {
+                ChatLogger.warn('grok_stream_terminated_after_partial_output', {
+                  connectionId,
+                  model: actualGrokModel,
+                  runCount,
+                  message: streamErr?.message || String(streamErr),
+                });
+                turnSucceeded = true;
+                toolCalls = {};
+                break;
+              }
+
+              ChatLogger.warn('grok_stream_error_fallback_to_nonstream', {
+                connectionId,
+                model: actualGrokModel,
+                message: streamErr?.message || String(streamErr),
+                runCount,
+                streamAttempt,
               });
+
+              try {
+                const fallback = await grokClient.chat.completions.create({
+                  model: actualGrokModel,
+                  messages: currentMessages,
+                  tools: grokTools.length > 0 ? grokTools : undefined,
+                  tool_choice: grokTools.length > 0 ? 'auto' : undefined,
+                  max_tokens: GROK_MAX_TOKENS,
+                  stream: false
+                }, { signal });
+
+                const fallbackMessage = fallback.choices?.[0]?.message as any;
+                if (typeof fallbackMessage?.content === 'string' && fallbackMessage.content.length > 0) {
+                  sendSse('message', { model: 'grok', chunk: fallbackMessage.content });
+                }
+                if (Array.isArray(fallbackMessage?.tool_calls)) {
+                  fallbackMessage.tool_calls.forEach((tc: any, idx: number) => {
+                    if (!tc) return;
+                    toolCalls[idx] = {
+                      id: tc.id || `grok_fallback_tool_call_${Date.now()}_${idx}`,
+                      type: "function",
+                      function: {
+                        name: tc.function?.name || "",
+                        arguments: tc.function?.arguments || "{}"
+                      }
+                    };
+                  });
+                }
+
+                turnSucceeded = true;
+                break;
+              } catch (fallbackErr: any) {
+                if (signal.aborted || isAbortLikeError(fallbackErr)) {
+                  throw fallbackErr;
+                }
+
+                if (streamAttempt < GROK_STREAM_RETRY_ATTEMPTS && isOpenAICompatibleTransientStreamError(fallbackErr)) {
+                  const retryInMs = providerRetryDelayMs(streamAttempt, GROK_STREAM_RETRY_BASE_MS);
+                  ChatLogger.warn('grok_stream_iteration_retry', {
+                    connectionId,
+                    model: actualGrokModel,
+                    runCount,
+                    streamAttempt,
+                    retryInMs,
+                    message: fallbackErr?.message || String(fallbackErr),
+                  });
+                  sendSse('message', {
+                    model: 'grok',
+                    chunk: `\n\n[Grok transient stream issue — retrying in ${Math.round(retryInMs / 1000)}s...]`,
+                  });
+                  await sleepWithAbort(retryInMs, signal);
+                  continue;
+                }
+
+                throw fallbackErr;
+              }
             }
           }
 
           if (signal.aborted) break;
+          if (!turnSucceeded) break;
 
           const tcKeys = Object.keys(toolCalls).filter((key) => {
             const name = toolCalls[key]?.function?.name;
@@ -1572,16 +1689,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
           msgs.push({ role: "system", content: systemPrompt });
         }
         if (mode === 'shared' && history) msgs.push(...history);
-        const deepseekTemporalAndComparisonGuard = `
-${buildTemporalContext(userTimezone)}
-
-<model_comparison_guard>
-When asked about model strengths, benchmark scores, pricing, context limits, or availability:
-1) Prefer verified tool output and cited sources.
-2) Do NOT invent specific numbers, dates, or claims.
-3) If precise values are unverified, say so explicitly and provide qualitative guidance only.
-</model_comparison_guard>`;
-        const deepseekPrompt = `${governedPrompt}\n\n${deepseekTemporalAndComparisonGuard}`;
+        const deepseekPrompt = `${governedPrompt}\n\n${buildProviderTemporalAndComparisonGuard(userTimezone)}`;
         msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', deepseekPrompt) });
 
         // Build tool declarations — V4 supports tools with thinking enabled
@@ -1615,73 +1723,169 @@ When asked about model strengths, benchmark scores, pricing, context limits, or 
 
         let currentMessages = [...msgs];
         let runCount = 0;
+        const deepseekReasoningEffort = DEEPSEEK_REASONING_EFFORT === 'max' ? 'max' : 'high';
 
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
-          // Per official docs: thinking and reasoning_effort are top-level params
-          // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
-           const createParams: any = {
-            model: actualDeepseekModel,
-            messages: currentMessages,
-            tools: deepseekTools.length > 0 ? deepseekTools : undefined,
-            stream: true,
-          };
-
-          // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
-          if (isThinkingModel) {
-            // reasoning_effort: "high" (default) or "max" (for complex agentic tasks)
-            createParams.reasoning_effort = "high";
-            // thinking toggle — must be in extra_body for OpenAI SDK
-            // But the OpenAI Node SDK passes unknown top-level keys through,
-            // so we set it directly per DeepSeek's docs
-            createParams.thinking = { type: "enabled" };
-          }
-
-          const stream = await deepseekClient.chat.completions.create(createParams, { signal });
-
           let toolCalls: any = {};
-          let hasContent = false;
-          let reasoningBuffer = '';
+          let turnSucceeded = false;
 
-          for await (const chunk of stream) {
-            if (signal.aborted) break;
-            const delta = chunk.choices?.[0]?.delta;
-            if (!delta) continue;
+          for (let streamAttempt = 1; streamAttempt <= DEEPSEEK_STREAM_RETRY_ATTEMPTS && !signal.aborted; streamAttempt++) {
+            toolCalls = {};
+            let hasContent = false;
+            let reasoningBuffer = '';
+            let emittedAnyContent = false;
 
-            // DeepSeek streams chain-of-thought in reasoning_content
-            // Per docs: "the chain-of-thought content is returned via the reasoning_content parameter"
-            if ((delta as any).reasoning_content) {
-              const reasoning = (delta as any).reasoning_content;
-              reasoningBuffer += reasoning;
-              sendSse('message', { model: 'deepseek', chunk: reasoning });
+            // Per official docs: thinking and reasoning_effort are top-level params
+            // passed via the OpenAI SDK. The OpenAI TS SDK supports extra body params.
+            const createParams: any = {
+              model: actualDeepseekModel,
+              messages: currentMessages,
+              tools: deepseekTools.length > 0 ? deepseekTools : undefined,
+              tool_choice: deepseekTools.length > 0 ? 'auto' : undefined,
+              max_tokens: DEEPSEEK_MAX_TOKENS,
+              stream: true,
+            };
+
+            // Enable thinking mode per https://api-docs.deepseek.com/guides/thinking_mode
+            if (isThinkingModel) {
+              createParams.reasoning_effort = deepseekReasoningEffort;
+              createParams.thinking = { type: "enabled" };
             }
 
-            // Standard content (final answer after reasoning, or full response if thinking disabled)
-            if (delta.content) {
-              // If we were streaming reasoning, insert a separator before the final answer
-              if (reasoningBuffer && !hasContent) {
-                sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
-                reasoningBuffer = '';
+            try {
+              const stream = await deepseekClient.chat.completions.create(createParams, { signal });
+
+              for await (const chunk of stream) {
+                if (signal.aborted) break;
+                const delta = chunk.choices?.[0]?.delta;
+                if (!delta) continue;
+
+                // DeepSeek streams chain-of-thought in reasoning_content
+                if ((delta as any).reasoning_content) {
+                  const reasoning = (delta as any).reasoning_content;
+                  reasoningBuffer += reasoning;
+                  sendSse('message', { model: 'deepseek', chunk: reasoning });
+                }
+
+                // Standard content (final answer after reasoning, or full response if thinking disabled)
+                if (delta.content) {
+                  emittedAnyContent = true;
+                  // If we were streaming reasoning, insert a separator before the final answer
+                  if (reasoningBuffer && !hasContent) {
+                    sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
+                    reasoningBuffer = '';
+                  }
+                  hasContent = true;
+                  sendSse('message', { model: 'deepseek', chunk: delta.content });
+                }
+
+                // Tool calls — V4 supports these even with thinking enabled
+                if (delta.tool_calls) {
+                  for (const tc of delta.tool_calls) {
+                    const index = tc.index ?? 0;
+                    if (!toolCalls[index]) {
+                      toolCalls[index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+                    }
+                    if (tc.function?.arguments) {
+                      toolCalls[index].function.arguments += tc.function.arguments;
+                    }
+                  }
+                }
               }
-              hasContent = true;
-              sendSse('message', { model: 'deepseek', chunk: delta.content });
-            }
 
-            // Tool calls — V4 supports these even with thinking enabled
-            if (delta.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (!toolCalls[tc.index]) {
-                  toolCalls[tc.index] = { id: tc.id, type: "function", function: { name: tc.function?.name || "", arguments: "" } };
+              turnSucceeded = true;
+              break;
+            } catch (streamErr: any) {
+              if (signal.aborted || isAbortLikeError(streamErr)) {
+                throw streamErr;
+              }
+
+              if (emittedAnyContent && isOpenAICompatibleTerminationError(streamErr)) {
+                ChatLogger.warn('deepseek_stream_terminated_after_partial_output', {
+                  connectionId,
+                  model: actualDeepseekModel,
+                  runCount,
+                  message: streamErr?.message || String(streamErr),
+                });
+                turnSucceeded = true;
+                toolCalls = {};
+                break;
+              }
+
+              ChatLogger.warn('deepseek_stream_error_fallback_to_nonstream', {
+                connectionId,
+                model: actualDeepseekModel,
+                runCount,
+                streamAttempt,
+                message: streamErr?.message || String(streamErr),
+              });
+
+              try {
+                const fallback = await deepseekClient.chat.completions.create({
+                  ...createParams,
+                  stream: false,
+                }, { signal });
+
+                const fallbackMessage = fallback.choices?.[0]?.message as any;
+                const fallbackReasoning = fallbackMessage?.reasoning_content;
+                if (typeof fallbackReasoning === 'string' && fallbackReasoning.length > 0) {
+                  sendSse('message', { model: 'deepseek', chunk: fallbackReasoning });
+                  sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
                 }
-                if (tc.function?.arguments) {
-                  toolCalls[tc.index].function.arguments += tc.function.arguments;
+                if (typeof fallbackMessage?.content === 'string' && fallbackMessage.content.length > 0) {
+                  sendSse('message', { model: 'deepseek', chunk: fallbackMessage.content });
                 }
+                if (Array.isArray(fallbackMessage?.tool_calls)) {
+                  fallbackMessage.tool_calls.forEach((tc: any, idx: number) => {
+                    if (!tc) return;
+                    toolCalls[idx] = {
+                      id: tc.id || `deepseek_fallback_tool_call_${Date.now()}_${idx}`,
+                      type: "function",
+                      function: {
+                        name: tc.function?.name || "",
+                        arguments: tc.function?.arguments || "{}"
+                      }
+                    };
+                  });
+                }
+
+                turnSucceeded = true;
+                break;
+              } catch (fallbackErr: any) {
+                if (signal.aborted || isAbortLikeError(fallbackErr)) {
+                  throw fallbackErr;
+                }
+
+                if (streamAttempt < DEEPSEEK_STREAM_RETRY_ATTEMPTS && isOpenAICompatibleTransientStreamError(fallbackErr)) {
+                  const retryInMs = providerRetryDelayMs(streamAttempt, DEEPSEEK_STREAM_RETRY_BASE_MS);
+                  ChatLogger.warn('deepseek_stream_iteration_retry', {
+                    connectionId,
+                    model: actualDeepseekModel,
+                    runCount,
+                    streamAttempt,
+                    retryInMs,
+                    message: fallbackErr?.message || String(fallbackErr),
+                  });
+                  sendSse('message', {
+                    model: 'deepseek',
+                    chunk: `\n\n[DeepSeek transient stream issue — retrying in ${Math.round(retryInMs / 1000)}s...]`,
+                  });
+                  await sleepWithAbort(retryInMs, signal);
+                  continue;
+                }
+
+                throw fallbackErr;
               }
             }
           }
 
           if (signal.aborted) break;
+          if (!turnSucceeded) break;
 
-          const tcKeys = Object.keys(toolCalls);
+          const tcKeys = Object.keys(toolCalls).filter((key) => {
+            const name = toolCalls[key]?.function?.name;
+            return typeof name === 'string' && name.trim().length > 0;
+          });
           if (tcKeys.length === 0) {
             break;
           }
