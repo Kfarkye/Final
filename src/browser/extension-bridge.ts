@@ -51,6 +51,12 @@ type DownstreamCommand =
   | { type: 'NAVIGATE'; payload: { url: string } }
   | { type: 'CLICK'; payload: { selector: string } }
   | { type: 'FILL'; payload: { selector: string; value: string } }
+  | { type: 'WEBRTC_ANSWER'; payload: { sdp: unknown } }
+  | { type: 'ICE_CANDIDATE'; payload: { candidate: unknown } }
+  | { type: 'NATIVE_CLICK'; payload: { x: number; y: number } }
+  | { type: 'NATIVE_SCROLL'; payload: { deltaX: number; deltaY: number } }
+  | { type: 'NATIVE_TEXT'; payload: { text: string } }
+  | { type: 'NATIVE_KEY'; payload: { key: string } }
   | { type: 'START_CAPTURE' }
   | { type: 'STOP_CAPTURE' };
 
@@ -176,6 +182,24 @@ class ExtensionBridgeManager extends EventEmitter {
   }
   fill(selector: string, value: string, connectionId?: string): boolean {
     return this.sendCommand({ type: 'FILL', payload: { selector, value } }, connectionId);
+  }
+  webrtcAnswer(sdp: unknown, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'WEBRTC_ANSWER', payload: { sdp } }, connectionId);
+  }
+  webrtcIce(candidate: unknown, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'ICE_CANDIDATE', payload: { candidate } }, connectionId);
+  }
+  nativeClick(x: number, y: number, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_CLICK', payload: { x, y } }, connectionId);
+  }
+  nativeScroll(deltaX: number, deltaY: number, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_SCROLL', payload: { deltaX, deltaY } }, connectionId);
+  }
+  nativeText(text: string, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_TEXT', payload: { text } }, connectionId);
+  }
+  nativeKey(key: string, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_KEY', payload: { key } }, connectionId);
   }
   startCapture(connectionId?: string): boolean {
     return this.sendCommand({ type: 'START_CAPTURE' }, connectionId);

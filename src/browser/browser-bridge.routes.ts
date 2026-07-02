@@ -129,3 +129,69 @@ browserBridgeRoutes.post("/bridge/capture", (req: Request, res: Response) => {
   if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
   res.json({ ok: true });
 });
+
+// POST /api/browser/bridge/webrtc/answer
+browserBridgeRoutes.post("/bridge/webrtc/answer", (req: Request, res: Response) => {
+  const { sdp, connectionId } = req.body ?? {};
+  if (!sdp || typeof sdp !== "object") {
+    return fail(res, 400, "BAD_ARGUMENT", "sdp required");
+  }
+  const ok = extensionBridge.webrtcAnswer(sdp, connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
+// POST /api/browser/bridge/webrtc/ice
+browserBridgeRoutes.post("/bridge/webrtc/ice", (req: Request, res: Response) => {
+  const { candidate, connectionId } = req.body ?? {};
+  if (!candidate || typeof candidate !== "object") {
+    return fail(res, 400, "BAD_ARGUMENT", "candidate required");
+  }
+  const ok = extensionBridge.webrtcIce(candidate, connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
+// POST /api/browser/bridge/native/click
+browserBridgeRoutes.post("/bridge/native/click", (req: Request, res: Response) => {
+  const { x, y, connectionId } = req.body ?? {};
+  if (typeof x !== "number" || typeof y !== "number") {
+    return fail(res, 400, "BAD_ARGUMENT", "x and y required");
+  }
+  const ok = extensionBridge.nativeClick(Math.round(x), Math.round(y), connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
+// POST /api/browser/bridge/native/scroll
+browserBridgeRoutes.post("/bridge/native/scroll", (req: Request, res: Response) => {
+  const { deltaX = 0, deltaY = 0, connectionId } = req.body ?? {};
+  if (typeof deltaX !== "number" || typeof deltaY !== "number") {
+    return fail(res, 400, "BAD_ARGUMENT", "deltaX and deltaY must be numbers");
+  }
+  const ok = extensionBridge.nativeScroll(Math.round(deltaX), Math.round(deltaY), connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
+// POST /api/browser/bridge/native/text
+browserBridgeRoutes.post("/bridge/native/text", (req: Request, res: Response) => {
+  const { text, connectionId } = req.body ?? {};
+  if (typeof text !== "string") {
+    return fail(res, 400, "BAD_ARGUMENT", "text required");
+  }
+  const ok = extensionBridge.nativeText(text, connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
+// POST /api/browser/bridge/native/key
+browserBridgeRoutes.post("/bridge/native/key", (req: Request, res: Response) => {
+  const { key, connectionId } = req.body ?? {};
+  if (typeof key !== "string" || !key) {
+    return fail(res, 400, "BAD_ARGUMENT", "key required");
+  }
+  const ok = extensionBridge.nativeKey(key, connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
