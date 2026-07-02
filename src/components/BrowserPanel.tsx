@@ -324,6 +324,7 @@ const BrowserPanel = memo(function BrowserPanel({
   const chromeBridgeStreaming = chromeBridgeStatus === 'streaming';
   const serverBridgeStreaming = serverBridgeStreamState === 'connected' || serverBridgeStreamState === 'live';
   const liveVideoStreaming = chromeBridgeStreaming || serverBridgeStreaming;
+  const bridgeSurfaceReady = liveVideoStreaming || Boolean(serverBridgeFrame?.dataUrl);
   const displayUrl = chromeBridgeTab?.url || (typeof serverBridgeEvent?.url === 'string' ? serverBridgeEvent.url : '') || session?.currentUrl || activeBrowser?.url || traceSummary.latestUrl || '';
   const serverConnectionId = typeof serverBridgeEvent?.connectionId === 'string'
     ? serverBridgeEvent.connectionId
@@ -341,7 +342,7 @@ const BrowserPanel = memo(function BrowserPanel({
   const displayTitle = chromeBridgeTab?.title || (serverBridgeStreaming ? 'Live session video' : serverBridgeFrame?.dataUrl ? 'Frame fallback preview' : '') || session?.title || activeBrowser?.title || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
   const pageStatusLabel = blockerGuidance?.title || displayTitle;
   const hasHandoff = Boolean(blocker) || Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
-  const usingRealChromeSession = chromeBridgeConnected || serverBridgeConnected;
+  const usingRealChromeSession = bridgeSurfaceReady;
 
   const sendChromeBridgeCommand = useCallback((
     type: string,
@@ -408,7 +409,7 @@ const BrowserPanel = memo(function BrowserPanel({
     endX: number,
     endY: number,
   ) => {
-    if (chromeBridgeConnected) {
+    if (chromeBridgeConnected && bridgeSurfaceReady) {
       await sendChromeBridgeCommand('NATIVE_DRAG', {
         startX,
         startY,
@@ -420,7 +421,7 @@ const BrowserPanel = memo(function BrowserPanel({
       });
       return;
     }
-    if (serverBridgeConnected) {
+    if (serverBridgeConnected && bridgeSurfaceReady) {
       await sendServerBridgeCommand('native/drag', {
         startX,
         startY,
@@ -432,7 +433,7 @@ const BrowserPanel = memo(function BrowserPanel({
         setChromeBridgeError(err.message || 'Chrome Bridge drag failed');
       });
     }
-  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+  }, [bridgeSurfaceReady, chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
 
   const sendBridgeContextMenu = useCallback(async (x: number, y: number) => {
     if (chromeBridgeConnected) {
@@ -922,7 +923,7 @@ const BrowserPanel = memo(function BrowserPanel({
       return;
     }
     await runAction('navigate', { url, maxChars: 12000 });
-  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
+  }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, urlInput]);
 
   const createTab = useCallback(async () => {
     const newSession = await createSession(null);
@@ -1041,8 +1042,8 @@ const BrowserPanel = memo(function BrowserPanel({
   const moveChromeBridgeVideo = useCallback((event: React.MouseEvent<HTMLVideoElement>) => {
     const width = event.currentTarget.videoWidth || 1280;
     const height = event.currentTarget.videoHeight || 720;
-    trackSurfacePointer(event, width, height, chromeBridgeConnected || serverBridgeConnected);
-  }, [chromeBridgeConnected, serverBridgeConnected, trackSurfacePointer]);
+    trackSurfacePointer(event, width, height, bridgeSurfaceReady && (chromeBridgeConnected || serverBridgeConnected));
+  }, [bridgeSurfaceReady, chromeBridgeConnected, serverBridgeConnected, trackSurfacePointer]);
 
   const clickServerBridgeFrame = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
     if (suppressNextFrameClickRef.current) {
@@ -1122,8 +1123,9 @@ const BrowserPanel = memo(function BrowserPanel({
   const moveServerBridgeFrame = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
     const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
     const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
-    trackSurfacePointer(event, width, height, chromeBridgeConnected || serverBridgeConnected);
+    trackSurfacePointer(event, width, height, bridgeSurfaceReady && (chromeBridgeConnected || serverBridgeConnected));
   }, [
+    bridgeSurfaceReady,
     chromeBridgeConnected,
     serverBridgeConnected,
     session?.viewport?.height,
@@ -1172,7 +1174,7 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [runAction, session?.viewport?.height, session?.viewport?.width, showClickFeedback]);
 
   const scrollScreen = useCallback((event: WheelEvent<HTMLDivElement>) => {
-    if (chromeBridgeConnected) {
+    if (chromeBridgeConnected && bridgeSurfaceReady) {
       event.preventDefault();
       if (wheelLockedRef.current) return;
       wheelLockedRef.current = true;
@@ -1186,7 +1188,7 @@ const BrowserPanel = memo(function BrowserPanel({
       });
       return;
     }
-    if (serverBridgeConnected) {
+    if (serverBridgeConnected && bridgeSurfaceReady) {
       event.preventDefault();
       if (wheelLockedRef.current) return;
       wheelLockedRef.current = true;
@@ -1212,7 +1214,7 @@ const BrowserPanel = memo(function BrowserPanel({
         wheelLockedRef.current = false;
       }, 220);
     });
-  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, session?.pageId]);
+  }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, session?.pageId]);
 
   const keyScreen = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     const isPrintableKey =
@@ -1222,7 +1224,7 @@ const BrowserPanel = memo(function BrowserPanel({
       !event.altKey;
 
     if (!SAFE_KEYS.has(event.key) && !isPrintableKey) return;
-    if (chromeBridgeConnected) {
+    if (chromeBridgeConnected && bridgeSurfaceReady) {
       event.preventDefault();
       if (isPrintableKey) {
         sendChromeBridgeCommand('NATIVE_TEXT', { text: event.key }, { awaitResponse: false }).catch(() => null);
@@ -1231,7 +1233,7 @@ const BrowserPanel = memo(function BrowserPanel({
       }
       return;
     }
-    if (serverBridgeConnected) {
+    if (serverBridgeConnected && bridgeSurfaceReady) {
       event.preventDefault();
       if (isPrintableKey) {
         sendServerBridgeCommand('native/text', { text: event.key, connectionId: serverConnectionId }).catch(() => null);
@@ -1247,16 +1249,16 @@ const BrowserPanel = memo(function BrowserPanel({
     } else {
       runAction('key', { key: event.key }).catch(() => null);
     }
-  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, session?.pageId]);
+  }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, session?.pageId]);
 
   const runBrowserNavigationControl = useCallback((type: 'BACK' | 'FORWARD' | 'RELOAD', backendType: 'back' | 'forward' | 'reload') => {
-    if (chromeBridgeConnected) {
+    if (chromeBridgeConnected && bridgeSurfaceReady) {
       sendChromeBridgeCommand(type, {}, { awaitResponse: false }).catch((err: any) => {
         setChromeBridgeError(err.message || `Chrome Bridge ${backendType} failed`);
       });
       return;
     }
-    if (serverBridgeConnected) {
+    if (serverBridgeConnected && bridgeSurfaceReady) {
       sendServerBridgeCommand('navigate', {
         action: backendType,
         connectionId: serverConnectionId,
@@ -1266,7 +1268,7 @@ const BrowserPanel = memo(function BrowserPanel({
       return;
     }
     runAction(backendType).catch(() => null);
-  }, [chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+  }, [bridgeSurfaceReady, chromeBridgeConnected, runAction, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
 
   return (
     <div className="h-full min-w-0 flex flex-col bg-[var(--t-bg-primary)]">
@@ -1276,7 +1278,7 @@ const BrowserPanel = memo(function BrowserPanel({
             <button
               type="button"
               onClick={() => runBrowserNavigationControl('BACK', 'back')}
-              disabled={(!chromeBridgeConnected && !session?.pageId) || Boolean(busy)}
+              disabled={(!bridgeSurfaceReady && !session?.pageId) || Boolean(busy)}
               className="h-8 w-8 rounded-lg border border-[var(--b1)] text-[var(--t2)] disabled:opacity-35"
               title="Back"
             >
@@ -1285,7 +1287,7 @@ const BrowserPanel = memo(function BrowserPanel({
             <button
               type="button"
               onClick={() => runBrowserNavigationControl('FORWARD', 'forward')}
-              disabled={(!chromeBridgeConnected && !session?.pageId) || Boolean(busy)}
+              disabled={(!bridgeSurfaceReady && !session?.pageId) || Boolean(busy)}
               className="h-8 w-8 rounded-lg border border-[var(--b1)] text-[var(--t2)] disabled:opacity-35"
               title="Forward"
             >
@@ -1294,7 +1296,7 @@ const BrowserPanel = memo(function BrowserPanel({
             <button
               type="button"
               onClick={() => runBrowserNavigationControl('RELOAD', 'reload')}
-              disabled={(!chromeBridgeConnected && !session?.pageId) || Boolean(busy)}
+              disabled={(!bridgeSurfaceReady && !session?.pageId) || Boolean(busy)}
               className="h-8 w-8 rounded-lg border border-[var(--b1)] text-[var(--t2)] disabled:opacity-35"
               title="Reload"
             >
@@ -1366,7 +1368,7 @@ const BrowserPanel = memo(function BrowserPanel({
           {error}
         </div>
       )}
-      {chromeBridgeError && !error && (
+      {chromeBridgeError && !error && bridgeSurfaceReady && (
         <div className="mx-3 mt-3 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
           {chromeBridgeError}
         </div>
