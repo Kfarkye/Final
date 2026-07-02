@@ -35,6 +35,29 @@ async function run() {
   console.log('Tool: get_mlb_odds');
   console.log('Asserting: exact prices, correct best-flag, zero invention\n');
 
+  // ── Resolve a live MLB event dynamically unless explicit env overrides are provided ──
+  // This avoids stale hardcoded teams (e.g. NYY) blocking deploy when no upcoming event exists.
+  let selectedGamePk = process.env.TEST_GAME_PK;
+  let selectedTeam = process.env.TEST_TEAM;
+  if (!selectedGamePk) {
+    try {
+      const live = await toolRegistry.execute('get_live_odds', {
+        sport: 'baseball_mlb',
+        markets: 'h2h',
+      }) as any;
+      const events: any[] = Array.isArray(live?.odds) ? live.odds : [];
+      const pick = events.find((e) => Array.isArray(e?.bookmakers) && e.bookmakers.length > 0)
+        || events[0];
+      if (pick?.id) {
+        selectedGamePk = String(pick.id);
+        selectedTeam = selectedTeam || pick.home_team || pick.away_team || 'MLB';
+        info(`dynamic fixture: eventId=${selectedGamePk} (${pick.away_team || '?'} @ ${pick.home_team || '?'})`);
+      }
+    } catch (e: any) {
+      info(`dynamic fixture lookup failed, falling back to TEST_TEAM/default: ${e?.message || String(e)}`);
+    }
+  }
+
   // ── Call the tool through the full chain (single API call) ──
   // We extract source books from envelope.data.books and rendered rows
   // from envelope.render.rows. Both must agree since they come from the
@@ -44,8 +67,8 @@ async function run() {
     // Use today's date for odds (past dates have no active odds)
     const today = new Date().toISOString().slice(0, 10);
     env = await toolRegistry.execute('get_mlb_odds', {
-      gamePk: process.env.TEST_GAME_PK || undefined,
-      team: process.env.TEST_TEAM || 'NYY',
+      gamePk: selectedGamePk || undefined,
+      team: selectedTeam || 'NYY',
       date: process.env.TEST_DATE || today,
       market: 'moneyline',
     });

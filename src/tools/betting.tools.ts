@@ -142,7 +142,7 @@ export const bettingTools: RegisteredTool<any>[] = [
       name: "get_mlb_odds",
       description: "Get betting odds for a single MLB game. Returns a flat array of { book, side, price, line } rows ready for the odds-board render contract. Finds the game by team name/abbreviation and date. Supports h2h (moneyline), spreads, and totals markets.",
       schema: z.object({
-        team: z.string().describe("Team name or abbreviation to find (e.g., 'CHW', 'White Sox', 'Yankees')"),
+        team: z.string().optional().describe("Team name or abbreviation to find (e.g., 'CHW', 'White Sox', 'Yankees'). Required unless gamePk is provided."),
         date: z.string().optional().describe("Date in YYYY-MM-DD. Not used for filtering (API returns upcoming), but documents intent."),
         market: z.string().optional().describe("Market type: 'moneyline' (default), 'h2h', 'spreads', or 'totals'"),
         gamePk: z.string().optional().describe("Direct Odds API event ID if known (skips team search)"),
@@ -151,7 +151,7 @@ export const bettingTools: RegisteredTool<any>[] = [
     handler: async (args) => {
       const apiKey = getApiKey();
       const marketKey = (args.market === 'moneyline' || !args.market) ? 'h2h' : args.market;
-      const teamSearch = args.team.toLowerCase().trim();
+      const teamSearch = args.team?.toLowerCase().trim() || '';
 
       // MLB abbreviation → Odds API team name
       const MLB_ABBREVS: Record<string, string> = {
@@ -168,7 +168,7 @@ export const bettingTools: RegisteredTool<any>[] = [
       };
 
       // Resolve abbreviation to a searchable substring
-      const resolvedSearch = MLB_ABBREVS[teamSearch] || teamSearch;
+      const resolvedSearch = teamSearch ? (MLB_ABBREVS[teamSearch] || teamSearch) : '';
 
       // Step 1: Find the event by team name
       let eventId = args.gamePk || null;
@@ -176,6 +176,9 @@ export const bettingTools: RegisteredTool<any>[] = [
       let homeTeam = '';
 
       if (!eventId) {
+        if (!teamSearch) {
+          return { error: 'get_mlb_odds requires either gamePk or team.' };
+        }
         const eventsUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/?apiKey=${apiKey}`;
         const { data: events } = await oddsApiFetch(eventsUrl);
 
