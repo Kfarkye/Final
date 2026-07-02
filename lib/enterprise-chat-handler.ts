@@ -147,14 +147,14 @@ function withClaudeCacheControlOnContent(content: any): any {
   return content;
 }
 
-function buildClaudeSystemPrompt(systemPrompt: string): any {
-  if (!CLAUDE_PROMPT_CACHE_ENABLED || !systemPrompt) return systemPrompt;
+function buildClaudeSystemPrompt(systemPrompt: string, promptCacheEnabled: boolean): any {
+  if (!promptCacheEnabled || !systemPrompt) return systemPrompt;
   return [{ type: 'text', text: systemPrompt, cache_control: CLAUDE_CACHE_CONTROL }];
 }
 
-function buildClaudeToolsWithCacheControl(tools: any[]): any[] | undefined {
+function buildClaudeToolsWithCacheControl(tools: any[], promptCacheEnabled: boolean): any[] | undefined {
   if (tools.length === 0) return undefined;
-  if (!CLAUDE_PROMPT_CACHE_ENABLED) return tools;
+  if (!promptCacheEnabled) return tools;
 
   const cloned = tools.map((tool) => ({ ...tool }));
   const idx = cloned.length - 1;
@@ -165,8 +165,8 @@ function buildClaudeToolsWithCacheControl(tools: any[]): any[] | undefined {
   return cloned;
 }
 
-function buildClaudeMessagesForRequest(messages: any[]): any[] {
-  if (!CLAUDE_PROMPT_CACHE_ENABLED || messages.length === 0) return messages;
+function buildClaudeMessagesForRequest(messages: any[], promptCacheEnabled: boolean): any[] {
+  if (!promptCacheEnabled || messages.length === 0) return messages;
 
   return messages.map((message, index) => {
     if (index !== messages.length - 1) return message;
@@ -175,6 +175,19 @@ function buildClaudeMessagesForRequest(messages: any[]): any[] {
       content: withClaudeCacheControlOnContent(message.content),
     };
   });
+}
+
+function supportsClaudePromptCache(selectedModel: string): boolean {
+  // Prompt caching for this integration has been validated on Claude 4-series models.
+  // Newer/aliased models (e.g. fable/sonnet-5 routes) may reject `betas` in some endpoints.
+  return /(claude-(opus|sonnet)-4|claude-opus-4|claude-sonnet-4)/i.test(selectedModel);
+}
+
+function isClaudePromptCacheRejectedError(err: any): boolean {
+  const status = Number(err?.status ?? err?.statusCode ?? err?.response?.status);
+  if (status !== 400) return false;
+  const message = String(err?.message || '');
+  return /betas?.*extra inputs|cache[_-]?control.*(not permitted|unsupported|invalid)|prompt[- ]?caching/i.test(message);
 }
 
 function isClaudeTransientStreamError(err: any): boolean {
@@ -1171,14 +1184,18 @@ CRITICAL TOOL USE INSTRUCTIONS:
           });
         }
 
-        const claudeSystemPrompt = buildClaudeSystemPrompt(systemPrompt);
-        const claudeToolsForRequest = buildClaudeToolsWithCacheControl(claudeTools);
-
         let currentMessages = [...msgs];
         let runCount = 0;
+        const claudePromptCacheDisabledModels = new Set<string>();
 
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
+          const promptCacheEnabledForModel =
+            CLAUDE_PROMPT_CACHE_ENABLED &&
+            supportsClaudePromptCache(selectedClaudeModel) &&
+            !claudePromptCacheDisabledModels.has(selectedClaudeModel);
+          const claudeSystemPrompt = buildClaudeSystemPrompt(systemPrompt, promptCacheEnabledForModel);
+          const claudeToolsForRequest = buildClaudeToolsWithCacheControl(claudeTools, promptCacheEnabledForModel);
 
           // Opus 4 supports up to 128k output tokens.
           // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
@@ -1190,7 +1207,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
           let fatalStreamError: any = null;
 
           for (let streamAttempt = 1; streamAttempt <= CLAUDE_STREAM_RETRY_ATTEMPTS && !signal.aborted; streamAttempt++) {
-            const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages);
+            const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages, promptCacheEnabledForModel);
             let currentToolUse: any = null;
             assistantContentBlocks = [];
             hasToolUse = false;
@@ -1202,7 +1219,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 system: claudeSystemPrompt,
                 messages: claudeMessagesForRequest,
                 tools: claudeToolsForRequest,
-                betas: CLAUDE_PROMPT_CACHE_ENABLED ? [CLAUDE_PROMPT_CACHE_BETA] : undefined
+                betas: promptCacheEnabledForModel ? [CLAUDE_PROMPT_CACHE_BETA] : undefined
               }, { signal, timeout: 600_000 }); // 10 min SDK timeout for agentic loops
 
               for await (const chunk of stream) {
@@ -1248,6 +1265,20 @@ CRITICAL TOOL USE INSTRUCTIONS:
               if (signal.aborted || isAbortLikeError(streamErr)) {
                 ChatLogger.info('claude_stream_aborted', { connectionId });
                 break;
+              }
+
+              if (promptCacheEnabledForModel && isClaudePromptCacheRejectedError(streamErr)) {
+                claudePromptCacheDisabledModels.add(selectedClaudeModel);
+                ChatLogger.warn('claude_prompt_cache_disabled_for_model', {
+                  connectionId,
+                  model: selectedClaudeModel,
+                  reason: streamErr?.message || 'prompt cache unsupported',
+                });
+                sendSse('message', {
+                  model: 'claude',
+                  chunk: '\n\n[Claude endpoint rejected prompt-caching headers for this model. Continuing without cache headers.]',
+                });
+                continue;
               }
 
               const shouldRetry =
