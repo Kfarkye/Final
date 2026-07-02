@@ -66,7 +66,17 @@ Respond in this exact JSON format, nothing else:
       jsonStr = jsonMatch[0];
     }
 
-    const suggestions: Suggestion[] = JSON.parse(jsonStr);
+    let suggestions: Suggestion[] = [];
+    try {
+      suggestions = JSON.parse(jsonStr);
+    } catch {
+      const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fenceMatch?.[1]) {
+        suggestions = JSON.parse(fenceMatch[1]);
+      } else {
+        throw new Error("Model did not return parseable JSON suggestions");
+      }
+    }
 
     // Validate and sanitize
     const validSuggestions = suggestions

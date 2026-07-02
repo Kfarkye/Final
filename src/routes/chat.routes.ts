@@ -23,5 +23,13 @@ router.post(
   handleCodexChat
 );
 
-export default router;
+// Backward-compatible alias used by older clients
+router.post(
+  "/truth/codex/chat",
+  json({ limit: "20mb" }),
+  chatRateLimiter,
+  validateChatPayload,
+  handleCodexChat
+);
 
+export default router;

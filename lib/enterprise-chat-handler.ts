@@ -117,6 +117,29 @@ function toolTurnLimitMessage(): string {
   return `\n\n[Reached tool-call safety budget of ${MAX_PROVIDER_TOOL_TURNS}; stopping here. Set TRUTH_MAX_PROVIDER_TOOL_TURNS higher for longer autonomous runs.]`;
 }
 
+const GROK_MAAS_FALLBACK_MODEL = 'xai/grok-4.20-reasoning';
+const DEEPSEEK_MAAS_FALLBACK_MODEL = 'deepseek-ai/deepseek-v3.2-maas';
+
+function normalizeGrokModel(selectedModel: string, isMaaS: boolean): string {
+  if (!isMaaS) return selectedModel;
+  const trimmed = selectedModel.trim();
+  const normalized = trimmed.includes('/') ? trimmed : `xai/${trimmed}`;
+
+  // xai/grok-4.3 is not currently available on the global endpoint for this project.
+  if (normalized === 'xai/grok-4.3') return GROK_MAAS_FALLBACK_MODEL;
+  return normalized;
+}
+
+function normalizeDeepseekModel(selectedModel: string, isMaaS: boolean): string {
+  if (!isMaaS) return selectedModel;
+  const trimmed = selectedModel.trim();
+  const normalized = trimmed.includes('/') ? trimmed : `deepseek-ai/${trimmed}`;
+
+  // Keep a known-good fallback for deployments where R1 is unavailable.
+  if (normalized === 'deepseek-ai/deepseek-r1-0528-maas') return DEEPSEEK_MAAS_FALLBACK_MODEL;
+  return normalized;
+}
+
 function truncateToolResult(result: any, maxLen = 150000): any {
   if (result === null || result === undefined) return result;
   if (typeof result !== 'object') {
@@ -1217,12 +1240,15 @@ CRITICAL TOOL USE INSTRUCTIONS:
         let currentMessages = [...msgs];
         let runCount = 0;
 
+        const selectedGrokModel = modelConfigs.grok || "grok-4.20-reasoning";
+        const isGrokMaaS = !process.env.XAI_API_KEY;
+        const actualGrokModel = normalizeGrokModel(selectedGrokModel, isGrokMaaS);
+
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
-          const selectedGrokModel = modelConfigs.grok || "grok-4.3";
           let toolCalls: any = {};
           try {
             const stream = await grokClient.chat.completions.create({
-              model: selectedGrokModel,
+              model: actualGrokModel,
               messages: currentMessages,
               tools: grokTools.length > 0 ? grokTools : undefined,
               stream: true
@@ -1254,13 +1280,13 @@ CRITICAL TOOL USE INSTRUCTIONS:
             }
             ChatLogger.warn('grok_stream_error_fallback_to_nonstream', {
               connectionId,
-              model: selectedGrokModel,
+              model: actualGrokModel,
               message: streamErr?.message || String(streamErr),
               runCount,
             });
 
             const fallback = await grokClient.chat.completions.create({
-              model: selectedGrokModel,
+              model: actualGrokModel,
               messages: currentMessages,
               tools: grokTools.length > 0 ? grokTools : undefined,
               stream: false
@@ -1353,13 +1379,11 @@ CRITICAL TOOL USE INSTRUCTIONS:
         sendSse('message', { model: 'deepseek', chunk: '[DeepSeek Not Configured — set DEEPSEEK_API_KEY or enable Vertex AI MaaS]' });
       } else {
       promises.push(streamModel('deepseek', (async () => {
-        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-r1-0528-maas";
+        const selectedDeepseekModel = modelConfigs.deepseek || "deepseek-v3.2-maas";
         
-        // Add deepseek-ai/ prefix if using Vertex AI MaaS (which is when DEEPSEEK_API_KEY is not configured)
+        // Normalize MaaS publisher model format and map unavailable IDs to a known-good default.
         const isMaaS = !process.env.DEEPSEEK_API_KEY;
-        const actualDeepseekModel = isMaaS && selectedDeepseekModel.startsWith('deepseek-') && !selectedDeepseekModel.includes('/')
-          ? `deepseek-ai/${selectedDeepseekModel}`
-          : selectedDeepseekModel;
+        const actualDeepseekModel = normalizeDeepseekModel(selectedDeepseekModel, isMaaS);
 
         // All supported models support thinking (MaaS and direct)
         const isThinkingModel = actualDeepseekModel.includes('v3') || actualDeepseekModel.includes('r1') || actualDeepseekModel.includes('v4');
