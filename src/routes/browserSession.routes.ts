@@ -361,6 +361,33 @@ async function executeSessionAction(session: BrowserSession, body: any): Promise
       await syncSessionFromPage(session);
       result = { success: true, pageId: session.pageId, url: session.currentUrl, title: session.title, x, y };
       action.data = { x, y };
+    } else if (type === "pointer_drag") {
+      if (!session.pageId) throw Object.assign(new Error("Navigate before dragging"), { statusCode: 400 });
+      const page = await getBrowserPageById(session.pageId);
+      if (!page) throw Object.assign(new Error("Browser page is no longer available"), { statusCode: 404 });
+      const startX = Math.max(0, Math.round(Number(body.startX ?? 0)));
+      const startY = Math.max(0, Math.round(Number(body.startY ?? 0)));
+      const endX = Math.max(0, Math.round(Number(body.endX ?? startX)));
+      const endY = Math.max(0, Math.round(Number(body.endY ?? startY)));
+      const steps = Math.max(4, Math.min(48, Math.round(Number(body.steps) || 14)));
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(endX, endY, { steps });
+      await page.mouse.up();
+      await page.waitForNetworkIdle({ timeout: 2500 }).catch(() => {});
+      await syncSessionFromPage(session);
+      result = {
+        success: true,
+        pageId: session.pageId,
+        url: session.currentUrl,
+        title: session.title,
+        startX,
+        startY,
+        endX,
+        endY,
+        steps,
+      };
+      action.data = { startX, startY, endX, endY, steps };
     } else if (type === "wheel") {
       if (!session.pageId) throw Object.assign(new Error("Navigate before scrolling"), { statusCode: 400 });
       const page = await getBrowserPageById(session.pageId);

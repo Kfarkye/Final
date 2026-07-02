@@ -249,6 +249,71 @@ async function nativeClick({ x, y }) {
   broadcast("NATIVE_CLICK", { x, y });
 }
 
+async function nativeDrag({ startX, startY, endX, endY, steps = 14 }) {
+  if (!managedTabId) throw new Error("No managed tab for drag");
+  const safeSteps = Math.max(4, Math.min(48, Math.round(Number(steps) || 14)));
+  await withDebugger(managedTabId, async (target) => {
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: startX,
+      y: startY,
+      button: "none",
+    });
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: startX,
+      y: startY,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    for (let index = 1; index <= safeSteps; index += 1) {
+      const ratio = index / safeSteps;
+      const x = Math.round(startX + (endX - startX) * ratio);
+      const y = Math.round(startY + (endY - startY) * ratio);
+      await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+        button: "left",
+        buttons: 1,
+      });
+    }
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: endX,
+      y: endY,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
+  });
+  broadcast("NATIVE_DRAG", { startX, startY, endX, endY, steps: safeSteps });
+}
+
+async function nativeContextMenu({ x, y }) {
+  if (!managedTabId) throw new Error("No managed tab for context menu");
+  await withDebugger(managedTabId, async (target) => {
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y,
+      button: "right",
+      buttons: 2,
+      clickCount: 1,
+    });
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y,
+      button: "right",
+      buttons: 0,
+      clickCount: 1,
+    });
+  });
+  broadcast("NATIVE_CONTEXT_MENU", { x, y });
+}
+
 async function nativeMove({ x, y }) {
   if (!managedTabId) throw new Error("No managed tab for mouse move");
   await withDebugger(managedTabId, async (target) => {
@@ -422,6 +487,18 @@ async function handleCommand(port, message) {
 
   if (type === "NATIVE_CLICK") {
     await nativeClick(payload);
+    respond(port, requestId, { ok: true });
+    return;
+  }
+
+  if (type === "NATIVE_DRAG") {
+    await nativeDrag(payload);
+    respond(port, requestId, { ok: true });
+    return;
+  }
+
+  if (type === "NATIVE_CONTEXT_MENU") {
+    await nativeContextMenu(payload);
     respond(port, requestId, { ok: true });
     return;
   }

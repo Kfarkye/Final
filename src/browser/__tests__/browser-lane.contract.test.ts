@@ -54,6 +54,8 @@ describe("Hybrid Browser Lane contract", () => {
     expect(browserPanel).toContain("syncUrlInputFromRuntime");
     expect(browserPanel).toContain("onFocus={() => {");
     expect(browserPanel).toContain("onBlur={() => {");
+    expect(browserPanel).toContain('type="submit"');
+    expect(browserPanel).toContain("!urlInput.trim()");
     expect(browserPanel).toContain("Live preview syncing");
     expect(browserPanel).not.toContain("Truth Chrome Bridge");
   });
@@ -89,6 +91,8 @@ describe("Hybrid Browser Lane contract", () => {
     expect(background).toContain("chrome.debugger.sendCommand");
     expect(background).toContain("Input.dispatchMouseEvent");
     expect(background).toContain("Input.insertText");
+    expect(background).toContain("NATIVE_DRAG");
+    expect(background).toContain("NATIVE_CONTEXT_MENU");
     expect(offscreen).toContain("navigator.mediaDevices.getUserMedia");
     expect(offscreen).toContain("new RTCPeerConnection");
     expect(contentScript).toContain("truth-chrome-bridge");
@@ -101,12 +105,16 @@ describe("Hybrid Browser Lane contract", () => {
     expect(browserPanel).toContain("webrtc/answer");
     expect(browserPanel).toContain("native/click");
     expect(browserPanel).toContain("native/move");
+    expect(browserPanel).toContain("sendBridgeDrag");
+    expect(browserPanel).toContain("contextMenuChromeBridgeVideo");
     expect(browserPanel).toContain("clickServerBridgeFrame");
     expect(serverExtension).toContain("startStream");
     expect(serverExtension).toContain("canvas.toDataURL");
     expect(bridgeRoutes).toContain('"/bridge/webrtc/answer"');
     expect(bridgeRoutes).toContain('"/bridge/native/click"');
     expect(bridgeRoutes).toContain('"/bridge/native/move"');
+    expect(bridgeRoutes).toContain('"/bridge/native/drag"');
+    expect(bridgeRoutes).toContain('"/bridge/native/context-menu"');
   });
 
   it("classifies public-site challenges as human-control blockers", () => {

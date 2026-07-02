@@ -163,6 +163,35 @@ browserBridgeRoutes.post("/bridge/native/click", (req: Request, res: Response) =
   res.json({ ok: true });
 });
 
+// POST /api/browser/bridge/native/drag
+browserBridgeRoutes.post("/bridge/native/drag", (req: Request, res: Response) => {
+  const { startX, startY, endX, endY, steps = 14, connectionId } = req.body ?? {};
+  if ([startX, startY, endX, endY].some((value) => typeof value !== "number")) {
+    return fail(res, 400, "BAD_ARGUMENT", "startX/startY/endX/endY are required numbers");
+  }
+  const ok = extensionBridge.nativeDrag(
+    Math.round(startX),
+    Math.round(startY),
+    Math.round(endX),
+    Math.round(endY),
+    Math.max(4, Math.min(48, Math.round(Number(steps) || 14))),
+    connectionId,
+  );
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
+// POST /api/browser/bridge/native/context-menu
+browserBridgeRoutes.post("/bridge/native/context-menu", (req: Request, res: Response) => {
+  const { x, y, connectionId } = req.body ?? {};
+  if (typeof x !== "number" || typeof y !== "number") {
+    return fail(res, 400, "BAD_ARGUMENT", "x and y required");
+  }
+  const ok = extensionBridge.nativeContextMenu(Math.round(x), Math.round(y), connectionId);
+  if (!ok) return fail(res, 409, "NO_CONNECTION", "no connected Chrome extension");
+  res.json({ ok: true });
+});
+
 // POST /api/browser/bridge/native/move
 browserBridgeRoutes.post("/bridge/native/move", (req: Request, res: Response) => {
   const { x, y, connectionId } = req.body ?? {};

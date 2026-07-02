@@ -61,6 +61,8 @@ assertContains("background.js", "chrome.action.onClicked.addListener", "toolbar 
 assertContains("background.js", "CAPTURE_PERMISSION_REQUIRED", "recoverable capture permission event");
 assertContains("background.js", "chrome.debugger.sendCommand");
 assertContains("background.js", "Input.dispatchMouseEvent");
+assertContains("background.js", "NATIVE_DRAG", "native drag command support");
+assertContains("background.js", "NATIVE_CONTEXT_MENU", "native context menu support");
 assertContains("offscreen.js", "new RTCPeerConnection");
 assertContains("offscreen.js", "navigator.mediaDevices.getUserMedia");
 assertContains("content-script.js", "truth-chrome-bridge");
@@ -82,10 +84,14 @@ assertFileContains("src/browser/extension-bridge.ts", "WebSocketServer", "WebSoc
 assertFileContains("src/browser/extension-bridge.ts", "WEBRTC_ANSWER", "server bridge WebRTC answer command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_CLICK", "server bridge native click command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_MOUSE_MOVE", "server bridge native mouse move command");
+assertFileContains("src/browser/extension-bridge.ts", "NATIVE_DRAG", "server bridge native drag command");
+assertFileContains("src/browser/extension-bridge.ts", "NATIVE_CONTEXT_MENU", "server bridge native context menu command");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/stream"', "SSE bridge stream route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/webrtc/answer"', "WebRTC answer route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/click"', "native click route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/move"', "native move route");
+assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/drag"', "native drag route");
+assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/context-menu"', "native context menu route");
 assertFileContains("src/browser/browser-bridge.routes.ts", "sseManager.addClient", "real SSEManager addClient API");
 assertFileContains("src/components/BrowserPanel.tsx", "/api/browser/bridge/stream", "BrowserPanel server bridge stream");
 assertFileContains("src/components/BrowserPanel.tsx", "webrtc/answer", "BrowserPanel server bridge WebRTC answer");
@@ -93,6 +99,9 @@ assertFileContains("src/components/BrowserPanel.tsx", "NATIVE_MOUSE_MOVE", "Brow
 assertFileContains("src/components/BrowserPanel.tsx", "urlInputEditingRef", "BrowserPanel URL editing guard");
 assertFileContains("src/components/BrowserPanel.tsx", "syncUrlInputFromRuntime", "BrowserPanel URL runtime sync guard");
 assertFileContains("src/components/BrowserPanel.tsx", "clickServerBridgeFrame", "BrowserPanel interactive frame fallback");
+assertFileContains("src/components/BrowserPanel.tsx", "sendBridgeDrag", "BrowserPanel drag relay helper");
+assertFileContains("src/components/BrowserPanel.tsx", 'type="submit"', "BrowserPanel submit button");
+assertFileContains("src/components/BrowserPanel.tsx", "!urlInput.trim()", "BrowserPanel submit disable guard");
 assertFileContains("src/components/BrowserPanel.tsx", "Live preview syncing", "BrowserPanel labels fallback preview");
 assertFileContains("src/components/BrowserPanel.tsx", "+ Tab", "BrowserPanel tab UX");
 const browserPanelSource = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");

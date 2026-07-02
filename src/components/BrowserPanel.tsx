@@ -128,6 +128,13 @@ interface SurfaceClickState {
   token: number;
 }
 
+interface SurfaceGestureStart {
+  localX: number;
+  localY: number;
+  sourceX: number;
+  sourceY: number;
+}
+
 const CHROME_BRIDGE_CHANNEL = 'truth-chrome-bridge';
 const CHROME_BRIDGE_APP_SOURCE = 'truth-app';
 const CHROME_BRIDGE_SOURCE = 'truth-chrome-bridge';
@@ -238,6 +245,12 @@ function projectPointerCoordinates(
   return { localX, localY, sourceX, sourceY };
 }
 
+function exceededDragThreshold(start: SurfaceGestureStart, localX: number, localY: number) {
+  const deltaX = localX - start.localX;
+  const deltaY = localY - start.localY;
+  return Math.hypot(deltaX, deltaY) >= 6;
+}
+
 async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/browser${path}`, {
     ...init,
@@ -285,6 +298,12 @@ const BrowserPanel = memo(function BrowserPanel({
   const pendingNativeMoveRef = useRef<{ x: number; y: number } | null>(null);
   const nativeMoveTimerRef = useRef<number | null>(null);
   const clickFeedbackTimerRef = useRef<number | null>(null);
+  const liveGestureStartRef = useRef<SurfaceGestureStart | null>(null);
+  const frameGestureStartRef = useRef<SurfaceGestureStart | null>(null);
+  const screenshotGestureStartRef = useRef<SurfaceGestureStart | null>(null);
+  const suppressNextLiveClickRef = useRef(false);
+  const suppressNextFrameClickRef = useRef(false);
+  const suppressNextScreenshotClickRef = useRef(false);
   const urlInputEditingRef = useRef(false);
   const wheelLockedRef = useRef(false);
   const [chromeBridgeStatus, setChromeBridgeStatus] = useState<ChromeBridgeStatus>('checking');
@@ -383,12 +402,61 @@ const BrowserPanel = memo(function BrowserPanel({
     return payload as JsonObject;
   }, []);
 
+  const sendBridgeDrag = useCallback(async (
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ) => {
+    if (chromeBridgeConnected) {
+      await sendChromeBridgeCommand('NATIVE_DRAG', {
+        startX,
+        startY,
+        endX,
+        endY,
+        steps: 14,
+      }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge drag failed');
+      });
+      return;
+    }
+    if (serverBridgeConnected) {
+      await sendServerBridgeCommand('native/drag', {
+        startX,
+        startY,
+        endX,
+        endY,
+        steps: 14,
+        connectionId: serverConnectionId,
+      }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge drag failed');
+      });
+    }
+  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+
+  const sendBridgeContextMenu = useCallback(async (x: number, y: number) => {
+    if (chromeBridgeConnected) {
+      await sendChromeBridgeCommand('NATIVE_CONTEXT_MENU', { x, y }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge context menu failed');
+      });
+      return;
+    }
+    if (serverBridgeConnected) {
+      await sendServerBridgeCommand('native/context-menu', { x, y, connectionId: serverConnectionId }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge context menu failed');
+      });
+    }
+  }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId]);
+
   const syncUrlInputFromRuntime = useCallback((nextUrl?: string | null) => {
     if (urlInputEditingRef.current) return;
     setUrlInput(nextUrl || '');
   }, []);
 
   const clearSurfaceCursor = useCallback(() => {
+    liveGestureStartRef.current = null;
+    frameGestureStartRef.current = null;
+    screenshotGestureStartRef.current = null;
     setSurfaceCursor(current => (current.visible ? { ...current, visible: false } : current));
   }, []);
 
@@ -889,6 +957,10 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [blocker, blockerGuidance, displayUrl, onInsertContext]);
 
   const clickScreen = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
+    if (suppressNextScreenshotClickRef.current) {
+      suppressNextScreenshotClickRef.current = false;
+      return;
+    }
     const target = await ensureSession();
     if (!target.pageId) return;
     const width = target.viewport?.width || 1280;
@@ -901,6 +973,10 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [ensureSession, runAction, showClickFeedback]);
 
   const clickChromeBridgeVideo = useCallback(async (event: React.MouseEvent<HTMLVideoElement>) => {
+    if (suppressNextLiveClickRef.current) {
+      suppressNextLiveClickRef.current = false;
+      return;
+    }
     if (!chromeBridgeConnected && !serverBridgeConnected) return;
     const width = event.currentTarget.videoWidth || 1280;
     const height = event.currentTarget.videoHeight || 720;
@@ -919,6 +995,49 @@ const BrowserPanel = memo(function BrowserPanel({
     screenRef.current?.focus();
   }, [chromeBridgeConnected, sendChromeBridgeCommand, sendServerBridgeCommand, serverBridgeConnected, serverConnectionId, showClickFeedback]);
 
+  const mouseDownChromeBridgeVideo = useCallback((event: React.MouseEvent<HTMLVideoElement>) => {
+    const width = event.currentTarget.videoWidth || 1280;
+    const height = event.currentTarget.videoHeight || 720;
+    const projected = projectPointerCoordinates(event, width, height);
+    liveGestureStartRef.current = {
+      localX: projected.localX,
+      localY: projected.localY,
+      sourceX: projected.sourceX,
+      sourceY: projected.sourceY,
+    };
+    setSurfaceCursor({ x: projected.localX, y: projected.localY, visible: true });
+  }, []);
+
+  const mouseUpChromeBridgeVideo = useCallback(async (event: React.MouseEvent<HTMLVideoElement>) => {
+    const gestureStart = liveGestureStartRef.current;
+    liveGestureStartRef.current = null;
+    if (!gestureStart) return;
+    const width = event.currentTarget.videoWidth || 1280;
+    const height = event.currentTarget.videoHeight || 720;
+    const projected = projectPointerCoordinates(event, width, height);
+    setSurfaceCursor({ x: projected.localX, y: projected.localY, visible: true });
+    if (!exceededDragThreshold(gestureStart, projected.localX, projected.localY)) return;
+    suppressNextLiveClickRef.current = true;
+    showClickFeedback(projected.localX, projected.localY);
+    await sendBridgeDrag(
+      gestureStart.sourceX,
+      gestureStart.sourceY,
+      projected.sourceX,
+      projected.sourceY,
+    );
+    screenRef.current?.focus();
+  }, [sendBridgeDrag, showClickFeedback]);
+
+  const contextMenuChromeBridgeVideo = useCallback(async (event: React.MouseEvent<HTMLVideoElement>) => {
+    event.preventDefault();
+    const width = event.currentTarget.videoWidth || 1280;
+    const height = event.currentTarget.videoHeight || 720;
+    const { localX, localY, sourceX, sourceY } = projectPointerCoordinates(event, width, height);
+    showClickFeedback(localX, localY);
+    await sendBridgeContextMenu(sourceX, sourceY);
+    screenRef.current?.focus();
+  }, [sendBridgeContextMenu, showClickFeedback]);
+
   const moveChromeBridgeVideo = useCallback((event: React.MouseEvent<HTMLVideoElement>) => {
     const width = event.currentTarget.videoWidth || 1280;
     const height = event.currentTarget.videoHeight || 720;
@@ -926,6 +1045,10 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [chromeBridgeConnected, serverBridgeConnected, trackSurfacePointer]);
 
   const clickServerBridgeFrame = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
+    if (suppressNextFrameClickRef.current) {
+      suppressNextFrameClickRef.current = false;
+      return;
+    }
     if (!chromeBridgeConnected && !serverBridgeConnected) return;
     const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
     const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
@@ -953,6 +1076,49 @@ const BrowserPanel = memo(function BrowserPanel({
     showClickFeedback,
   ]);
 
+  const mouseDownServerBridgeFrame = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
+    const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
+    const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
+    const projected = projectPointerCoordinates(event, width, height);
+    frameGestureStartRef.current = {
+      localX: projected.localX,
+      localY: projected.localY,
+      sourceX: projected.sourceX,
+      sourceY: projected.sourceY,
+    };
+    setSurfaceCursor({ x: projected.localX, y: projected.localY, visible: true });
+  }, [session?.viewport?.height, session?.viewport?.width]);
+
+  const mouseUpServerBridgeFrame = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
+    const gestureStart = frameGestureStartRef.current;
+    frameGestureStartRef.current = null;
+    if (!gestureStart) return;
+    const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
+    const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
+    const projected = projectPointerCoordinates(event, width, height);
+    setSurfaceCursor({ x: projected.localX, y: projected.localY, visible: true });
+    if (!exceededDragThreshold(gestureStart, projected.localX, projected.localY)) return;
+    suppressNextFrameClickRef.current = true;
+    showClickFeedback(projected.localX, projected.localY);
+    await sendBridgeDrag(
+      gestureStart.sourceX,
+      gestureStart.sourceY,
+      projected.sourceX,
+      projected.sourceY,
+    );
+    screenRef.current?.focus();
+  }, [sendBridgeDrag, session?.viewport?.height, session?.viewport?.width, showClickFeedback]);
+
+  const contextMenuServerBridgeFrame = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
+    event.preventDefault();
+    const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
+    const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
+    const { localX, localY, sourceX, sourceY } = projectPointerCoordinates(event, width, height);
+    showClickFeedback(localX, localY);
+    await sendBridgeContextMenu(sourceX, sourceY);
+    screenRef.current?.focus();
+  }, [sendBridgeContextMenu, session?.viewport?.height, session?.viewport?.width, showClickFeedback]);
+
   const moveServerBridgeFrame = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
     const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
     const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
@@ -970,6 +1136,40 @@ const BrowserPanel = memo(function BrowserPanel({
     const height = session?.viewport?.height || 900;
     trackSurfacePointer(event, width, height, false);
   }, [session?.viewport?.height, session?.viewport?.width, trackSurfacePointer]);
+
+  const mouseDownScreenshotSurface = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
+    const width = session?.viewport?.width || 1280;
+    const height = session?.viewport?.height || 900;
+    const projected = projectPointerCoordinates(event, width, height);
+    screenshotGestureStartRef.current = {
+      localX: projected.localX,
+      localY: projected.localY,
+      sourceX: projected.sourceX,
+      sourceY: projected.sourceY,
+    };
+    setSurfaceCursor({ x: projected.localX, y: projected.localY, visible: true });
+  }, [session?.viewport?.height, session?.viewport?.width]);
+
+  const mouseUpScreenshotSurface = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
+    const gestureStart = screenshotGestureStartRef.current;
+    screenshotGestureStartRef.current = null;
+    if (!gestureStart) return;
+    const width = session?.viewport?.width || 1280;
+    const height = session?.viewport?.height || 900;
+    const projected = projectPointerCoordinates(event, width, height);
+    setSurfaceCursor({ x: projected.localX, y: projected.localY, visible: true });
+    if (!exceededDragThreshold(gestureStart, projected.localX, projected.localY)) return;
+    suppressNextScreenshotClickRef.current = true;
+    showClickFeedback(projected.localX, projected.localY);
+    await runAction('pointer_drag', {
+      startX: gestureStart.sourceX,
+      startY: gestureStart.sourceY,
+      endX: projected.sourceX,
+      endY: projected.sourceY,
+      steps: 14,
+    }).catch(() => null);
+    screenRef.current?.focus();
+  }, [runAction, session?.viewport?.height, session?.viewport?.width, showClickFeedback]);
 
   const scrollScreen = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (chromeBridgeConnected) {
@@ -1112,7 +1312,13 @@ const BrowserPanel = memo(function BrowserPanel({
               placeholder="Enter URL or search"
               className="min-w-0 flex-1 rounded-lg border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-xs text-[var(--t1)] outline-none focus:border-blue-400/60"
             />
-            <span className="px-2 text-[10px] uppercase tracking-wider text-[var(--t4)]">Enter</span>
+            <button
+              type="submit"
+              disabled={Boolean(busy) || !urlInput.trim()}
+              className="rounded-lg border border-blue-400/25 bg-blue-400/10 px-3 py-2 text-[11px] font-semibold text-blue-200 disabled:opacity-35"
+            >
+              Go
+            </button>
           </div>
         </form>
 
@@ -1188,8 +1394,11 @@ const BrowserPanel = memo(function BrowserPanel({
                 playsInline
                 muted
                 onClick={clickChromeBridgeVideo}
+                onMouseDown={mouseDownChromeBridgeVideo}
+                onMouseUp={mouseUpChromeBridgeVideo}
                 onMouseMove={moveChromeBridgeVideo}
                 onMouseLeave={clearSurfaceCursor}
+                onContextMenu={contextMenuChromeBridgeVideo}
                 className="mx-auto block h-full w-full cursor-default select-none bg-black object-contain"
               />
               {surfaceCursor.visible && (
@@ -1212,8 +1421,11 @@ const BrowserPanel = memo(function BrowserPanel({
                 src={serverBridgeFrame.dataUrl}
                 alt="Fallback Chrome frame preview"
                 onClick={clickServerBridgeFrame}
+                onMouseDown={mouseDownServerBridgeFrame}
+                onMouseUp={mouseUpServerBridgeFrame}
                 onMouseMove={moveServerBridgeFrame}
                 onMouseLeave={clearSurfaceCursor}
+                onContextMenu={contextMenuServerBridgeFrame}
                 className="mx-auto block h-full w-full cursor-default select-none bg-black object-contain"
                 draggable={false}
               />
@@ -1255,6 +1467,8 @@ const BrowserPanel = memo(function BrowserPanel({
                 src={`data:${screenshot.mimeType};base64,${screenshot.base64}`}
                 alt="Current in-app browser page"
                 onClick={clickScreen}
+                onMouseDown={mouseDownScreenshotSurface}
+                onMouseUp={mouseUpScreenshotSurface}
                 onMouseMove={moveScreenshotSurface}
                 onMouseLeave={clearSurfaceCursor}
                 className="mx-auto block h-full w-full cursor-default select-none object-contain"

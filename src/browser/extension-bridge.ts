@@ -55,6 +55,8 @@ type DownstreamCommand =
   | { type: 'ICE_CANDIDATE'; payload: { candidate: unknown } }
   | { type: 'NATIVE_MOUSE_MOVE'; payload: { x: number; y: number } }
   | { type: 'NATIVE_CLICK'; payload: { x: number; y: number } }
+  | { type: 'NATIVE_DRAG'; payload: { startX: number; startY: number; endX: number; endY: number; steps?: number } }
+  | { type: 'NATIVE_CONTEXT_MENU'; payload: { x: number; y: number } }
   | { type: 'NATIVE_SCROLL'; payload: { deltaX: number; deltaY: number } }
   | { type: 'NATIVE_TEXT'; payload: { text: string } }
   | { type: 'NATIVE_KEY'; payload: { key: string } }
@@ -195,6 +197,12 @@ class ExtensionBridgeManager extends EventEmitter {
   }
   nativeClick(x: number, y: number, connectionId?: string): boolean {
     return this.sendCommand({ type: 'NATIVE_CLICK', payload: { x, y } }, connectionId);
+  }
+  nativeDrag(startX: number, startY: number, endX: number, endY: number, steps = 14, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_DRAG', payload: { startX, startY, endX, endY, steps } }, connectionId);
+  }
+  nativeContextMenu(x: number, y: number, connectionId?: string): boolean {
+    return this.sendCommand({ type: 'NATIVE_CONTEXT_MENU', payload: { x, y } }, connectionId);
   }
   nativeScroll(deltaX: number, deltaY: number, connectionId?: string): boolean {
     return this.sendCommand({ type: 'NATIVE_SCROLL', payload: { deltaX, deltaY } }, connectionId);
