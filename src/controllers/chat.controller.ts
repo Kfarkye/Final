@@ -125,9 +125,25 @@ export const chatController = {
         // ── Meta-tool dispatch ──────────────────────────────────────
         // When the LLM calls `call_tool`, unwrap and dispatch to the real tool.
         if (name === 'call_tool' && args?.toolName) {
-          const realToolName = args.toolName;
-          const realArgs = args.arguments || {};
-          
+          let realToolName = args.toolName;
+          let realArgs = args.arguments || {};
+
+          // Some providers occasionally wrap the meta-tool call one level deep:
+          // call_tool({ toolName: "call_tool", arguments: { toolName: "...", arguments: {...} } })
+          // Flatten this safely so first tool execution succeeds without a hard tool_error.
+          let unwrapDepth = 0;
+          while (
+            realToolName === 'call_tool' &&
+            realArgs &&
+            typeof realArgs === 'object' &&
+            typeof realArgs.toolName === 'string' &&
+            unwrapDepth < 3
+          ) {
+            realToolName = realArgs.toolName;
+            realArgs = realArgs.arguments || {};
+            unwrapDepth++;
+          }
+
           if (realToolName === 'call_tool') {
             throw new Error('Nested call_tool invocation is not allowed');
           }
