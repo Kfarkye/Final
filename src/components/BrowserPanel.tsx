@@ -285,6 +285,7 @@ const BrowserPanel = memo(function BrowserPanel({
   const pendingNativeMoveRef = useRef<{ x: number; y: number } | null>(null);
   const nativeMoveTimerRef = useRef<number | null>(null);
   const clickFeedbackTimerRef = useRef<number | null>(null);
+  const urlInputEditingRef = useRef(false);
   const wheelLockedRef = useRef(false);
   const [chromeBridgeStatus, setChromeBridgeStatus] = useState<ChromeBridgeStatus>('checking');
   const [chromeBridgeTab, setChromeBridgeTab] = useState<ChromeBridgeTab | null>(null);
@@ -380,6 +381,11 @@ const BrowserPanel = memo(function BrowserPanel({
       throw new Error(String(message));
     }
     return payload as JsonObject;
+  }, []);
+
+  const syncUrlInputFromRuntime = useCallback((nextUrl?: string | null) => {
+    if (urlInputEditingRef.current) return;
+    setUrlInput(nextUrl || '');
   }, []);
 
   const clearSurfaceCursor = useCallback(() => {
@@ -568,7 +574,7 @@ const BrowserPanel = memo(function BrowserPanel({
       if (message.type === 'TAB_CREATED' || message.type === 'TAB_CONNECTED' || message.type === 'TAB_UPDATED') {
         setChromeBridgeStatus(current => current === 'streaming' ? current : 'connected');
         setChromeBridgeTab(payload as ChromeBridgeTab);
-        if (typeof payload.url === 'string' && payload.url) setUrlInput(payload.url);
+        if (typeof payload.url === 'string' && payload.url) syncUrlInputFromRuntime(payload.url);
         return;
       }
 
@@ -621,7 +627,7 @@ const BrowserPanel = memo(function BrowserPanel({
 
     window.addEventListener('message', onBridgeMessage);
     return () => window.removeEventListener('message', onBridgeMessage);
-  }, [acceptChromeBridgeOffer, closeChromeBridgePeer]);
+  }, [acceptChromeBridgeOffer, closeChromeBridgePeer, syncUrlInputFromRuntime]);
 
   useEffect(() => {
     let cancelled = false;
@@ -670,7 +676,7 @@ const BrowserPanel = memo(function BrowserPanel({
       const payload = parseEvent(event);
       if (!payload || typeof payload !== 'object') return;
       setServerBridgeEvent(payload as JsonObject);
-      if (typeof payload.url === 'string' && payload.url) setUrlInput(payload.url);
+      if (typeof payload.url === 'string' && payload.url) syncUrlInputFromRuntime(payload.url);
       const eventType = typeof payload.type === 'string' ? payload.type : '';
       const connectionId = typeof payload.connectionId === 'string' ? payload.connectionId : undefined;
 
@@ -732,7 +738,7 @@ const BrowserPanel = memo(function BrowserPanel({
       source.removeEventListener('browser-event', onBrowserEvent);
       source.close();
     };
-  }, [acceptServerBridgeOffer]);
+  }, [acceptServerBridgeOffer, syncUrlInputFromRuntime]);
 
   useEffect(() => {
     return () => {
@@ -763,13 +769,13 @@ const BrowserPanel = memo(function BrowserPanel({
       setSessions(liveSessions);
       setSession(nextSession);
       setActiveBrowser(payload.activeBrowser || null);
-      if (nextSession?.currentUrl) setUrlInput(nextSession.currentUrl);
-      else if (payload.activeBrowser?.url) setUrlInput(payload.activeBrowser.url);
+      if (nextSession?.currentUrl) syncUrlInputFromRuntime(nextSession.currentUrl);
+      else if (payload.activeBrowser?.url) syncUrlInputFromRuntime(payload.activeBrowser.url);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Unable to read browser session');
     }
-  }, [session]);
+  }, [session, syncUrlInputFromRuntime]);
 
   useEffect(() => {
     refreshSessions();
@@ -783,9 +789,9 @@ const BrowserPanel = memo(function BrowserPanel({
       body: JSON.stringify(pageId ? { pageId } : {}),
     });
     setSession(payload.session);
-    if (payload.session.currentUrl) setUrlInput(payload.session.currentUrl);
+    if (payload.session.currentUrl) syncUrlInputFromRuntime(payload.session.currentUrl);
     return payload.session;
-  }, []);
+  }, [syncUrlInputFromRuntime]);
 
   const ensureSession = useCallback(async () => {
     if (session) return session;
@@ -802,7 +808,7 @@ const BrowserPanel = memo(function BrowserPanel({
         body: JSON.stringify({ ...payload, type }),
       });
       setSession(result.session);
-      if (result.session.currentUrl) setUrlInput(result.session.currentUrl);
+      if (result.session.currentUrl) syncUrlInputFromRuntime(result.session.currentUrl);
       return result;
     } catch (err: any) {
       setError(err.message || `${type} failed`);
@@ -810,10 +816,11 @@ const BrowserPanel = memo(function BrowserPanel({
     } finally {
       setBusy(null);
     }
-  }, [ensureSession]);
+  }, [ensureSession, syncUrlInputFromRuntime]);
 
   const navigate = useCallback(async (event?: FormEvent) => {
     event?.preventDefault();
+    urlInputEditingRef.current = false;
     const url = normalizeUrl(urlInput);
     if (!url) return;
     if (chromeBridgeConnected) {
@@ -917,6 +924,46 @@ const BrowserPanel = memo(function BrowserPanel({
     const height = event.currentTarget.videoHeight || 720;
     trackSurfacePointer(event, width, height, chromeBridgeConnected || serverBridgeConnected);
   }, [chromeBridgeConnected, serverBridgeConnected, trackSurfacePointer]);
+
+  const clickServerBridgeFrame = useCallback(async (event: React.MouseEvent<HTMLImageElement>) => {
+    if (!chromeBridgeConnected && !serverBridgeConnected) return;
+    const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
+    const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
+    const { localX, localY, sourceX: x, sourceY: y } = projectPointerCoordinates(event, width, height);
+    showClickFeedback(localX, localY);
+    setSurfaceCursor({ x: localX, y: localY, visible: true });
+    if (chromeBridgeConnected) {
+      await sendChromeBridgeCommand('NATIVE_CLICK', { x, y }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge click failed');
+      });
+    } else {
+      await sendServerBridgeCommand('native/click', { x, y, connectionId: serverConnectionId }).catch((err: any) => {
+        setChromeBridgeError(err.message || 'Chrome Bridge click failed');
+      });
+    }
+    screenRef.current?.focus();
+  }, [
+    chromeBridgeConnected,
+    sendChromeBridgeCommand,
+    sendServerBridgeCommand,
+    serverBridgeConnected,
+    serverConnectionId,
+    session?.viewport?.height,
+    session?.viewport?.width,
+    showClickFeedback,
+  ]);
+
+  const moveServerBridgeFrame = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
+    const width = event.currentTarget.naturalWidth || session?.viewport?.width || 1280;
+    const height = event.currentTarget.naturalHeight || session?.viewport?.height || 720;
+    trackSurfacePointer(event, width, height, chromeBridgeConnected || serverBridgeConnected);
+  }, [
+    chromeBridgeConnected,
+    serverBridgeConnected,
+    session?.viewport?.height,
+    session?.viewport?.width,
+    trackSurfacePointer,
+  ]);
 
   const moveScreenshotSurface = useCallback((event: React.MouseEvent<HTMLImageElement>) => {
     const width = session?.viewport?.width || 1280;
@@ -1056,6 +1103,12 @@ const BrowserPanel = memo(function BrowserPanel({
             <input
               value={urlInput}
               onChange={(event) => setUrlInput(event.target.value)}
+              onFocus={() => {
+                urlInputEditingRef.current = true;
+              }}
+              onBlur={() => {
+                urlInputEditingRef.current = false;
+              }}
               placeholder="Enter URL or search"
               className="min-w-0 flex-1 rounded-lg border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-xs text-[var(--t1)] outline-none focus:border-blue-400/60"
             />
@@ -1154,13 +1207,29 @@ const BrowserPanel = memo(function BrowserPanel({
               )}
             </div>
           ) : serverBridgeFrame?.dataUrl ? (
-            <div className="h-full overflow-hidden rounded-lg border border-[var(--b1)] bg-black">
+            <div className="relative h-full overflow-hidden rounded-lg border border-[var(--b1)] bg-black">
               <img
                 src={serverBridgeFrame.dataUrl}
                 alt="Fallback Chrome frame preview"
-                className="mx-auto block h-full w-full select-none bg-black object-contain"
+                onClick={clickServerBridgeFrame}
+                onMouseMove={moveServerBridgeFrame}
+                onMouseLeave={clearSurfaceCursor}
+                className="mx-auto block h-full w-full cursor-default select-none bg-black object-contain"
                 draggable={false}
               />
+              {surfaceCursor.visible && (
+                <div
+                  className="pointer-events-none absolute z-20 h-4 w-4 rounded-full border border-blue-300/80 bg-blue-300/15 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                  style={{ left: surfaceCursor.x, top: surfaceCursor.y, transform: 'translate(-3px, -3px)' }}
+                />
+              )}
+              {surfaceClick && (
+                <div
+                  key={surfaceClick.token}
+                  className="pointer-events-none absolute z-20 h-8 w-8 rounded-full border border-blue-300/70 bg-blue-300/10"
+                  style={{ left: surfaceClick.x, top: surfaceClick.y, transform: 'translate(-50%, -50%)' }}
+                />
+              )}
               <div className="border-t border-[var(--b1)] bg-black/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--t4)]">
                 Live preview syncing
               </div>

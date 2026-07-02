@@ -90,6 +90,9 @@ assertFileContains("src/browser/browser-bridge.routes.ts", "sseManager.addClient
 assertFileContains("src/components/BrowserPanel.tsx", "/api/browser/bridge/stream", "BrowserPanel server bridge stream");
 assertFileContains("src/components/BrowserPanel.tsx", "webrtc/answer", "BrowserPanel server bridge WebRTC answer");
 assertFileContains("src/components/BrowserPanel.tsx", "NATIVE_MOUSE_MOVE", "BrowserPanel native mouse move relay");
+assertFileContains("src/components/BrowserPanel.tsx", "urlInputEditingRef", "BrowserPanel URL editing guard");
+assertFileContains("src/components/BrowserPanel.tsx", "syncUrlInputFromRuntime", "BrowserPanel URL runtime sync guard");
+assertFileContains("src/components/BrowserPanel.tsx", "clickServerBridgeFrame", "BrowserPanel interactive frame fallback");
 assertFileContains("src/components/BrowserPanel.tsx", "Live preview syncing", "BrowserPanel labels fallback preview");
 assertFileContains("src/components/BrowserPanel.tsx", "+ Tab", "BrowserPanel tab UX");
 const browserPanelSource = readFileSync(resolve(root, "src/components/BrowserPanel.tsx"), "utf8");

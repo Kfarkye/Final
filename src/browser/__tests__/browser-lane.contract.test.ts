@@ -50,6 +50,10 @@ describe("Hybrid Browser Lane contract", () => {
     expect(chatClient).toContain("Browser mode promotes this area into the primary surface.");
     expect(browserPanel).toContain("Start browsing");
     expect(browserPanel).toContain("+ Tab");
+    expect(browserPanel).toContain("urlInputEditingRef");
+    expect(browserPanel).toContain("syncUrlInputFromRuntime");
+    expect(browserPanel).toContain("onFocus={() => {");
+    expect(browserPanel).toContain("onBlur={() => {");
     expect(browserPanel).toContain("Live preview syncing");
     expect(browserPanel).not.toContain("Truth Chrome Bridge");
   });
@@ -97,6 +101,7 @@ describe("Hybrid Browser Lane contract", () => {
     expect(browserPanel).toContain("webrtc/answer");
     expect(browserPanel).toContain("native/click");
     expect(browserPanel).toContain("native/move");
+    expect(browserPanel).toContain("clickServerBridgeFrame");
     expect(serverExtension).toContain("startStream");
     expect(serverExtension).toContain("canvas.toDataURL");
     expect(bridgeRoutes).toContain('"/bridge/webrtc/answer"');
