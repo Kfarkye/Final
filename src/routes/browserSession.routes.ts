@@ -1,5 +1,8 @@
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
+import type { Server as HttpServer, IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
+import { WebSocketServer, WebSocket } from "ws";
 import {
   browserTools,
   getBrowserPageById,
@@ -74,6 +77,8 @@ type BrowserSession = {
 const router = Router();
 const sessions = new Map<string, BrowserSession>();
 const MAX_ACTION_HISTORY = 100;
+let wsAttached = false;
+let wsServer: WebSocketServer | null = null;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -273,6 +278,11 @@ function sendError(res: Response, err: any) {
       message: err?.message || "Browser session request failed",
     },
   });
+}
+
+function sendWs(ws: WebSocket, payload: Record<string, unknown>) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(payload));
 }
 
 async function executeSessionAction(session: BrowserSession, body: any): Promise<BrowserActionResult> {
@@ -655,5 +665,139 @@ router.delete("/sessions/:sessionId", async (req, res) => {
   sessions.delete(session.id);
   res.json({ ok: true, session: toView(session) });
 });
+
+type BrowserWsCommand =
+  | { type: "ping" }
+  | { type: "navigate"; url: string; maxChars?: number }
+  | { type: "action"; actionType: string; payload?: Record<string, unknown> };
+
+function parseWsCommand(raw: string): BrowserWsCommand | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.type === "ping") return { type: "ping" };
+    if (parsed.type === "navigate" && typeof parsed.url === "string") {
+      return {
+        type: "navigate",
+        url: parsed.url,
+        maxChars: typeof parsed.maxChars === "number" ? parsed.maxChars : undefined,
+      };
+    }
+    if (parsed.type === "action" && typeof parsed.actionType === "string") {
+      return {
+        type: "action",
+        actionType: parsed.actionType,
+        payload: parsed.payload && typeof parsed.payload === "object" ? parsed.payload : {},
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function attachBrowserSessionWebSocket(server: HttpServer): void {
+  if (wsAttached) return;
+  wsAttached = true;
+  wsServer = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const requestUrl = new URL(request.url || "/", "http://localhost");
+    if (requestUrl.pathname !== "/ws/browser") return;
+
+    const sessionId = requestUrl.searchParams.get("sessionId");
+    if (!sessionId || !sessions.has(sessionId)) {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    wsServer?.handleUpgrade(request, socket, head, (ws) => {
+      wsServer?.emit("connection", ws, request, sessionId);
+    });
+  });
+
+  wsServer.on("connection", async (ws: WebSocket, _request: IncomingMessage, sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session || session.status === "closed") {
+      sendWs(ws, { type: "error", code: "SESSION_NOT_FOUND", message: sessionId });
+      ws.close(1008, "SESSION_NOT_FOUND");
+      return;
+    }
+
+    sendWs(ws, {
+      type: "state",
+      session: toView(session),
+    });
+
+    if (!session.pageId) {
+      sendWs(ws, { type: "error", code: "NO_PAGE", message: "Navigate before opening a live stream." });
+      return;
+    }
+
+    const page = await getBrowserPageById(session.pageId);
+    if (!page) {
+      sendWs(ws, { type: "error", code: "PAGE_NOT_FOUND", message: session.pageId });
+      return;
+    }
+
+    const cdp = await page.createCDPSession();
+    const onFrame = async (evt: { data: string; sessionId: number; metadata?: unknown }) => {
+      sendWs(ws, {
+        type: "frame",
+        sessionId,
+        dataUrl: `data:image/jpeg;base64,${evt.data}`,
+        metadata: evt.metadata ?? null,
+        timestamp: Date.now(),
+      });
+      await cdp.send("Page.screencastFrameAck", { sessionId: evt.sessionId }).catch(() => null);
+    };
+
+    cdp.on("Page.screencastFrame", onFrame);
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: 65,
+      maxWidth: session.viewport.width,
+      maxHeight: session.viewport.height,
+      everyNthFrame: 1,
+    }).catch((err: any) => {
+      sendWs(ws, { type: "error", code: "SCREENCAST_FAILED", message: err?.message || "Unable to start screencast" });
+    });
+
+    ws.on("message", async (raw) => {
+      const command = parseWsCommand(String(raw));
+      if (!command) {
+        sendWs(ws, { type: "error", code: "BAD_MESSAGE", message: "Invalid browser websocket command" });
+        return;
+      }
+
+      if (command.type === "ping") {
+        sendWs(ws, { type: "pong", timestamp: Date.now() });
+        return;
+      }
+
+      const activeSession = sessions.get(sessionId);
+      if (!activeSession) {
+        sendWs(ws, { type: "error", code: "SESSION_NOT_FOUND", message: sessionId });
+        return;
+      }
+
+      try {
+        const action = command.type === "navigate"
+          ? await executeSessionAction(activeSession, { type: "navigate", url: command.url, maxChars: command.maxChars || 20_000 })
+          : await executeSessionAction(activeSession, { type: command.actionType, ...(command.payload || {}) });
+        sendWs(ws, { type: "action-result", action, session: toView(activeSession) });
+      } catch (err: any) {
+        sendWs(ws, { type: "error", code: "ACTION_FAILED", message: err?.message || "Browser action failed" });
+      }
+    });
+
+    ws.on("close", () => {
+      void cdp.send("Page.stopScreencast").catch(() => null);
+      cdp.off("Page.screencastFrame", onFrame);
+      void cdp.detach().catch(() => null);
+    });
+  });
+}
 
 export default router;

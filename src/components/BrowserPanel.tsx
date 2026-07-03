@@ -313,6 +313,9 @@ const BrowserPanel = memo(function BrowserPanel({
   const [serverBridgeFrame, setServerBridgeFrame] = useState<ServerBridgeFrame | null>(null);
   const [serverBridgeEvent, setServerBridgeEvent] = useState<JsonObject | null>(null);
   const [serverBridgeStreamState, setServerBridgeStreamState] = useState('idle');
+  const [sessionLiveFrame, setSessionLiveFrame] = useState<ServerBridgeFrame | null>(null);
+  const [sessionLiveConnected, setSessionLiveConnected] = useState(false);
+  const sessionLiveSocketRef = useRef<WebSocket | null>(null);
   const [surfaceCursor, setSurfaceCursor] = useState<SurfaceCursorState>({
     x: 0,
     y: 0,
@@ -340,7 +343,12 @@ const BrowserPanel = memo(function BrowserPanel({
   );
   const blocker = session?.blocker || latestBlockedAction?.blocker || null;
   const blockerGuidance = blocker ? getBrowserLaneBlockerGuidance(blocker, displayUrl) : null;
-  const displayTitle = chromeBridgeTab?.title || (serverBridgeStreaming ? 'Live session video' : serverBridgeFrame?.dataUrl ? 'Frame fallback preview' : '') || session?.title || activeBrowser?.title || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
+  const displayTitle = chromeBridgeTab?.title
+    || (serverBridgeStreaming ? 'Live session video' : serverBridgeFrame?.dataUrl ? 'Frame fallback preview' : '')
+    || (sessionLiveConnected ? 'Live in-app browser' : sessionLiveFrame?.dataUrl ? 'Live in-app preview' : '')
+    || session?.title
+    || activeBrowser?.title
+    || (displayUrl || screenshot ? 'Visible page loaded' : 'No page loaded');
   const pageStatusLabel = blockerGuidance?.title || displayTitle;
   const hasHandoff = Boolean(blocker) || Boolean(traceSummary.handoffEntry) || HANDOFF_RE.test(`${displayUrl} ${displayTitle} ${session?.failureReason || ''}`);
   const usingRealChromeSession = bridgeSurfaceReady;
@@ -809,7 +817,65 @@ const BrowserPanel = memo(function BrowserPanel({
   }, [acceptServerBridgeOffer, syncUrlInputFromRuntime]);
 
   useEffect(() => {
+    setSessionLiveFrame(null);
+    setSessionLiveConnected(false);
+    const sessionId = session?.id;
+    if (!sessionId) return;
+
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${proto}://${window.location.host}/ws/browser?sessionId=${encodeURIComponent(sessionId)}`);
+    sessionLiveSocketRef.current = socket;
+
+    socket.onopen = () => {
+      setSessionLiveConnected(true);
+    };
+
+    socket.onmessage = (event) => {
+      const payload = safeParseJson(event.data);
+      if (!payload) return;
+
+      if (payload.type === 'frame' && typeof payload.dataUrl === 'string') {
+        setSessionLiveFrame({
+          connectionId: sessionId,
+          dataUrl: payload.dataUrl,
+          timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : Date.now(),
+        });
+        return;
+      }
+
+      if (payload.type === 'state' && typeof payload.session === 'object' && payload.session) {
+        const nextSession = payload.session as unknown as BrowserSessionView;
+        setSession((current) => (current?.id === nextSession.id ? nextSession : current));
+        if (typeof nextSession.currentUrl === 'string' && nextSession.currentUrl) {
+          syncUrlInputFromRuntime(nextSession.currentUrl);
+        }
+      }
+    };
+
+    socket.onerror = () => {
+      setSessionLiveConnected(false);
+    };
+
+    socket.onclose = () => {
+      if (sessionLiveSocketRef.current === socket) {
+        setSessionLiveConnected(false);
+      }
+    };
+
     return () => {
+      if (sessionLiveSocketRef.current === socket) {
+        sessionLiveSocketRef.current = null;
+      }
+      socket.close();
+    };
+  }, [session?.id, syncUrlInputFromRuntime]);
+
+  useEffect(() => {
+    return () => {
+      if (sessionLiveSocketRef.current) {
+        sessionLiveSocketRef.current.close();
+        sessionLiveSocketRef.current = null;
+      }
       closeChromeBridgePeer();
       if (nativeMoveTimerRef.current !== null) {
         window.clearTimeout(nativeMoveTimerRef.current);
@@ -1445,6 +1511,36 @@ const BrowserPanel = memo(function BrowserPanel({
               )}
               <div className="border-t border-[var(--b1)] bg-black/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--t4)]">
                 Live preview syncing
+              </div>
+            </div>
+          ) : sessionLiveFrame?.dataUrl ? (
+            <div className="relative h-full overflow-hidden rounded-lg border border-[var(--b1)] bg-black">
+              <img
+                src={sessionLiveFrame.dataUrl}
+                alt="Live in-app browser stream"
+                onClick={clickScreen}
+                onMouseDown={mouseDownScreenshotSurface}
+                onMouseUp={mouseUpScreenshotSurface}
+                onMouseMove={moveScreenshotSurface}
+                onMouseLeave={clearSurfaceCursor}
+                className="mx-auto block h-full w-full cursor-default select-none object-contain"
+                draggable={false}
+              />
+              {surfaceCursor.visible && (
+                <div
+                  className="pointer-events-none absolute z-20 h-4 w-4 rounded-full border border-blue-300/80 bg-blue-300/15 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                  style={{ left: surfaceCursor.x, top: surfaceCursor.y, transform: 'translate(-3px, -3px)' }}
+                />
+              )}
+              {surfaceClick && (
+                <div
+                  key={surfaceClick.token}
+                  className="pointer-events-none absolute z-20 h-8 w-8 rounded-full border border-blue-300/70 bg-blue-300/10"
+                  style={{ left: surfaceClick.x, top: surfaceClick.y, transform: 'translate(-50%, -50%)' }}
+                />
+              )}
+              <div className="border-t border-[var(--b1)] bg-black/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--t4)]">
+                Live in-app stream
               </div>
             </div>
           ) : blocker && blockerGuidance ? (
