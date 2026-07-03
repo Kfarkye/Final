@@ -28,6 +28,11 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   ARTIFACTS_PUBLIC_BASE_URL: z.string().url().optional().default("https://mcptruth.com"),
+  BROWSER_BRIDGE_REDIS_URL: z.string().optional(),
+  BROWSER_BRIDGE_REDIS_HOST: z.string().optional(),
+  BROWSER_BRIDGE_REDIS_PORT: z.coerce.number().int().positive().optional().default(6379),
+  BROWSER_BRIDGE_REDIS_PASSWORD: z.string().optional(),
+  BROWSER_BRIDGE_REDIS_CHANNEL: z.string().optional().default("truth:browser-bridge:bus"),
 
   // Optional External LLM Keys
   OPENAI_API_KEY: z.string().optional(),

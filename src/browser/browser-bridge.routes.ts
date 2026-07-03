@@ -34,6 +34,7 @@ browserBridgeRoutes.get("/bridge/status", (_req: Request, res: Response) => {
   res.json({
     connected: extensionBridge.hasConnection(),
     connections: extensionBridge.listConnections(),
+    backplane: extensionBridge.backplaneStatus(),
   });
 });
 
@@ -46,6 +47,7 @@ browserBridgeRoutes.get("/bridge/stream", (req: Request, res: Response) => {
   sseManager.sendEvent(clientId, "status", {
     connected: extensionBridge.hasConnection(),
     connections: extensionBridge.listConnections(),
+    backplane: extensionBridge.backplaneStatus(),
   });
 
   const onFrame = (frame: BridgeFrame) => {
@@ -59,6 +61,7 @@ browserBridgeRoutes.get("/bridge/stream", (req: Request, res: Response) => {
       connected: true,
       connections: extensionBridge.listConnections(),
       changed: info.connectionId,
+      backplane: extensionBridge.backplaneStatus(),
     });
   };
   const onDisconnect = (info: { connectionId: string }) => {
@@ -66,6 +69,7 @@ browserBridgeRoutes.get("/bridge/stream", (req: Request, res: Response) => {
       connected: extensionBridge.hasConnection(),
       connections: extensionBridge.listConnections(),
       changed: info.connectionId,
+      backplane: extensionBridge.backplaneStatus(),
     });
   };
 

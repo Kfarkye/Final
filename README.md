@@ -78,3 +78,8 @@ npm run build
 
 For wildcard artifact hosts + IAP signed-header verification:
 - `/Users/k.far.88/Developer/reverie/docs/serverless-artifact-origin-isolation.md`
+
+## Browser Bridge Backplane
+
+For multi-instance Cloud Run routing of Chrome Bridge commands/events:
+- `/Users/k.far.88/Developer/reverie/docs/browser-bridge-redis-backplane.md`

@@ -76,17 +76,23 @@ for (const file of ["manifest.json", "background.js", "offscreen.html", "offscre
 
 const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 if (!packageJson.dependencies?.ws) fail("package.json must declare direct ws dependency");
+if (!packageJson.dependencies?.redis) fail("package.json must declare redis dependency for multi-instance bridge routing");
 if (!packageJson.devDependencies?.["@types/ws"]) fail("package.json must declare @types/ws devDependency");
 
 assertFileContains("server-runtime.ts", "browserBridgeRoutes", "browser bridge route mount");
 assertFileContains("server-runtime.ts", "extensionBridge.attach(server)", "extension bridge HTTP upgrade hook");
 assertFileContains("src/browser/extension-bridge.ts", "WebSocketServer", "WebSocket server bridge");
+assertFileContains("src/browser/extension-bridge.ts", "createClient", "Redis backplane client");
+assertFileContains("src/browser/extension-bridge.ts", "truth:browser-bridge:bus", "Redis backplane channel default");
+assertFileContains("src/browser/extension-bridge.ts", "publishBackplane", "backplane publish path");
+assertFileContains("src/browser/extension-bridge.ts", "onBackplaneMessage", "backplane subscribe path");
 assertFileContains("src/browser/extension-bridge.ts", "WEBRTC_ANSWER", "server bridge WebRTC answer command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_CLICK", "server bridge native click command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_MOUSE_MOVE", "server bridge native mouse move command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_DRAG", "server bridge native drag command");
 assertFileContains("src/browser/extension-bridge.ts", "NATIVE_CONTEXT_MENU", "server bridge native context menu command");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/stream"', "SSE bridge stream route");
+assertFileContains("src/browser/browser-bridge.routes.ts", "backplaneStatus", "bridge status includes backplane telemetry");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/webrtc/answer"', "WebRTC answer route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/click"', "native click route");
 assertFileContains("src/browser/browser-bridge.routes.ts", '"/bridge/native/move"', "native move route");

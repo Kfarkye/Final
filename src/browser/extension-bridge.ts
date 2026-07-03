@@ -23,6 +23,8 @@ import type { Server as HttpServer, IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
+import { createClient } from 'redis';
+import { logger } from '../utils/logger';
 
 export const BRIDGE_PATH = '/api/browser/bridge';
 
@@ -70,6 +72,12 @@ type DownstreamCommand =
 class ExtensionBridgeManager extends EventEmitter {
   private wss: WebSocketServer | null = null;
   private readonly connections = new Map<string, BridgeConnection>();
+  private readonly instanceId = `${process.env.K_REVISION || 'local'}-${randomUUID().slice(0, 8)}`;
+  private redisPub: ReturnType<typeof createClient> | null = null;
+  private redisSub: ReturnType<typeof createClient> | null = null;
+  private redisReady = false;
+  private redisDisabledLogged = false;
+  private readonly redisChannel = process.env.BROWSER_BRIDGE_REDIS_CHANNEL || 'truth:browser-bridge:bus';
 
   /** Attach the bridge to an existing http.Server via the upgrade event. */
   attach(httpServer: HttpServer): void {
@@ -77,6 +85,7 @@ class ExtensionBridgeManager extends EventEmitter {
 
     // noServer mode: we own the upgrade handshake so we can path-gate.
     this.wss = new WebSocketServer({ noServer: true });
+    void this.initRedisBackplane();
 
     httpServer.on('upgrade', (req: IncomingMessage, socket, head) => {
       let pathname: string;
@@ -112,11 +121,18 @@ class ExtensionBridgeManager extends EventEmitter {
     };
     this.connections.set(id, conn);
     this.emit('connect', { connectionId: id, remoteAddress: conn.remoteAddress });
+    this.publishBackplane({
+      kind: 'connect',
+      connectionId: id,
+      remoteAddress: conn.remoteAddress,
+      mode: conn.mode,
+    });
 
     ws.on('message', (raw) => this.onMessage(conn, raw.toString()));
     ws.on('close', () => {
       this.connections.delete(id);
       this.emit('disconnect', { connectionId: id });
+      this.publishBackplane({ kind: 'disconnect', connectionId: id });
     });
     ws.on('error', () => {
       // ws emits error then close; cleanup happens on close.
@@ -134,6 +150,7 @@ class ExtensionBridgeManager extends EventEmitter {
       case 'BRIDGE_READY':
         conn.mode = typeof msg.mode === 'string' ? msg.mode : 'unknown';
         this.emit('ready', { connectionId: conn.id, mode: conn.mode });
+        this.publishBackplane({ kind: 'ready', connectionId: conn.id, mode: conn.mode });
         break;
       case 'BROWSER_FRAME': {
         const dataUrl = msg.payload?.dataUrl;
@@ -148,6 +165,7 @@ class ExtensionBridgeManager extends EventEmitter {
                 : conn.lastFrameAt,
           };
           this.emit('frame', frame);
+          this.publishBackplane({ kind: 'frame', frame });
         }
         break;
       }
@@ -159,6 +177,7 @@ class ExtensionBridgeManager extends EventEmitter {
           ...payload,
         };
         this.emit('event', evt);
+        this.publishBackplane({ kind: 'event', event: evt });
         break;
       }
       default:
@@ -169,6 +188,18 @@ class ExtensionBridgeManager extends EventEmitter {
 
   /** Send a command to a specific connection (or the only one if id omitted). */
   sendCommand(command: DownstreamCommand, connectionId?: string): boolean {
+    const sentLocal = this.sendCommandLocal(command, connectionId);
+    if (sentLocal) return true;
+
+    if (this.redisReady) {
+      this.publishBackplane({ kind: 'command', command, connectionId });
+      return true;
+    }
+
+    return false;
+  }
+
+  private sendCommandLocal(command: DownstreamCommand, connectionId?: string): boolean {
     const conn = connectionId
       ? this.connections.get(connectionId)
       : this.firstConnection();
@@ -231,6 +262,131 @@ class ExtensionBridgeManager extends EventEmitter {
 
   hasConnection(): boolean {
     return this.connections.size > 0;
+  }
+
+  backplaneStatus() {
+    return {
+      enabled: this.redisReady,
+      channel: this.redisChannel,
+      instanceId: this.instanceId,
+      localConnections: this.connections.size,
+    };
+  }
+
+  private redisConfig():
+    | { url: string }
+    | { socket: { host: string; port: number }; password?: string }
+    | null {
+    const redisUrl = (process.env.BROWSER_BRIDGE_REDIS_URL || '').trim();
+    if (redisUrl) return { url: redisUrl };
+
+    const host = (process.env.BROWSER_BRIDGE_REDIS_HOST || '').trim();
+    if (!host) return null;
+    const port = Number(process.env.BROWSER_BRIDGE_REDIS_PORT || 6379);
+    const password = (process.env.BROWSER_BRIDGE_REDIS_PASSWORD || '').trim() || undefined;
+    return {
+      socket: { host, port: Number.isFinite(port) && port > 0 ? port : 6379 },
+      password,
+    };
+  }
+
+  private async initRedisBackplane(): Promise<void> {
+    if (this.redisReady || this.redisPub || this.redisSub) return;
+    const config = this.redisConfig();
+    if (!config) {
+      if (!this.redisDisabledLogged) {
+        this.redisDisabledLogged = true;
+        logger.info({ msg: 'Extension bridge running without Redis backplane (single-instance mode)' });
+      }
+      return;
+    }
+
+    try {
+      const pub = createClient(config as any);
+      const sub = pub.duplicate();
+      pub.on('error', (err) => logger.warn({ msg: 'Redis publish client error', err: err?.message }));
+      sub.on('error', (err) => logger.warn({ msg: 'Redis subscribe client error', err: err?.message }));
+      await pub.connect();
+      await sub.connect();
+      await sub.subscribe(this.redisChannel, (raw) => {
+        this.onBackplaneMessage(raw);
+      });
+
+      this.redisPub = pub;
+      this.redisSub = sub;
+      this.redisReady = true;
+      logger.info({
+        msg: 'Extension bridge Redis backplane connected',
+        channel: this.redisChannel,
+        instanceId: this.instanceId,
+      });
+    } catch (err: any) {
+      this.redisReady = false;
+      logger.warn({ msg: 'Failed to initialize Redis backplane; continuing in local mode', err: err?.message });
+    }
+  }
+
+  private publishBackplane(message: {
+    kind: 'connect' | 'disconnect' | 'ready' | 'frame' | 'event' | 'command';
+    connectionId?: string;
+    remoteAddress?: string;
+    mode?: string;
+    frame?: BridgeFrame;
+    event?: BridgeEvent;
+    command?: DownstreamCommand;
+  }): void {
+    if (!this.redisReady || !this.redisPub) return;
+
+    const payload = JSON.stringify({
+      version: 1,
+      instanceId: this.instanceId,
+      at: Date.now(),
+      ...message,
+    });
+
+    void this.redisPub.publish(this.redisChannel, payload).catch((err: any) => {
+      logger.warn({ msg: 'Failed to publish bridge backplane message', err: err?.message });
+    });
+  }
+
+  private onBackplaneMessage(raw: string): void {
+    let message: any;
+    try {
+      message = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!message || message.version !== 1) return;
+    if (message.instanceId === this.instanceId) return;
+
+    switch (message.kind) {
+      case 'command': {
+        if (!message.command || typeof message.command !== 'object') return;
+        this.sendCommandLocal(message.command as DownstreamCommand, message.connectionId);
+        break;
+      }
+      case 'frame': {
+        if (!message.frame || typeof message.frame !== 'object') return;
+        this.emit('frame', message.frame as BridgeFrame);
+        break;
+      }
+      case 'event': {
+        if (!message.event || typeof message.event !== 'object') return;
+        this.emit('event', message.event as BridgeEvent);
+        break;
+      }
+      case 'connect':
+        this.emit('connect', { connectionId: message.connectionId, remoteAddress: message.remoteAddress });
+        break;
+      case 'disconnect':
+        this.emit('disconnect', { connectionId: message.connectionId });
+        break;
+      case 'ready':
+        this.emit('ready', { connectionId: message.connectionId, mode: message.mode || 'unknown' });
+        break;
+      default:
+        break;
+    }
   }
 }
 
