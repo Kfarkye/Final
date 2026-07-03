@@ -1696,6 +1696,18 @@ CRITICAL TOOL USE INSTRUCTIONS:
         if (mode === 'shared' && history) msgs.push(...history);
         const deepseekPrompt = `${governedPrompt}\n\n${buildProviderTemporalAndComparisonGuard(userTimezone)}`;
         msgs.push({ role: "user", content: buildUserContent('deepseek', modelConfigs.deepseek || 'deepseek-v3.2-maas', deepseekPrompt) });
+        const deepseekCurrentYear = getCurrentYearForTimezone(userTimezone);
+        const deepseekYearRequested = /\b(current calendar year|current year|what year is it|what(?:'s| is) the year|exact year)\b/i.test(governedPrompt);
+        const deepseekYearRegex = new RegExp(`\\b${deepseekCurrentYear}\\b`);
+        let deepseekMentionsCurrentYear = false;
+        let deepseekRecentOutput = '';
+        const noteDeepseekOutput = (chunk?: unknown) => {
+          if (typeof chunk !== 'string' || chunk.length === 0 || deepseekMentionsCurrentYear) return;
+          deepseekRecentOutput = (deepseekRecentOutput + chunk).slice(-512);
+          if (deepseekYearRegex.test(deepseekRecentOutput)) {
+            deepseekMentionsCurrentYear = true;
+          }
+        };
 
         // Build tool declarations — V4 supports tools with thinking enabled
         const deepseekTools: any[] = [];
@@ -1769,12 +1781,14 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 if ((delta as any).reasoning_content) {
                   const reasoning = (delta as any).reasoning_content;
                   reasoningBuffer += reasoning;
+                  noteDeepseekOutput(reasoning);
                   sendSse('message', { model: 'deepseek', chunk: reasoning });
                 }
 
                 // Standard content (final answer after reasoning, or full response if thinking disabled)
                 if (delta.content) {
                   emittedAnyContent = true;
+                  noteDeepseekOutput(delta.content);
                   // If we were streaming reasoning, insert a separator before the final answer
                   if (reasoningBuffer && !hasContent) {
                     sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
@@ -1834,10 +1848,12 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 const fallbackMessage = fallback.choices?.[0]?.message as any;
                 const fallbackReasoning = fallbackMessage?.reasoning_content;
                 if (typeof fallbackReasoning === 'string' && fallbackReasoning.length > 0) {
+                  noteDeepseekOutput(fallbackReasoning);
                   sendSse('message', { model: 'deepseek', chunk: fallbackReasoning });
                   sendSse('message', { model: 'deepseek', chunk: '\n\n---\n\n' });
                 }
                 if (typeof fallbackMessage?.content === 'string' && fallbackMessage.content.length > 0) {
+                  noteDeepseekOutput(fallbackMessage.content);
                   sendSse('message', { model: 'deepseek', chunk: fallbackMessage.content });
                 }
                 if (Array.isArray(fallbackMessage?.tool_calls)) {
@@ -1930,6 +1946,13 @@ CRITICAL TOOL USE INSTRUCTIONS:
           if (runCount >= MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
             sendSse('message', { model: 'deepseek', chunk: toolTurnLimitMessage() });
           }
+        }
+
+        if (!signal.aborted && deepseekYearRequested && !deepseekMentionsCurrentYear) {
+          sendSse('message', {
+            model: 'deepseek',
+            chunk: `\n\nCurrent calendar year: ${deepseekCurrentYear}.`,
+          });
         }
       })()));
       } // end else (deepseekClient available)

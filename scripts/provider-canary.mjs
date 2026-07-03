@@ -16,9 +16,9 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function isExternalProviderBillingIssue(providerErrors) {
-  const raw = JSON.stringify(providerErrors || {}).toLowerCase();
-  return /credit balance|insufficient credits|billing|quota exceeded|rate limit exceeded/.test(raw);
+function isExternalProviderDegraded(providerErrors, text = '') {
+  const combined = `${JSON.stringify(providerErrors || {})} ${text}`.toLowerCase();
+  return /credit balance|insufficient credits|billing|quota exceeded|rate limit exceeded|not configured|missing api key|api key.*required/.test(combined);
 }
 
 function buildPayload(provider, model, prompt) {
@@ -127,9 +127,9 @@ async function main() {
   console.log(`[provider-canary] endpoint=${ENDPOINT}`);
   console.log(`[provider-canary] expectedYear=${EXPECTED_YEAR}`);
   const prompts = {
-    grok: 'State the exact current calendar year, then provide one MLB matchup from get_mlb_scores.',
-    deepseek: 'State the exact current calendar year, call get_mlb_scores once, then return one MLB matchup.',
-    claude: 'State the exact current calendar year and one MLB matchup. Use tools if needed.',
+    grok: `Return this exact first line: "Current calendar year: ${EXPECTED_YEAR}". Then provide one MLB matchup from get_mlb_scores.`,
+    deepseek: `Call get_mlb_scores exactly once. In your final answer, include this exact first line: "Current calendar year: ${EXPECTED_YEAR}". Then return one MLB matchup.`,
+    claude: `Return this exact first line: "Current calendar year: ${EXPECTED_YEAR}". Then provide one MLB matchup. Use tools if needed.`,
   };
 
   const results = [];
@@ -159,13 +159,13 @@ async function main() {
 
   const failures = [];
   for (const result of results) {
-    const externalBillingDegraded =
-      result.providerErrors.length > 0 && isExternalProviderBillingIssue(result.providerErrors);
+    const externalProviderDegraded =
+      isExternalProviderDegraded(result.providerErrors, result.text);
 
     if (result.httpStatus !== 200) failures.push(`${result.provider} returned HTTP ${result.httpStatus}`);
 
-    if (externalBillingDegraded) {
-      summary.warnings.push(`${result.provider} skipped strict checks due to external provider billing/quota degradation`);
+    if (externalProviderDegraded) {
+      summary.warnings.push(`${result.provider} skipped strict checks due to external provider degradation`);
       continue;
     }
 

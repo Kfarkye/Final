@@ -13,6 +13,47 @@ function resolveWorkspaceRoot(requestWorkspaceRoot?: unknown): string {
     : process.env.WORKSPACE_ROOT || process.cwd();
 }
 
+function parseJsonObject(value: unknown): Record<string, any> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, any>;
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, any>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function unwrapMetaToolArgs(rawArgs: unknown): { toolName: string | null; args: Record<string, any> } {
+  const initial = parseJsonObject(rawArgs);
+  if (!initial || typeof initial.toolName !== 'string') {
+    return { toolName: null, args: {} };
+  }
+
+  let toolName = initial.toolName;
+  let toolArgs: unknown = initial.arguments ?? {};
+  let unwrapDepth = 0;
+
+  while (toolName === 'call_tool' && unwrapDepth < 4) {
+    const nested = parseJsonObject(toolArgs);
+    if (!nested || typeof nested.toolName !== 'string') break;
+    toolName = nested.toolName;
+    toolArgs = nested.arguments ?? {};
+    unwrapDepth += 1;
+  }
+
+  return {
+    toolName,
+    args: parseJsonObject(toolArgs) ?? {},
+  };
+}
+
 export const chatController = {
   handleChat: catchAsync(async (req: Request, res: Response) => {
     const PORT = env.PORT || 3000;
@@ -124,30 +165,16 @@ export const chatController = {
         const signal = options?.signal;
         // ── Meta-tool dispatch ──────────────────────────────────────
         // When the LLM calls `call_tool`, unwrap and dispatch to the real tool.
-        if (name === 'call_tool' && args?.toolName) {
-          let realToolName = args.toolName;
-          let realArgs = args.arguments || {};
+        if (name === 'call_tool') {
+          const { toolName: realToolName, args: realArgs } = unwrapMetaToolArgs(args);
 
-          // Some providers occasionally wrap the meta-tool call one level deep:
-          // call_tool({ toolName: "call_tool", arguments: { toolName: "...", arguments: {...} } })
-          // Flatten this safely so first tool execution succeeds without a hard tool_error.
-          let unwrapDepth = 0;
-          while (
-            realToolName === 'call_tool' &&
-            realArgs &&
-            typeof realArgs === 'object' &&
-            typeof realArgs.toolName === 'string' &&
-            unwrapDepth < 3
-          ) {
-            realToolName = realArgs.toolName;
-            realArgs = realArgs.arguments || {};
-            unwrapDepth++;
+          if (!realToolName) {
+            throw new Error('call_tool invocation missing toolName');
           }
-
           if (realToolName === 'call_tool') {
             throw new Error('Nested call_tool invocation is not allowed');
           }
-          
+
           console.log(`[MetaTool] call_tool → dispatching to: ${realToolName}`);
           return toolRegistry.execute(realToolName, realArgs, { 
             googleAccessToken, ai, openai, anthropic, xai, deepseek, connectionId, signal,
