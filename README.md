@@ -73,3 +73,8 @@ If verification fails, treat the mount as partial and re-sync before build/deplo
 npm run lint
 npm run build
 ```
+
+## Artifact Origin Isolation
+
+For wildcard artifact hosts + IAP signed-header verification:
+- `/Users/k.far.88/Developer/reverie/docs/serverless-artifact-origin-isolation.md`

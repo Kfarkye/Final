@@ -56,6 +56,8 @@ export interface SecureRenderHostHandle {
 interface SecureRenderHostProps {
   /** The HTML content to render inside the sandboxed frame */
   html: string;
+  /** Optional origin-isolated source URL. When provided, iframe uses src (not srcdoc). */
+  originIsolatedSrc?: string;
   /** Height of the render surface in pixels */
   height?: number;
   /** The GATE — allowlisted actions the artifact can request.
@@ -190,6 +192,7 @@ const DEFAULT_GATE: Record<string, GateHandler> = {
 export const SecureRenderHost = forwardRef<SecureRenderHostHandle, SecureRenderHostProps>(
   function SecureRenderHost({
     html,
+    originIsolatedSrc,
     height = 480,
     gate,
     onGateLog,
@@ -324,10 +327,20 @@ export const SecureRenderHost = forwardRef<SecureRenderHostHandle, SecureRenderH
 
   // Render on html change
   useEffect(() => {
+    if (originIsolatedSrc) return;
     if (html) {
       render(html);
     }
-  }, [html, render]);
+  }, [html, render, originIsolatedSrc]);
+
+  useEffect(() => {
+    if (!originIsolatedSrc) return;
+    setState('working');
+    setErrorMsg('');
+    if (iframeRef.current) {
+      iframeRef.current.src = originIsolatedSrc;
+    }
+  }, [originIsolatedSrc]);
 
   const stateLabel =
     state === 'ready' ? 'ready' :
@@ -580,7 +593,9 @@ export const SecureRenderHost = forwardRef<SecureRenderHostHandle, SecureRenderH
             <div className="srh-dot" />
             <span>{stateLabel}</span>
           </div>
-          <span className="srh-tag">isolated · gatekept bridge</span>
+          <span className="srh-tag">
+            {originIsolatedSrc ? 'origin-isolated frame' : 'isolated · gatekept bridge'}
+          </span>
         </div>
 
         {/* Render Surface */}
@@ -590,8 +605,15 @@ export const SecureRenderHost = forwardRef<SecureRenderHostHandle, SecureRenderH
         >
           <iframe
             ref={iframeRef}
-            sandbox="allow-scripts"
+            src={originIsolatedSrc}
+            sandbox={originIsolatedSrc ? undefined : "allow-scripts"}
             title="secure render host"
+            onLoad={() => {
+              if (originIsolatedSrc) {
+                setState('live');
+                onRender?.();
+              }
+            }}
           />
 
           {/* Breathing empty state */}

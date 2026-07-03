@@ -20,6 +20,14 @@ const envSchema = z.object({
   // Cloud & Vertex AI Requirements
   GCP_PROJECT: z.string().min(1, "GCP Project ID is required for Vertex AI integration"),
   GCP_LOCATION: z.string().default("global"),
+  ARTIFACTS_HOST_SUFFIX: z.string().optional(),
+  ARTIFACTS_IAP_AUDIENCE: z.string().optional(),
+  ARTIFACTS_REQUIRE_IAP: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
+  ARTIFACTS_PUBLIC_BASE_URL: z.string().url().optional().default("https://mcptruth.com"),
 
   // Optional External LLM Keys
   OPENAI_API_KEY: z.string().optional(),
