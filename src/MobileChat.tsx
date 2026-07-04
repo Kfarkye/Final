@@ -25,15 +25,45 @@
 import React, {
   useState, useEffect, useRef, useCallback, memo,
   type KeyboardEvent as ReactKeyboardEvent,
+  lazy,
+  Suspense,
 } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Square, PenLine, RotateCcw, Copy, Check, X, ArrowUp, ChevronDown } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeSanitize from 'rehype-sanitize';
+import { Square, PenLine, RotateCcw, Copy, Check, X, ArrowUp, ChevronDown, Wifi, WifiOff, Zap, Cloud, CloudOff, Moon, Sun } from 'lucide-react';
 import { renderCard, CARD_REGISTRY } from './DisplayCards';
 import { getAccessToken } from './lib/firebase';
 import { PRELOADED_SERVERS } from './components/McpRegistry';
+import { MimeRenderer } from './components/MimeRenderer';
+import { useNetworkStatus, useOfflineQueue } from './hooks/useNetworkStatus';
+
+/**
+ * Reads MCP servers + API integrations from localStorage and merges the
+ * preloaded registry WITHOUT mutating the shared PRELOADED_SERVERS constant.
+ * Single source of truth for both useChat.send() and the mount effect.
+ */
+function readClientContext(): { servers: any[]; integrations: any[] } {
+  let servers: any[] = [];
+  const mcpSaved = localStorage.getItem('mcp_full_servers');
+  if (mcpSaved) {
+    try { servers = JSON.parse(mcpSaved); } catch (e) { console.error('Failed to parse local MCP servers', e); }
+  }
+  servers = servers.map(s => {
+    const pre = PRELOADED_SERVERS.find(p => p.id === s.id);
+    return pre && s.type === 'Official'
+      ? { ...s, tools: pre.tools, commandOrUrl: pre.commandOrUrl }
+      : s;
+  });
+  PRELOADED_SERVERS.forEach(pre => {
+    if (!servers.some(s => s.id === pre.id)) servers.push(pre);
+  });
+
+  let integrations: any[] = [];
+  const apiSaved = localStorage.getItem('api_hub_integrations');
+  if (apiSaved) {
+    try { integrations = JSON.parse(apiSaved); } catch (e) { console.error('Failed to parse local API integrations', e); }
+  }
+  return { servers, integrations };
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants — no magic numbers
@@ -50,6 +80,8 @@ const HISTORY_WINDOW = 40;
 const API_ENDPOINT = '/api/truth/chat';
 const CODEX_ENDPOINT = '/api/truth/codex/chat';
 const IDLE_TIMEOUT_MS = 30_000;
+const SESSION_MSGS_KEY = 'mobile_chat_msgs_v1';
+const SESSION_MSGS_MAX = 60; // cap snapshot size to protect sessionStorage quota
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -139,6 +171,48 @@ function isTouchDevice(): boolean {
   return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 }
 
+// System theme detection
+function useSystemTheme(): 'light' | 'dark' {
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  );
+  
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      setTheme(e.matches ? 'dark' : 'light');
+    };
+    
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+  
+  return theme;
+}
+
+// Network indicator component
+const NetworkIndicator = memo(function NetworkIndicator({ status }: { status: any }) {
+  if (status.isOnline === false) {
+    return (
+      <div className="fixed top-4 right-4 z-50 px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded-full flex items-center gap-1.5 shadow-lg animate-pulse">
+        <WifiOff size={12} />
+        <span>Offline</span>
+      </div>
+    );
+  }
+  
+  if (status.effectiveType === 'slow-2g' || status.effectiveType === '2g') {
+    return (
+      <div className="fixed top-4 right-4 z-50 px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-full flex items-center gap-1.5 shadow-lg">
+        <Wifi size={12} />
+        <span>Slow Connection</span>
+      </div>
+    );
+  }
+  
+  return null;
+});
+
 function isValidSseData(d: unknown): d is Record<string, unknown> {
   return typeof d === 'object' && d !== null;
 }
@@ -163,6 +237,7 @@ function useAutoScroll() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const rafId = useRef<number | undefined>(undefined);
 
@@ -182,7 +257,23 @@ function useAutoScroll() {
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    nearBottom.current = near;
+    setAtBottom(near);
+  }, []);
+
+  // iOS Safari: when the keyboard opens, the visual viewport shrinks without a
+  // scroll event — re-pin to bottom if the user was already there.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (nearBottom.current) {
+        endRef.current?.scrollIntoView({ block: 'end' });
+      }
+    };
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
   }, []);
 
   useEffect(() => {
@@ -192,7 +283,7 @@ function useAutoScroll() {
     };
   }, []);
 
-  return { scrollRef, endRef, scrollToEndIfNear, scrollToEnd, onScroll } as const;
+  return { scrollRef, endRef, scrollToEndIfNear, scrollToEnd, onScroll, atBottom } as const;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -228,9 +319,33 @@ function useChat(config: ChatConfig = {}) {
     accessToken = null,
   } = config;
 
-  const [msgs, setMsgs] = useState<ChatMessage[]>([]);
+  const [msgs, setMsgs] = useState<ChatMessage[]>(() => {
+    // Restore conversation across reloads (session-scoped, not persistent)
+    try {
+      const saved = sessionStorage.getItem(SESSION_MSGS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as ChatMessage[];
+        if (Array.isArray(parsed)) {
+          // Never restore a mid-stream placeholder
+          return parsed.map(m => ({ ...m, streaming: false }));
+        }
+      }
+    } catch { /* corrupt snapshot — start clean */ }
+    return [];
+  });
   const msgsRef = useRef(msgs);
   useEffect(() => { msgsRef.current = msgs; }, [msgs]);
+
+  // Debounced session snapshot — avoids a sync write on every stream tick
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        if (msgs.length) sessionStorage.setItem(SESSION_MSGS_KEY, JSON.stringify(msgs.slice(-SESSION_MSGS_MAX)));
+        else sessionStorage.removeItem(SESSION_MSGS_KEY);
+      } catch { /* quota exceeded — skip snapshot */ }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [msgs]);
 
   const [busy, setBusy] = useState(false);
   const [tools, setTools] = useState<ToolRun[]>([]);
@@ -243,6 +358,7 @@ function useChat(config: ChatConfig = {}) {
   const flushRafRef = useRef<number | undefined>(undefined);
   const toolCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const codexResponseIdRef = useRef<string | null>(null);
+  const tokenCacheRef = useRef<string | null>(null);
 
   // ── Flush buffer → state (sync) ──
   const flushBufferNow = useCallback(() => {
@@ -279,15 +395,33 @@ function useChat(config: ChatConfig = {}) {
   }, [flushBufferNow]);
 
   // ── Tool cleanup — remove lingered tools ──
+  // toolsRef mirrors tools synchronously so SSE handlers can resolve tool IDs
+  // without side effects inside setTools updaters (updaters must stay pure).
+  const toolsRef = useRef<ToolRun[]>([]);
+  useEffect(() => { toolsRef.current = tools; }, [tools]);
+
   const scheduleToolCleanup = useCallback((toolId: string) => {
     const existing = toolCleanupTimers.current.get(toolId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
+      toolsRef.current = toolsRef.current.filter(t => t.id !== toolId);
       setTools(prev => prev.filter(t => t.id !== toolId));
       toolCleanupTimers.current.delete(toolId);
     }, TOOL_LINGER_MS);
     toolCleanupTimers.current.set(toolId, timer);
   }, []);
+
+  const finishTool = useCallback((id: string | null, name: string, state: 'done' | 'error') => {
+    const target = id
+      ? toolsRef.current.find(t => t.id === id)
+      : toolsRef.current.find(t => t.name === name && t.state === 'active');
+    if (!target) return;
+    const targetId = target.id;
+    const end = Date.now();
+    toolsRef.current = toolsRef.current.map(t => t.id === targetId ? { ...t, state, end } : t);
+    setTools(prev => prev.map(t => t.id === targetId ? { ...t, state, end } : t));
+    scheduleToolCleanup(targetId);
+  }, [scheduleToolCleanup]);
 
   // ── Parse SSE event ──
   const processSseEvent = useCallback((event: string, raw: string) => {
@@ -316,25 +450,16 @@ function useChat(config: ChatConfig = {}) {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.id === 'string' ? d.id : crypto.randomUUID();
         if (!name) break;
-        setTools(prev => [...prev, { id, name, state: 'active', start: Date.now() }]);
+        const run: ToolRun = { id, name, state: 'active', start: Date.now() };
+        toolsRef.current = [...toolsRef.current, run];
+        setTools(prev => [...prev, run]);
         break;
       }
       case 'tool_result': {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.id === 'string' ? d.id : null;
         if (!name && !id) break;
-        let toolIdToCleanup: string | null = null;
-        setTools(prev => {
-          const idx = id 
-            ? prev.findIndex(t => t.id === id) 
-            : prev.findIndex(t => t.name === name && t.state === 'active');
-          if (idx === -1) return prev;
-          const updated = [...prev];
-          toolIdToCleanup = updated[idx].id;
-          updated[idx] = { ...updated[idx], state: 'done', end: Date.now() };
-          return updated;
-        });
-        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
+        finishTool(id, name, 'done');
 
         // Inject card segment into the stream — preserves interleaving order
         // Legacy path: CARD_REGISTRY lookup by tool name
@@ -364,18 +489,7 @@ function useChat(config: ChatConfig = {}) {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.id === 'string' ? d.id : null;
         if (!name && !id) break;
-        let toolIdToCleanup: string | null = null;
-        setTools(prev => {
-          const idx = id 
-            ? prev.findIndex(t => t.id === id) 
-            : prev.findIndex(t => t.name === name && t.state === 'active');
-          if (idx === -1) return prev;
-          const updated = [...prev];
-          toolIdToCleanup = updated[idx].id;
-          updated[idx] = { ...updated[idx], state: 'error', end: Date.now() };
-          return updated;
-        });
-        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
+        finishTool(id, name, 'error');
         break;
       }
       case 'error': {
@@ -401,25 +515,16 @@ function useChat(config: ChatConfig = {}) {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.callId === 'string' ? d.callId : crypto.randomUUID();
         if (!name) break;
-        setTools(prev => [...prev, { id, name, state: 'active', start: Date.now() }]);
+        const run: ToolRun = { id, name, state: 'active', start: Date.now() };
+        toolsRef.current = [...toolsRef.current, run];
+        setTools(prev => [...prev, run]);
         break;
       }
       case 'tool_call_completed': {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.callId === 'string' ? d.callId : null;
         if (!name && !id) break;
-        let toolIdToCleanup: string | null = null;
-        setTools(prev => {
-          const idx = id
-            ? prev.findIndex(t => t.id === id)
-            : prev.findIndex(t => t.name === name && t.state === 'active');
-          if (idx === -1) return prev;
-          const updated = [...prev];
-          toolIdToCleanup = updated[idx].id;
-          updated[idx] = { ...updated[idx], state: 'done', end: Date.now() };
-          return updated;
-        });
-        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
+        finishTool(id, name, 'done');
         break;
       }
       case 'tool_progress': {
@@ -445,7 +550,7 @@ function useChat(config: ChatConfig = {}) {
       default:
         break;
     }
-  }, [flushBuffer, scheduleToolCleanup]);
+  }, [flushBuffer, finishTool]);
 
   // ── Parse SSE stream ──
   const parseStream = useCallback(async (
@@ -544,6 +649,7 @@ function useChat(config: ChatConfig = {}) {
 
     setMsgs(prev => [...prev, userMsg, placeholder]);
     setBusy(true);
+    toolsRef.current = [];
     setTools([]);
 
     // Cap history window to prevent oversized payloads
@@ -555,56 +661,28 @@ function useChat(config: ChatConfig = {}) {
     abortRef.current = ctrl;
     
     let idleTimer: ReturnType<typeof setTimeout>;
+    let idleTimedOut = false;
     const resetIdle = () => {
       clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => ctrl.abort(), IDLE_TIMEOUT_MS);
+      idleTimer = setTimeout(() => { idleTimedOut = true; ctrl.abort(); }, IDLE_TIMEOUT_MS);
     };
     resetIdle();
 
     try {
-      console.log('[MobileChat] fetch API_ENDPOINT:', apiEndpoint);
-      
-      let parsedMcpServers: any[] = [];
-      const mcpSaved = localStorage.getItem('mcp_full_servers');
-      if (mcpSaved) {
-        try {
-          parsedMcpServers = JSON.parse(mcpSaved);
-        } catch (e) {
-          console.error("Failed to parse local MCP servers", e);
-        }
-      }
-      // Merge missing preloaded servers into parsedMcpServers
-      PRELOADED_SERVERS.forEach(pre => {
-        const existing = parsedMcpServers.find(p => p.id === pre.id);
-        if (!existing) {
-          parsedMcpServers.push(pre);
-        } else if (existing.type === 'Official') {
-          existing.tools = pre.tools;
-          existing.commandOrUrl = pre.commandOrUrl;
-        }
-      });
-      // Fallback to config provided servers if local storage is empty
+      // Single source of truth for client context (also used by mount effect)
+      let { servers: parsedMcpServers, integrations: parsedIntegrations } = readClientContext();
       if (!parsedMcpServers.length && mcpServers && mcpServers.length > 0) {
         parsedMcpServers = mcpServers;
-      }
-
-      let parsedIntegrations: any[] = [];
-      const apiSaved = localStorage.getItem('api_hub_integrations');
-      if (apiSaved) {
-        try {
-          parsedIntegrations = JSON.parse(apiSaved);
-        } catch (e) {
-          console.error("Failed to parse local API integrations", e);
-        }
       }
       if (!parsedIntegrations.length && apiIntegrations && apiIntegrations.length > 0) {
         parsedIntegrations = apiIntegrations;
       }
 
-      let finalAccessToken = accessToken;
+      let finalAccessToken = accessToken || tokenCacheRef.current;
       if (!finalAccessToken) {
         try {
           finalAccessToken = await getAccessToken();
+          tokenCacheRef.current = finalAccessToken;
         } catch (e) {
           console.warn('Failed to fetch access token', e);
         }
@@ -618,7 +696,7 @@ function useChat(config: ChatConfig = {}) {
             history,
             connectionId: `mobile_${Date.now()}`,
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            modelVersion: modelConfig || 'gpt-5.5',
+            modelVersion: modelConfig || 'gpt-5.3-codex',
             ...(codexResponseIdRef.current ? { previousResponseId: codexResponseIdRef.current } : {}),
           }
         : {
@@ -641,8 +719,6 @@ function useChat(config: ChatConfig = {}) {
         body: JSON.stringify(requestBody),
         signal: ctrl.signal,
       });
-
-      console.log('[MobileChat] fetch response status:', res.status, 'Content-Type:', res.headers.get('Content-Type'));
 
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -677,9 +753,17 @@ function useChat(config: ChatConfig = {}) {
       }));
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') {
-        setMsgs(prev => prev.map(m =>
-          m.id === aId ? { ...m, streaming: false, cancelled: true, content: m.content || '' } : m
-        ));
+        if (idleTimedOut) {
+          // Stalled stream, not a user cancel — surface a retryable error.
+          setError({ message: 'Connection stalled — no data received for 30s.', code: 'IDLE_TIMEOUT', retryable: true });
+          setMsgs(prev => prev.map(m =>
+            m.id === aId ? { ...m, streaming: false, content: m.content || '' } : m
+          ));
+        } else {
+          setMsgs(prev => prev.map(m =>
+            m.id === aId ? { ...m, streaming: false, cancelled: true, content: m.content || '' } : m
+          ));
+        }
         return;
       }
       const message = e instanceof Error ? e.message : 'Unknown error';
@@ -704,20 +788,24 @@ function useChat(config: ChatConfig = {}) {
 
   const retry = useCallback(() => {
     if (!lastQuery || busy) return;
-    setMsgs(prev => {
-      let next = [...prev];
-      if (next.at(-1)?.role === 'assistant') next = next.slice(0, -1);
-      if (next.at(-1)?.role === 'user') next = next.slice(0, -1);
-      return next;
-    });
-    queueMicrotask(() => send(lastQuery));
+    // Prune synchronously: send() reads msgsRef.current for history, and the
+    // ref only syncs in a post-render effect — after queueMicrotask would fire.
+    let pruned = [...msgsRef.current];
+    if (pruned.at(-1)?.role === 'assistant') pruned = pruned.slice(0, -1);
+    if (pruned.at(-1)?.role === 'user') pruned = pruned.slice(0, -1);
+    msgsRef.current = pruned;
+    setMsgs(pruned);
+    send(lastQuery);
   }, [lastQuery, busy, send]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setMsgs([]); setError(null); setTools([]); setLastQuery(''); setBusy(false);
+    toolsRef.current = [];
     activeIdRef.current = null;
     streamBufferRef.current = '';
+    codexResponseIdRef.current = null; // new conversation must not continue the old Codex response chain
+    try { sessionStorage.removeItem(SESSION_MSGS_KEY); } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
@@ -732,6 +820,7 @@ function useChat(config: ChatConfig = {}) {
   return {
     msgs, busy, tools, error, lastQuery,
     send, cancel, retry, reset,
+    notify: setError,
     clearError: useCallback(() => setError(null), []),
   } as const;
 }
@@ -772,13 +861,13 @@ const ToolPill = memo(function ToolPill({ run, index }: { run: ToolRun; index: n
         'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full',
         'text-[11px] font-medium tracking-wide whitespace-nowrap',
         isErr && 'bg-red-500/10 text-red-400',
-        isDone && 'bg-white/5 text-white/40',
-        !isDone && !isErr && 'bg-white/[0.04] text-white/50',
+        isDone && 'bg-[var(--s1)] text-[var(--t3)]',
+        !isDone && !isErr && 'bg-[var(--s1)] text-[var(--t2)]',
       )}
     >
       {run.state === 'active' && (
         <motion.span
-          className="size-1.5 rounded-full bg-white/50"
+          className="size-1.5 rounded-full bg-[var(--t2)]"
           animate={{ opacity: [0.3, 1, 0.3] }}
           transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -786,7 +875,7 @@ const ToolPill = memo(function ToolPill({ run, index }: { run: ToolRun; index: n
       {isDone && <Check className="size-2.5 opacity-50" />}
       {isErr && <X className="size-2.5" />}
       <span className="font-mono">{run.name}</span>
-      {elapsed > 0 && <span className="text-white/20 tabular-nums">{elapsed}s</span>}
+      {elapsed > 0 && <span className="text-[var(--t4)] tabular-nums">{elapsed}s</span>}
     </motion.span>
   );
 });
@@ -822,7 +911,7 @@ const ThinkingDots = memo(function ThinkingDots() {
       {[0, 1, 2].map(i => (
         <motion.span
           key={i}
-          className="size-[5px] rounded-full bg-white/30"
+          className="size-[5px] rounded-full bg-[var(--b2)]"
           animate={{ opacity: [0.2, 0.8, 0.2], scale: [0.8, 1.1, 0.8] }}
           transition={{ duration: 1.2, delay: i * 0.15, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -838,7 +927,7 @@ const ThinkingDots = memo(function ThinkingDots() {
 const StreamingCursor = memo(function StreamingCursor() {
   return (
     <motion.span
-      className="inline-block w-[2px] h-[1em] bg-white/50 rounded-full ml-0.5 align-text-bottom"
+      className="inline-block w-[2px] h-[1em] bg-[var(--t1)] rounded-full ml-0.5 align-text-bottom"
       animate={{ opacity: [1, 0] }}
       transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
       aria-hidden
@@ -878,8 +967,8 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
         transition={spring.gentle}
         className="flex justify-end w-full"
       >
-        <div className="max-w-[85%] bg-white/[0.07] rounded-[20px] rounded-br-[6px] px-5 py-3.5">
-          <span className="text-[15px] text-white/90 whitespace-pre-wrap leading-relaxed break-words"
+        <div className="max-w-[85%] bg-[var(--s1)] rounded-[20px] rounded-br-[6px] px-5 py-3.5">
+          <span className="text-[15px] text-[var(--t1)] whitespace-pre-wrap leading-relaxed break-words"
             style={{ fontFamily: FONT_STACK }}>{msg.content}</span>
         </div>
       </motion.div>
@@ -907,10 +996,8 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
       {msg.segments.map((seg, si) => (
         <React.Fragment key={si}>
           {seg.kind === 'text' && seg.content && (
-            <div className="t-prose text-[15px] leading-[1.65] text-white/85 break-words overflow-hidden">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                {seg.content}
-              </ReactMarkdown>
+            <div className="t-prose text-[15px] leading-[1.65] text-[var(--t1)] break-words overflow-hidden">
+              <MimeRenderer content={seg.content} />
             </div>
           )}
           {seg.kind === 'card' && renderCard(seg.cardType, seg.data, undefined, seg.render)}
@@ -933,7 +1020,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
             className={cn(
               'flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium',
               'transition-colors duration-200 active:scale-95',
-              copied ? 'text-white/50' : 'text-white/20 hover:text-white/50',
+              copied ? 'text-[var(--t2)]' : 'text-[var(--t4)] hover:text-[var(--t2)]',
             )}
             aria-label={copied ? 'Copied to clipboard' : 'Copy message'}
           >
@@ -942,7 +1029,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
           </button>
           {isLast && onRetry && (
             <button onClick={onRetry}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-white/20 hover:text-white/50 transition-colors duration-200 active:scale-95"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-[var(--t4)] hover:text-[var(--t2)] transition-colors duration-200 active:scale-95"
               aria-label="Retry this message">
               <RotateCcw className="size-3" /> Retry
             </button>
@@ -956,6 +1043,7 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
   if (prev.msg.content !== next.msg.content) return false;
   if (prev.msg.streaming !== next.msg.streaming) return false;
   if (prev.msg.segments !== next.msg.segments) return false;
+  if (prev.msg.cancelled !== next.msg.cancelled) return false;
   if (prev.isLast !== next.isLast) return false;
   if (prev.onRetry !== next.onRetry) return false;
   return true;
@@ -985,7 +1073,7 @@ const ErrorBar = memo(function ErrorBar({ error, onRetry, onDismiss }: {
         </button>
       )}
       <button onClick={onDismiss}
-        className="text-white/20 p-0.5 active:scale-95 transition-transform"
+        className="text-[var(--t4)] p-0.5 active:scale-95 transition-transform"
         aria-label="Dismiss error">
         <X className="size-3" />
       </button>
@@ -1024,15 +1112,15 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
   }, [inputRef]);
 
   return (
-    <div className="px-4 pt-3 pb-3 flex-shrink-0 z-20 border-t border-white/5 bg-black/95 backdrop-blur"
+    <div className="px-4 pt-3 pb-3 flex-shrink-0 z-20 border-t border-[var(--b1)] bg-[var(--bg)] backdrop-blur"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 12px)' }}>
       <div className="mx-auto max-w-chat w-full">
         <div className={cn(
-          'relative flex items-end gap-2 bg-white/[0.05] rounded-[26px]',
+          'relative flex items-end gap-2 bg-[var(--s1)] rounded-[26px]',
           'border transition-all duration-300 ease-out',
           focused
-            ? 'border-white/[0.15] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_2px_12px_rgba(255,255,255,0.03)]'
-            : 'border-white/[0.06]',
+            ? 'border-[var(--b2)] shadow-[var(--t-shadow-md)]'
+            : 'border-[var(--b1)]',
         )}>
         <textarea
           ref={inputRef}
@@ -1044,7 +1132,7 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
           placeholder="Message"
           rows={1}
           aria-label="Chat input"
-          className="flex-1 bg-transparent text-[15px] text-white placeholder:text-white/25 leading-[1.4] resize-none outline-none pl-5 pr-2 py-3 scrollbar-none"
+          className="flex-1 bg-transparent text-[16px] text-[var(--t1)] placeholder:text-[var(--t4)] leading-[1.4] resize-none outline-none pl-5 pr-2 py-3 scrollbar-none"
           style={{ fontFamily: FONT_STACK, maxHeight: MAX_TEXTAREA_HEIGHT, transition: 'height 120ms ease-out' }}
         />
         <div className="pr-2 pb-2 flex-shrink-0">
@@ -1076,7 +1164,7 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
           </motion.button>
         </div>
       </div>
-      <p className="mt-2 text-center text-[10px] text-white/30" style={{ fontFamily: FONT_STACK }}>
+      <p className="mt-2 text-center text-[10px] text-[var(--t3)]" style={{ fontFamily: FONT_STACK }}>
         Optimized for deep, readable responses
       </p>
       </div>
@@ -1092,6 +1180,16 @@ export default function MobileChat() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [parsedMcpServers, setParsedMcpServers] = useState<any[]>([]);
   const [parsedIntegrations, setParsedIntegrations] = useState<any[]>([]);
+  
+  // Network status and offline queue
+  const networkStatus = useNetworkStatus();
+  const {
+    queue: offlineQueue,
+    addToQueue,
+    clearQueue,
+    processQueue,
+    hasQueuedItems
+  } = useOfflineQueue<{ text: string; model: string }>();
 
   const [model, setModel] = useState('gemini');
   const [modelConfig, setModelConfig] = useState('gemini-3.1-pro-preview');
@@ -1100,27 +1198,8 @@ export default function MobileChat() {
     // Dynamic refresh of token and settings on mount
     getAccessToken().then(setAccessToken).catch(console.error);
 
-    let servers: any[] = [];
-    const mcpSaved = localStorage.getItem('mcp_full_servers');
-    if (mcpSaved) {
-      try { servers = JSON.parse(mcpSaved); } catch (e) {}
-    }
-    PRELOADED_SERVERS.forEach(pre => {
-      const existing = servers.find(p => p.id === pre.id);
-      if (!existing) {
-        servers.push(pre);
-      } else if (existing.type === 'Official') {
-        existing.tools = pre.tools;
-        existing.commandOrUrl = pre.commandOrUrl;
-      }
-    });
+    const { servers, integrations } = readClientContext();
     setParsedMcpServers(servers);
-
-    let integrations: any[] = [];
-    const apiSaved = localStorage.getItem('api_hub_integrations');
-    if (apiSaved) {
-      try { integrations = JSON.parse(apiSaved); } catch (e) {}
-    }
     setParsedIntegrations(integrations);
   }, []);
 
@@ -1138,16 +1217,59 @@ export default function MobileChat() {
 
   useEffect(() => { scroll.scrollToEndIfNear(); }, [msgCount, lastContent, lastSegmentCount, scroll.scrollToEndIfNear]);
 
-  const handleSend = useCallback((text: string) => { chat.send(text); }, [chat]);
+  // Stable identity wrappers: `chat` is a fresh object every render, so any
+  // callback depending on it would invalidate InputBar/Bubble memoization on
+  // every stream tick. chatRef keeps identities stable across renders.
+  const chatRef = useRef(chat);
+  useEffect(() => { chatRef.current = chat; });
+
+  const handleSend = useCallback((text: string) => {
+    if (!navigator.onLine) {
+      addToQueue({ text, model });
+      chatRef.current.notify({ message: 'Message queued for offline delivery', retryable: false });
+      return;
+    }
+    chatRef.current.send(text);
+  }, [addToQueue, model]);
+
+  const handleRetry = useCallback(() => { chatRef.current.retry(); }, []);
+  const handleCancel = useCallback(() => { chatRef.current.cancel(); }, []);
+  
+  // Process offline queue when coming back online
+  useEffect(() => {
+    if (networkStatus.isOnline && hasQueuedItems) {
+      processQueue(async (items) => {
+        for (const item of items) {
+          try {
+            // Send queued messages
+            chatRef.current.send(item.text);
+          } catch (error) {
+            console.error('Failed to send queued message:', error);
+          }
+        }
+      });
+    }
+  }, [networkStatus.isOnline, hasQueuedItems, processQueue]);
 
   return (
-    <div className="flex flex-col h-dvh w-full bg-black text-white antialiased overflow-hidden">
+    <div className="relative flex flex-col h-dvh w-full bg-[var(--bg)] text-[var(--t1)] antialiased overflow-hidden">
+      {/* ── Network indicator ── */}
+      <NetworkIndicator status={networkStatus} />
+      
+      {/* ── Offline queue indicator ── */}
+      {hasQueuedItems && (
+        <div className="fixed top-14 right-4 z-50 px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-full flex items-center gap-1.5 shadow-lg animate-pulse">
+          <CloudOff size={12} />
+          <span>{offlineQueue.length} queued</span>
+        </div>
+      )}
+      
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 border-b border-white/10 bg-black/95 px-4 py-3 backdrop-blur flex-shrink-0"
+      <div className="sticky top-0 z-10 border-b border-[var(--b1)] bg-[var(--bg)] px-4 py-3 backdrop-blur flex-shrink-0"
            style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
         <div className="mx-auto max-w-chat flex items-center justify-between w-full">
-          <div className="text-sm text-white/50 flex items-center" style={{ fontFamily: FONT_STACK }}>
-            <span className="font-semibold text-white/80 tracking-tight">Truth</span>
+          <div className="text-sm text-[var(--t2)] flex items-center" style={{ fontFamily: FONT_STACK }}>
+            <span className="font-semibold text-[var(--t1)] tracking-tight">Truth</span>
             <span className="mx-2 opacity-30">•</span>
             <select
               value={`${model}:${modelConfig}`}
@@ -1156,21 +1278,24 @@ export default function MobileChat() {
                 setModel(m);
                 setModelConfig(mc);
               }}
-              className="bg-transparent text-white/50 appearance-none outline-none cursor-pointer hover:text-white/80 transition-colors"
+              className="bg-transparent text-[var(--t2)] appearance-none outline-none cursor-pointer hover:text-[var(--t1)] transition-colors"
             >
-              <option value="gemini:gemini-3.1-pro-preview" className="text-black">Gemini 3.1 Pro</option>
-              <option value="gemini:gemini-3.5-flash" className="text-black">Gemini 3.5 Flash</option>
-              <option value="chatgpt:gpt-5.5" className="text-black">GPT 5.5</option>
-              <option value="claude:claude-sonnet-4-6" className="text-black">Claude 4.6 Sonnet</option>
-              <option value="claude:claude-opus-4-8" className="text-black">Claude 4.8 Opus</option>
-              <option value="grok:grok-4.3" className="text-black">Grok 4.3</option>
-              <option value="codex:gpt-5.5" className="text-black">Codex GPT-5.5</option>
-              <option value="codex:gpt-5.4" className="text-black">Codex GPT-5.4</option>
+              <option value="gemini:gemini-3.1-pro-preview" className="text-[var(--bg)]">Gemini 3.1 Pro</option>
+              <option value="gemini:gemini-3.5-flash" className="text-[var(--bg)]">Gemini 3.5 Flash</option>
+              <option value="chatgpt:gpt-5.5" className="text-[var(--bg)]">GPT 5.5</option>
+              <option value="claude:claude-fable-5" className="text-[var(--bg)]">Claude 5 Fable</option>
+              <option value="claude:claude-sonnet-5" className="text-[var(--bg)]">Claude 5 Sonnet</option>
+              <option value="claude:claude-sonnet-4-6" className="text-[var(--bg)]">Claude 4.6 Sonnet</option>
+              <option value="claude:claude-opus-4-8" className="text-[var(--bg)]">Claude 4.8 Opus</option>
+              <option value="grok:grok-4.3" className="text-[var(--bg)]">Grok 4.3</option>
+              <option value="codex:gpt-5.3-codex" className="text-[var(--bg)]">Codex GPT-5.3</option>
+              <option value="codex:gpt-5.5" className="text-[var(--bg)]">Codex GPT-5.5</option>
+              <option value="codex:gpt-5.4" className="text-[var(--bg)]">Codex GPT-5.4</option>
             </select>
             <ChevronDown className="size-3 ml-1 opacity-50" />
           </div>
           <button onClick={chat.reset}
-            className="p-1.5 rounded-full text-white/25 hover:text-white/60 active:scale-90 transition-all duration-150"
+            className="p-1.5 rounded-full text-[var(--t4)] hover:text-[var(--t2)] active:scale-90 transition-all duration-150"
             aria-label="New conversation">
             <PenLine className="size-4" strokeWidth={1.8} />
           </button>
@@ -1179,18 +1304,18 @@ export default function MobileChat() {
 
       {/* ── Messages ── */}
       <div ref={scroll.scrollRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none"
+        className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none overscroll-contain"
         onScroll={scroll.onScroll}
         style={{ WebkitOverflowScrolling: 'touch' }}>
         {msgCount === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <div className="mb-4 size-12 rounded-2xl bg-white/[0.03] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] flex items-center justify-center">
-              <span className="text-xl font-bold text-white/80" style={{ fontFamily: FONT_STACK }}>T</span>
+            <div className="mb-4 size-12 rounded-2xl bg-[var(--s1)] shadow-[inset_0_0_0_1px_var(--b1)] flex items-center justify-center">
+              <span className="text-xl font-bold text-[var(--t1)]" style={{ fontFamily: FONT_STACK }}>T</span>
             </div>
-            <h1 className="text-xl font-medium tracking-tight text-white/90" style={{ fontFamily: FONT_STACK }}>
+            <h1 className="text-xl font-medium tracking-tight text-[var(--t1)]" style={{ fontFamily: FONT_STACK }}>
               How can I help you today?
             </h1>
-            <p className="mt-2 text-sm text-white/40 max-w-[280px]">
+            <p className="mt-2 text-sm text-[var(--t3)] max-w-[280px]">
               Optimized for deep, long-form exploration and research.
             </p>
           </div>
@@ -1198,13 +1323,30 @@ export default function MobileChat() {
           <div className="px-5 pt-8 pb-4 mx-auto max-w-chat w-full flex flex-col space-y-6">
             <AnimatePresence mode="popLayout">
               {chat.msgs.map((msg, i) => (
-                <Bubble key={msg.id} msg={msg} isLast={i === msgCount - 1} onRetry={chat.retry} />
+                <Bubble key={msg.id} msg={msg} isLast={i === msgCount - 1} onRetry={handleRetry} />
               ))}
             </AnimatePresence>
           </div>
         )}
         <div ref={scroll.endRef} className="h-px" aria-hidden />
       </div>
+
+      {/* ── Scroll to bottom ── */}
+      <AnimatePresence>
+        {!scroll.atBottom && msgCount > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15 }}
+            onClick={scroll.scrollToEnd}
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center justify-center size-9 rounded-full bg-[var(--s2)] text-[var(--t2)] shadow-[0_2px_12px_rgba(0,0,0,0.4),inset_0_0_0_1px_var(--b1)] active:scale-95 transition-transform"
+            aria-label="Scroll to bottom"
+          >
+            <ChevronDown className="size-4" strokeWidth={2} />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* ── Tools ── */}
       <AnimatePresence>
@@ -1214,12 +1356,12 @@ export default function MobileChat() {
       {/* ── Error ── */}
       <AnimatePresence>
         {chat.error && (
-          <ErrorBar error={chat.error} onRetry={chat.retry} onDismiss={chat.clearError} />
+          <ErrorBar error={chat.error} onRetry={handleRetry} onDismiss={chat.clearError} />
         )}
       </AnimatePresence>
 
       {/* ── Input ── */}
-      <InputBar busy={chat.busy} onSend={handleSend} onCancel={chat.cancel} />
+      <InputBar busy={chat.busy} onSend={handleSend} onCancel={handleCancel} />
     </div>
   );
 }
