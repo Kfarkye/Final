@@ -5,6 +5,7 @@ import { waitForApproval } from '../utils/approval';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { githubApiErrorMessage, githubAuthHeaders, githubJsonAuthHeaders } from '../lib/github-auth';
 
 // Lazily initialize client
 let secretClient: SecretManagerServiceClient | null = null;
@@ -21,74 +22,31 @@ export async function getGithubPat(): Promise<string | null> {
     || env.GITHUB_PAT || process.env.GITHUB_PAT
     || process.env.GITHUB_TOKEN;
   if (envToken) return envToken;
-  // Check Secret Manager
-  try {
-    const client = getSecretClient();
-    try {
-      const [version] = await client.accessSecretVersion({
-        name: `projects/${env.GCP_PROJECT}/secrets/tenant_default_GITHUB_PERSONAL_ACCESS_TOKEN/versions/latest`,
-      });
-      return version.payload?.data?.toString() || null;
-    } catch(e) {}
-    try {
-      const [version] = await client.accessSecretVersion({
-        name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_PERSONAL_ACCESS_TOKEN/versions/latest`,
-      });
-      return version.payload?.data?.toString() || null;
-    } catch(e) {
-      // Fallback to GITHUB_TOKEN, then GITHUB_PAT
-    }
-    try {
-      const [version] = await client.accessSecretVersion({
-        name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_TOKEN/versions/latest`,
-      });
-      return version.payload?.data?.toString() || null;
-    } catch(e) {
-      // Fallback to GITHUB_PAT
-    }
-    const [version] = await client.accessSecretVersion({
-      name: `projects/${env.GCP_PROJECT}/secrets/GITHUB_PAT/versions/latest`,
-    });
-    return version.payload?.data?.toString() || null;
-  } catch (err: any) {
-    logger.error({ msg: "Failed to read GitHub token from Secret Manager", error: err.message });
-    return null;
-  }
-}
+  // Check Secret Manager. Keep tenant_default first so Vault BYOK survives process restarts.
+  const secretNames = [
+    'tenant_default_GITHUB_PERSONAL_ACCESS_TOKEN',
+    'tenant_default_GITHUB_PAT',
+    'tenant_default_GITHUB_TOKEN',
+    'GITHUB_PERSONAL_ACCESS_TOKEN',
+    'GITHUB_TOKEN',
+    'GITHUB_PAT',
+  ];
 
-/**
- * Canonical GitHub auth headers — the ONLY way GitHub callers may authenticate.
- *
- * Fine-grained PATs (github_pat_*) REJECT the legacy `token` scheme with
- * 401 "Bad credentials" even when the token is valid. `Bearer` works for
- * both classic (ghp_*) and fine-grained tokens. Never construct
- * Authorization headers inline; never log the PAT.
- */
-export function githubAuthHeaders(pat: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${pat}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "Truth-Platform",
-  };
-}
+  const client = getSecretClient();
+  for (const secretId of secretNames) {
+    try {
+      const [version] = await client.accessSecretVersion({
+        name: `projects/${env.GCP_PROJECT}/secrets/${secretId}/versions/latest`,
+      });
+      const token = version.payload?.data?.toString();
+      if (token) return token;
+    } catch (err: any) {
+      if (err?.code !== 5) {
+        logger.warn({ msg: "GitHub token secret read failed", secretId, error: err.message });
+      }
+    }
+  }
 
-/**
- * Translate GitHub HTTP failures into actionable diagnostics.
- * Key distinction: 401 = credential itself rejected; 404 = credential valid
- * but the repo/path is NOT visible to this token (fine-grained PATs return
- * 404 for repositories they were not granted — this is not a bad key).
- */
-export function githubErrorHint(status: number, repoFullName: string, path?: string): string | null {
-  if (status === 401) {
-    return `401 Bad credentials — the GitHub PAT itself was rejected (invalid, expired, or sent with the wrong auth scheme). This is NOT a repo-visibility issue.`;
-  }
-  if (status === 404) {
-    return `404 Not Found — ${path ? `'${path}' does not exist in ${repoFullName}, or ` : ""}repo '${repoFullName}' is not visible to this token. Fine-grained PATs return 404 for repositories they were not granted — check the PAT's repository access list before assuming a bad key.`;
-  }
-  if (status === 403) {
-    return `403 Forbidden — token authenticated but lacks the required permission on '${repoFullName}' (grant 'Contents: Read and write' for fine-grained PATs, or 'repo' scope for classic).`;
-  }
   return null;
 }
 
@@ -134,11 +92,12 @@ export const githubTools: RegisteredTool<any>[] = [
 
       try {
         const headers = githubAuthHeaders(pat);
+        const jsonHeaders = githubJsonAuthHeaders(pat);
 
         // 2. Validate token and handle scope/branch pre-checks
         const userRes = await fetch("https://api.github.com/user", { method: "GET", headers });
-        if (!userRes.ok && userRes.status === 401) {
-             return { error: "GitHub PAT is invalid or expired. Please provision a new PAT and store it in Secret Manager." };
+        if (!userRes.ok) {
+             return { error: await githubApiErrorMessage(userRes) };
         }
 
         const url = `https://api.github.com/repos/${args.repoFullName}/contents/${args.path}`;
@@ -151,9 +110,8 @@ export const githubTools: RegisteredTool<any>[] = [
              // Branch doesn't exist, create it from default branch
              const repoRes = await fetch(`https://api.github.com/repos/${args.repoFullName}`, { headers });
              if (!repoRes.ok) {
-                 if (repoRes.status === 403) return { error: `403 Forbidden: Your GITHUB_PAT does not have permission to read repository ${args.repoFullName}. Please ensure 'Contents: Read and write' is granted.` };
-                 throw new Error(`Failed to get repository info: ${repoRes.status}`);
-             }
+                  return { error: await githubApiErrorMessage(repoRes, { pat, repoFullName: args.repoFullName, resourceLabel: 'repository' }) };
+              }
              const repoData = await repoRes.json();
              const defaultBranch = repoData.default_branch;
 
@@ -163,26 +121,20 @@ export const githubTools: RegisteredTool<any>[] = [
 
              const createRefRes = await fetch(`https://api.github.com/repos/${args.repoFullName}/git/refs`, {
                  method: "POST",
-                 headers,
-                 body: JSON.stringify({
-                     ref: `refs/heads/${args.branch}`,
+                 headers: jsonHeaders,
+                  body: JSON.stringify({
+                      ref: `refs/heads/${args.branch}`,
                      sha: sha
                  })
              });
 
              if (!createRefRes.ok) {
-                 const errData = await createRefRes.json().catch(()=>({}));
-                 if (createRefRes.status === 403) {
-                     return { error: `403 Forbidden: Your GITHUB_PAT does not have permission to create branches in ${args.repoFullName}. Please ensure 'Contents: Read and write' is granted.` };
-                 }
-                 throw new Error(`Failed to create branch ${args.branch}: ${createRefRes.status} ${JSON.stringify(errData)}`);
-             }
+                  return { error: await githubApiErrorMessage(createRefRes, { pat, repoFullName: args.repoFullName, resourceLabel: 'branch creation' }) };
+              }
              logger.info({ msg: `Created new branch ${args.branch}` });
           } else if (!branchRes.ok) {
-              const errData = await branchRes.json().catch(()=>({}));
-              if (branchRes.status === 403) return { error: `403 Forbidden: Your GITHUB_PAT does not have permission to access repository ${args.repoFullName}. Please ensure 'Contents: Read and write' is granted.` };
-              throw new Error(`Failed to check branch: ${branchRes.status} ${JSON.stringify(errData)}`);
-          }
+               return { error: await githubApiErrorMessage(branchRes, { pat, repoFullName: args.repoFullName, resourceLabel: 'branch' }) };
+           }
         }
 
         // 4. Check if file exists to get the SHA
@@ -208,17 +160,19 @@ export const githubTools: RegisteredTool<any>[] = [
 
         const putRes = await fetch(url, {
           method: "PUT",
-          headers,
+          headers: jsonHeaders,
           body: JSON.stringify(body)
         });
 
         if (!putRes.ok) {
-          const errorData = await putRes.json().catch(() => ({}));
-          // Explicitly catch and surface 403/404 permission errors for better UX
-          if (putRes.status === 403 || putRes.status === 404) {
-              return { error: `HTTP ${putRes.status}: Your GITHUB_PAT token is not authorized to write to this file. If this is a Fine-Grained PAT, ensure the repository is explicitly added and 'Contents: Read and write' permission is granted. If this is a Classic PAT, ensure the 'repo' scope is checked. Detailed Error: ${JSON.stringify(errorData)}` };
-          }
-          throw new Error(`Failed to commit file. Status: ${putRes.status} ${JSON.stringify(errorData)}`);
+          return {
+            error: await githubApiErrorMessage(putRes, {
+              pat,
+              repoFullName: args.repoFullName,
+              resourceLabel: 'file write',
+              notFoundMessage: `File write target not found: ${args.path}`,
+            }),
+          };
         }
 
         const data = await putRes.json();
@@ -274,7 +228,7 @@ export const githubTools: RegisteredTool<any>[] = [
         return { success: false, error: `PR creation ${decision.decision}: ${(decision as any).reason || 'Not approved'}` };
       }
 
-      const headers = { ...githubAuthHeaders(pat), "Content-Type": "application/json" };
+      const headers = githubJsonAuthHeaders(pat);
 
       try {
         // Create PR
@@ -290,8 +244,7 @@ export const githubTools: RegisteredTool<any>[] = [
         });
 
         if (!createRes.ok) {
-          const errData = await createRes.json().catch(() => ({}));
-          return { error: `Failed to create PR: ${createRes.status} ${JSON.stringify(errData)}` };
+          return { error: await githubApiErrorMessage(createRes, { pat, repoFullName: args.repoFullName, resourceLabel: 'pull request creation' }) };
         }
 
         const prData = await createRes.json();
@@ -317,13 +270,12 @@ export const githubTools: RegisteredTool<any>[] = [
               message: `PR #${prData.number} created and merged.`,
             };
           } else {
-            const mergeErr = await mergeRes.json().catch(() => ({}));
             return {
               success: true,
               prNumber: prData.number,
               prUrl: prData.html_url,
               merged: false,
-              mergeError: `Auto-merge failed: ${mergeRes.status} ${JSON.stringify(mergeErr)}`,
+              mergeError: await githubApiErrorMessage(mergeRes, { pat, repoFullName: args.repoFullName, resourceLabel: 'pull request merge' }),
             };
           }
         }
@@ -365,11 +317,12 @@ export const githubTools: RegisteredTool<any>[] = [
         if (args.branch) url += `&branch=${encodeURIComponent(args.branch)}`;
         if (args.status) url += `&status=${args.status}`;
 
-        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+        const res = await fetch(url, {
+          headers: githubAuthHeaders(pat),
+        });
 
         if (!res.ok) {
-          const errText = await res.text();
-          return { error: `GitHub API ${res.status}: ${errText}` };
+          return { error: await githubApiErrorMessage(res, { pat, repoFullName: `${args.owner}/${args.repo}`, resourceLabel: 'workflow runs' }) };
         }
 
         const data = await res.json() as any;
@@ -417,13 +370,19 @@ export const githubTools: RegisteredTool<any>[] = [
         let url = `https://api.github.com/repos/${args.repoFullName}/contents/${args.path}`;
         if (args.branch) url += `?ref=${encodeURIComponent(args.branch)}`;
 
-        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+        const res = await fetch(url, {
+          headers: githubAuthHeaders(pat),
+        });
 
         if (!res.ok) {
-          const errText = await res.text();
-          const hint = githubErrorHint(res.status, args.repoFullName, args.path);
-          if (hint) return { error: hint };
-          return { error: `GitHub API ${res.status}: ${errText}` };
+          return {
+            error: await githubApiErrorMessage(res, {
+              pat,
+              repoFullName: args.repoFullName,
+              resourceLabel: 'file',
+              notFoundMessage: `File not found: ${args.path}`,
+            }),
+          };
         }
 
         const data = await res.json() as any;
@@ -467,13 +426,19 @@ export const githubTools: RegisteredTool<any>[] = [
         let url = `https://api.github.com/repos/${args.repoFullName}/contents/${dirPath}`;
         if (args.branch) url += `?ref=${encodeURIComponent(args.branch)}`;
 
-        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+        const res = await fetch(url, {
+          headers: githubAuthHeaders(pat),
+        });
 
         if (!res.ok) {
-          const errText = await res.text();
-          const hint = githubErrorHint(res.status, args.repoFullName, dirPath || '/');
-          if (hint) return { error: hint };
-          return { error: `GitHub API ${res.status}: ${errText}` };
+          return {
+            error: await githubApiErrorMessage(res, {
+              pat,
+              repoFullName: args.repoFullName,
+              resourceLabel: 'directory',
+              notFoundMessage: `Directory not found: ${dirPath || 'root'}`,
+            }),
+          };
         }
 
         const data = await res.json() as any;
@@ -518,13 +483,12 @@ export const githubTools: RegisteredTool<any>[] = [
         const searchQuery = `${args.query} repo:${args.repoFullName}`;
         const url = `https://api.github.com/search/code?q=${encodeURIComponent(searchQuery)}&per_page=${Math.min(args.perPage || 10, 30)}`;
 
-        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+        const res = await fetch(url, {
+          headers: githubAuthHeaders(pat),
+        });
 
         if (!res.ok) {
-          const errText = await res.text();
-          const hint = githubErrorHint(res.status, args.repoFullName);
-          if (hint) return { error: hint };
-          return { error: `GitHub API ${res.status}: ${errText}` };
+          return { error: await githubApiErrorMessage(res, { pat, repoFullName: args.repoFullName, resourceLabel: 'code search' }) };
         }
 
         const data = await res.json() as any;

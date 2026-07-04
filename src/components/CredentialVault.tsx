@@ -2,14 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Search, X, Lock, RefreshCw } from 'lucide-react';
 import VaultCard from './VaultCard';
 
-export interface ApiIntegration {
-  id: string;
-  name: string;
-  category: 'AI / LLM' | 'Productivity' | 'Payments' | 'Communication' | 'Dev / Data' | 'Markets';
-  description: string;
-  keyFields: { label: string; placeholder: string; key: string; isSecret: boolean }[];
-  docUrl: string;
-}
+import { ApiIntegration, VaultOperationalMetadata } from '../types/vault.types';
 
 const INTEGRATIONS: ApiIntegration[] = [
   {
@@ -63,6 +56,7 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<'all' | 'ai' | 'productivity' | 'payments' | 'dev' | 'markets'>('all');
   const [statuses, setStatuses] = useState<Record<string, boolean>>({});
+  const [metadata, setMetadata] = useState<Record<string, VaultOperationalMetadata>>({});
   const [loading, setLoading] = useState(true);
 
   const fetchStatuses = async () => {
@@ -75,6 +69,7 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
       if (res.ok) {
         const data = await res.json();
         setStatuses(data.statuses || {});
+        setMetadata(data.metadata || {});
       }
     } catch (err) {
       console.error('Failed to fetch vault status', err);
@@ -106,8 +101,13 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
       throw new Error(data.error || 'Failed to save secret');
     }
 
-    // Update local status optimistically
+    const data = await res.json().catch(() => ({}));
+
+    // Update local status optimistically and retain provider verification metadata when returned.
     setStatuses(prev => ({ ...prev, [id]: true }));
+    if (data.activation?.metadata) {
+      setMetadata(prev => ({ ...prev, [id]: data.activation.metadata }));
+    }
   };
 
   const filteredIntegrations = INTEGRATIONS.filter(item => {
@@ -124,15 +124,15 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
   });
 
   return (
-    <div className="h-full flex flex-col bg-black text-zinc-100 overflow-hidden font-sans border-l border-zinc-900 selection:bg-indigo-500/30 selection:text-white">
+    <div className="h-full flex flex-col bg-black text-[var(--t1)] overflow-hidden font-sans border-l border-[var(--b1)] selection:bg-indigo-500/30 selection:text-[var(--t1)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-900 bg-black">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--b1)] bg-black">
         <div>
           <div className="flex items-center gap-1.5 text-xs text-indigo-400 tracking-wider uppercase font-bold">
             <ShieldCheck size={12} />
             <span>Identity Passport</span>
           </div>
-          <h2 className="text-xl font-semibold text-white tracking-tight mt-1">
+          <h2 className="text-xl font-semibold text-[var(--t1)] tracking-tight mt-1">
             Credential Vault
           </h2>
         </div>
@@ -140,17 +140,17 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
         <div className="flex items-center space-x-2">
           <button 
             onClick={fetchStatuses}
-            className="p-2 bg-zinc-950 hover:bg-zinc-900 active:scale-[0.98] border border-zinc-800 rounded-xl text-zinc-400 transition-all flex items-center gap-1.5"
+            className="p-2 bg-[var(--s2)] hover:bg-[var(--s2)] active:scale-[0.98] border border-[var(--b2)] rounded-xl text-[var(--t2)] transition-all flex items-center gap-1.5"
             disabled={loading}
           >
-            <RefreshCw size={14} className={loading ? 'animate-spin text-zinc-300' : 'text-zinc-500'} />
+            <RefreshCw size={14} className={loading ? 'animate-spin text-[var(--t3)]' : 'text-[var(--t4)]'} />
             <span className="text-xs font-medium tracking-wide">Sync Vault</span>
           </button>
           
           {onClose && (
             <button 
               onClick={onClose}
-              className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-900 rounded-xl transition-colors border border-transparent"
+              className="p-2 text-[var(--t4)] hover:text-[var(--t1)] hover:bg-[var(--s2)] rounded-xl transition-colors border border-transparent"
             >
               <X size={16} />
             </button>
@@ -160,25 +160,25 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Search & Filter */}
-        <div className="px-6 py-5 flex flex-col gap-4 border-b border-zinc-900 bg-zinc-950/20">
+        <div className="px-6 py-5 flex flex-col gap-4 border-b border-[var(--b1)] bg-[var(--s2)]/20">
           <div className="relative">
-            <Search className="absolute left-3.5 top-3 text-zinc-500 pointer-events-none" size={15} />
+            <Search className="absolute left-3.5 top-3 text-[var(--t4)] pointer-events-none" size={15} />
             <input 
               type="text" 
               placeholder="Search providers (e.g. OpenAI, Stripe)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-black border border-zinc-800 hover:border-zinc-700 focus:border-indigo-500/50 rounded-xl pl-11 pr-4 py-3 text-sm text-white outline-none transition-all placeholder-zinc-600 focus:ring-1 focus:ring-indigo-500/50"
+              className="w-full bg-black border border-[var(--b2)] hover:border-[var(--b2)] focus:border-indigo-500/50 rounded-xl pl-11 pr-4 py-3 text-sm text-[var(--t1)] outline-none transition-all placeholder-[var(--t4)] focus:ring-1 focus:ring-indigo-500/50"
             />
           </div>
 
           <div className="flex items-center overflow-x-auto no-scrollbar py-0.5 max-w-full">
-            <div className="flex bg-black rounded-xl p-1 border border-zinc-800 text-[10px] uppercase font-bold tracking-wider space-x-1 flex-shrink-0">
+            <div className="flex bg-black rounded-xl p-1 border border-[var(--b2)] text-[10px] uppercase font-bold tracking-wider space-x-1 flex-shrink-0">
               {(['all', 'ai', 'productivity', 'payments', 'dev', 'markets'] as const).map(cat => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-3 py-2 rounded-lg transition-all font-sans whitespace-nowrap ${activeCategory === cat ? 'bg-zinc-200 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900'}`}
+                  className={`px-3 py-2 rounded-lg transition-all font-sans whitespace-nowrap ${activeCategory === cat ? 'bg-[var(--t-text-secondary)] text-[var(--bg)] shadow-sm' : 'text-[var(--t4)] hover:text-[var(--t3)] hover:bg-[var(--s2)]'}`}
                 >
                   {cat === 'all' ? 'All' 
                    : cat === 'ai' ? 'AI / LLM' 
@@ -208,11 +208,12 @@ export default function CredentialVault({ onClose, tenantId = 'default' }: Crede
               integration={item}
               isAuthorized={statuses[item.id] || false}
               isSyncing={loading}
+              metadata={metadata[item.id]}
               onConnect={handleConnect}
             />
           ))}
           {filteredIntegrations.length === 0 && (
-            <div className="text-center py-10 text-zinc-600 text-sm">
+            <div className="text-center py-10 text-[var(--t4)] text-sm">
               No integrations found matching your search.
             </div>
           )}

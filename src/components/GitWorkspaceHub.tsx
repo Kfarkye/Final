@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { githubAuthHeaders } from '../lib/github-auth';
 
 interface TreeNode {
   name: string;
@@ -333,7 +334,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const fetchGithubRepos = async (token: string) => {
     try {
       const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+        headers: githubAuthHeaders(token)
       });
       if (res.ok) {
         setGithubRepos(await res.json());
@@ -396,7 +397,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
     try {
       const res = await fetch(`https://api.github.com/repos/${repoFullName}/branches`, {
-        headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+        headers: githubAuthHeaders(githubToken)
       });
       if (res.ok) {
         const branches = await res.json();
@@ -433,7 +434,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     setLoading(true);
     try {
       const treeRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees/${branch}?recursive=1`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+        headers: githubAuthHeaders(token)
       });
 
       if (treeRes.ok) {
@@ -456,7 +457,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         });
 
         const commitsRes = await fetch(`https://api.github.com/repos/${repoFullName}/commits?sha=${branch}&per_page=10`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+          headers: githubAuthHeaders(token)
         });
         if (commitsRes.ok) {
           const rawCommits = await commitsRes.json();
@@ -583,7 +584,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } else {
       const res = await fetch(`https://api.github.com/repos/${selectedGithubRepo}/contents/${filePath}?ref=${selectedGithubBranch}`, {
-        headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+        headers: githubAuthHeaders(githubToken)
       });
       if (res.ok) {
         const data = await res.json();

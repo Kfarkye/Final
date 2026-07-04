@@ -77,13 +77,16 @@ export class TruthMCPManager {
     // 1. Check process.env (set by hot-activation on this instance)
     // 2. If missing, fetch from Secret Manager (vaulted by a prior instance)
     // 3. If found, set process.env so subsequent calls on this instance are fast
-    let githubToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+    let githubToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
     if (!githubToken) {
-      console.log("[TruthMCPManager] GITHUB_PERSONAL_ACCESS_TOKEN not in env — checking Secret Manager vault...");
-      githubToken = await fetchSecretFromVault('GITHUB_PERSONAL_ACCESS_TOKEN') || undefined;
-      if (githubToken) {
-        process.env.GITHUB_PERSONAL_ACCESS_TOKEN = githubToken;
-        console.log("[TruthMCPManager] GitHub token recovered from Secret Manager vault.");
+      console.log("[TruthMCPManager] GitHub token not in env — checking Secret Manager vault with all supported names...");
+      for (const secretId of ['GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_PAT', 'GITHUB_TOKEN']) {
+        githubToken = await fetchSecretFromVault(secretId) || undefined;
+        if (githubToken) {
+          process.env.GITHUB_PERSONAL_ACCESS_TOKEN = githubToken;
+          console.log(`[TruthMCPManager] GitHub token recovered from Secret Manager vault using ${secretId}.`);
+          break;
+        }
       }
     }
 
@@ -97,7 +100,7 @@ export class TruthMCPManager {
         console.warn(`[TruthMCPManager] GitHub MCP failed to connect (non-fatal): ${err.message}`);
       }
     } else {
-      console.warn("[TruthMCPManager] GITHUB_PERSONAL_ACCESS_TOKEN not set — GitHub MCP skipped. Set it via Secrets Vault to enable autonomous PRs.");
+      console.warn("[TruthMCPManager] GitHub token not set — GitHub MCP skipped. Vault GITHUB_PAT or GITHUB_PERSONAL_ACCESS_TOKEN to enable autonomous PRs.");
     }
   }
 

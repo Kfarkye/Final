@@ -2,6 +2,7 @@ import { Router } from "express";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 import { env } from "../config/env";
 import { logger } from "../utils/logger";
+import { githubApiErrorMessage, githubAuthHeaders } from "../lib/github-auth";
 
 const router = Router();
 const client = new SecretManagerServiceClient();
@@ -23,16 +24,72 @@ interface ActivationResult {
   testResult?: string;
   serviceBooted?: string;
   error?: string;
-  /** Operational metadata — makes credential state diagnosable, not just valid/invalid */
-  metadata?: {
-    authScheme?: string;        // e.g. 'Bearer' — the scheme the platform uses
-    tokenType?: string;         // 'fine-grained' | 'classic' | 'unknown'
-    authenticatedAs?: string;   // GitHub login (never the token itself)
-    reposVisible?: string[];    // repos confirmed accessible to this token
-    reposDenied?: string[];     // repos that returned 404/403 (not visible / no permission)
-    lastVerifiedAt?: string;    // ISO timestamp of successful verification
-    lastFailure?: string;       // human-readable last failure detail
+  metadata?: VaultCredentialMetadata;
+}
+
+interface VaultCredentialMetadata {
+  status: 'valid' | 'invalid' | 'unknown';
+  authScheme?: 'Bearer';
+  visibleRepos?: string[];
+  targetRepo?: string;
+  login?: string;
+  permissions?: Record<string, boolean>;
+  lastVerified?: string;
+  lastFailure?: string;
+}
+
+async function verifyGithubPat(value: string): Promise<VaultCredentialMetadata> {
+  const metadata: VaultCredentialMetadata = {
+    status: 'unknown',
+    authScheme: 'Bearer',
+    targetRepo: 'Kfarkye/Final',
+    visibleRepos: [],
+    lastVerified: new Date().toISOString(),
   };
+
+  const userRes = await fetch('https://api.github.com/user', {
+    headers: githubAuthHeaders(value),
+  });
+
+  if (!userRes.ok) {
+    metadata.status = 'invalid';
+    metadata.lastFailure = await githubApiErrorMessage(userRes);
+    return metadata;
+  }
+
+  const user = await userRes.json() as any;
+  metadata.login = user.login;
+
+  const repoRes = await fetch('https://api.github.com/repos/Kfarkye/Final', {
+    headers: githubAuthHeaders(value),
+  });
+
+  if (repoRes.ok) {
+    const repo = await repoRes.json() as any;
+    metadata.status = 'valid';
+    metadata.visibleRepos = ['Kfarkye/Final'];
+    metadata.permissions = repo.permissions || {};
+    return metadata;
+  }
+
+  metadata.status = 'invalid';
+  metadata.lastFailure = await githubApiErrorMessage(repoRes, {
+    pat: value,
+    repoFullName: 'Kfarkye/Final',
+    resourceLabel: 'repository',
+  });
+  return metadata;
+}
+
+async function readLatestSecretValue(secretId: string): Promise<string | null> {
+  try {
+    const [version] = await client.accessSecretVersion({
+      name: `projects/${env.GCP_PROJECT}/secrets/${secretId}/versions/latest`,
+    });
+    return version.payload?.data?.toString() || null;
+  } catch {
+    return null;
+  }
 }
 
 async function activateSecret(key: string, value: string): Promise<ActivationResult> {
@@ -45,58 +102,22 @@ async function activateSecret(key: string, value: string): Promise<ActivationRes
   // Step 2: Test and boot dependent services
   try {
     switch (key) {
-      case 'GITHUB_PERSONAL_ACCESS_TOKEN': {
-        // Canonical scheme: Bearer. Fine-grained PATs (github_pat_*) reject the
-        // legacy 'token' scheme with 401 even when valid — never use it.
-        const ghHeaders = {
-          'Authorization': `Bearer ${value}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'Truth-Platform',
-        };
-        const tokenType = value.startsWith('github_pat_') ? 'fine-grained'
-          : value.startsWith('ghp_') ? 'classic' : 'unknown';
-        result.metadata = { authScheme: 'Bearer', tokenType, reposVisible: [], reposDenied: [] };
+      case 'GITHUB_PERSONAL_ACCESS_TOKEN':
+      case 'GITHUB_PAT':
+      case 'GITHUB_TOKEN': {
+        const metadata = await verifyGithubPat(value);
+        result.metadata = metadata;
+        result.tested = true;
 
-        const userRes = await fetch('https://api.github.com/user', { headers: ghHeaders });
-
-        if (!userRes.ok) {
-          result.tested = true;
-          result.testResult = `Token rejected by GitHub API: ${userRes.status} ${userRes.statusText}. The credential itself is invalid or expired (401 = bad key, NOT a repo-visibility issue).`;
-          result.metadata.lastFailure = `${new Date().toISOString()} — /user returned ${userRes.status}`;
+        if (metadata.status !== 'valid') {
+          result.testResult = metadata.lastFailure || 'GitHub token verification failed.';
           break;
         }
 
-        const user = await userRes.json() as any;
-        result.metadata.authenticatedAs = user.login;
-
-        // Probe repo visibility — this is what the GitHub tools actually need.
-        // 404 here means "repo not visible to token" (fine-grained PATs hide
-        // ungranted repos), NOT a bad credential.
-        const targetRepos = ['Kfarkye/Final'];
-        let pushOk = false;
-        for (const repoName of targetRepos) {
-          const repoRes = await fetch(`https://api.github.com/repos/${repoName}`, { headers: ghHeaders });
-          if (repoRes.ok) {
-            result.metadata.reposVisible!.push(repoName);
-            const repo = await repoRes.json() as any;
-            if (repo.permissions?.push) pushOk = true;
-          } else {
-            result.metadata.reposDenied!.push(`${repoName} (${repoRes.status})`);
-          }
-        }
-
-        result.tested = true;
-        if (result.metadata.reposVisible!.length > 0 && pushOk) {
-          result.testResult = `Verified — authenticated as "${user.login}" (${tokenType} PAT, Bearer scheme) with push access to ${result.metadata.reposVisible!.join(', ')}.`;
-          result.metadata.lastVerifiedAt = new Date().toISOString();
-        } else if (result.metadata.reposVisible!.length > 0) {
-          result.testResult = `Authenticated as "${user.login}" but NO push permission on ${result.metadata.reposVisible!.join(', ')}. Grant "Contents: Read and write" in fine-grained PAT settings.`;
-          result.metadata.lastFailure = `${new Date().toISOString()} — no push permission`;
-        } else {
-          result.testResult = `Authenticated as "${user.login}" but target repo(s) not visible to this token: ${result.metadata.reposDenied!.join(', ')}. Add the repository to the fine-grained PAT's access list — the key itself is valid.`;
-          result.metadata.lastFailure = `${new Date().toISOString()} — repo not visible: ${result.metadata.reposDenied!.join(', ')}`;
-        }
+        const canPush = metadata.permissions?.push === true;
+        result.testResult = canPush
+          ? `Verified — authenticated as "${metadata.login}" with push access to Kfarkye/Final. Token is valid. Auth scheme: Bearer.`
+          : `Authenticated as "${metadata.login}" with read visibility to Kfarkye/Final, but NO push permission. Grant "Contents: Read and write" in fine-grained PAT settings. Auth scheme: Bearer.`;
 
         // Boot: try to connect the GitHub MCP now that the token is available
         // The TruthMCPManager singleton is initialized at server boot —
@@ -160,6 +181,7 @@ router.get("/status", async (req, res) => {
     const projectId = env.GCP_PROJECT;
     const tenantPrefix = getTenantPrefix(req);
     const statuses: Record<string, boolean> = {};
+    const metadata: Record<string, VaultCredentialMetadata> = {};
 
     // Parallel check for secret existence
     await Promise.all(
@@ -170,10 +192,27 @@ router.get("/status", async (req, res) => {
           // Check if the secret exists and has at least one active version
           await client.getSecret({ name });
           statuses[key] = true;
+
+          if (key === 'GITHUB_PAT' || key === 'GITHUB_PERSONAL_ACCESS_TOKEN' || key === 'GITHUB_TOKEN') {
+            const value = await readLatestSecretValue(secretId);
+            metadata[key] = value
+              ? await verifyGithubPat(value)
+              : { status: 'unknown', authScheme: 'Bearer', targetRepo: 'Kfarkye/Final', lastVerified: new Date().toISOString(), lastFailure: 'Secret exists but latest version could not be read.' };
+          }
         } catch (err: any) {
           if (err.code === 5) {
             // NOT_FOUND
             statuses[key] = false;
+            if (key === 'GITHUB_PAT' || key === 'GITHUB_PERSONAL_ACCESS_TOKEN' || key === 'GITHUB_TOKEN') {
+              metadata[key] = {
+                status: 'unknown',
+                authScheme: 'Bearer',
+                targetRepo: 'Kfarkye/Final',
+                visibleRepos: [],
+                lastVerified: new Date().toISOString(),
+                lastFailure: 'Secret not vaulted for this tenant.',
+              };
+            }
           } else {
             logger.warn({ msg: "Error checking secret status", secretId, err: err.message });
             statuses[key] = false;
@@ -182,7 +221,7 @@ router.get("/status", async (req, res) => {
       })
     );
 
-    res.json({ statuses });
+    res.json({ statuses, metadata });
   } catch (err: any) {
     logger.error({ msg: "Vault status check failed", err: err.message });
     res.status(500).json({ error: "Internal server error" });
