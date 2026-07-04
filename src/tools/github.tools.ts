@@ -56,13 +56,49 @@ export async function getGithubPat(): Promise<string | null> {
   }
 }
 
+/**
+ * Canonical GitHub auth headers — the ONLY way GitHub callers may authenticate.
+ *
+ * Fine-grained PATs (github_pat_*) REJECT the legacy `token` scheme with
+ * 401 "Bad credentials" even when the token is valid. `Bearer` works for
+ * both classic (ghp_*) and fine-grained tokens. Never construct
+ * Authorization headers inline; never log the PAT.
+ */
+export function githubAuthHeaders(pat: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${pat}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "Truth-Platform",
+  };
+}
+
+/**
+ * Translate GitHub HTTP failures into actionable diagnostics.
+ * Key distinction: 401 = credential itself rejected; 404 = credential valid
+ * but the repo/path is NOT visible to this token (fine-grained PATs return
+ * 404 for repositories they were not granted — this is not a bad key).
+ */
+export function githubErrorHint(status: number, repoFullName: string, path?: string): string | null {
+  if (status === 401) {
+    return `401 Bad credentials — the GitHub PAT itself was rejected (invalid, expired, or sent with the wrong auth scheme). This is NOT a repo-visibility issue.`;
+  }
+  if (status === 404) {
+    return `404 Not Found — ${path ? `'${path}' does not exist in ${repoFullName}, or ` : ""}repo '${repoFullName}' is not visible to this token. Fine-grained PATs return 404 for repositories they were not granted — check the PAT's repository access list before assuming a bad key.`;
+  }
+  if (status === 403) {
+    return `403 Forbidden — token authenticated but lacks the required permission on '${repoFullName}' (grant 'Contents: Read and write' for fine-grained PATs, or 'repo' scope for classic).`;
+  }
+  return null;
+}
+
 export const githubTools: RegisteredTool<any>[] = [
   {
     definition: {
       name: "github_commit_file",
       description: "Creates or updates a file directly in a GitHub repository using the GitHub API. This gives you physical autonomy to persist code changes directly to version control. Pushing code to the 'main' branch will automatically trigger the CI/CD pipeline which tests and deploys the container to Cloud Run.",
       schema: z.object({
-        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/reverie')"),
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
         path: z.string().describe("The file path inside the repository to write to (e.g., 'src/tools/governance.tools.ts')"),
         content: z.string().describe("The exact, complete text content to write to the file"),
         commitMessage: z.string().describe("The commit message explaining the change"),
@@ -97,12 +133,7 @@ export const githubTools: RegisteredTool<any>[] = [
       }
 
       try {
-        const headers = {
-          "Authorization": `Bearer ${pat}`,
-          "Accept": "application/vnd.github.v3+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "Antigravity-IDE-Agent"
-        };
+        const headers = githubAuthHeaders(pat);
 
         // 2. Validate token and handle scope/branch pre-checks
         const userRes = await fetch("https://api.github.com/user", { method: "GET", headers });
@@ -243,11 +274,7 @@ export const githubTools: RegisteredTool<any>[] = [
         return { success: false, error: `PR creation ${decision.decision}: ${(decision as any).reason || 'Not approved'}` };
       }
 
-      const headers = {
-        Authorization: `Bearer ${pat}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-      };
+      const headers = { ...githubAuthHeaders(pat), "Content-Type": "application/json" };
 
       try {
         // Create PR
@@ -338,13 +365,7 @@ export const githubTools: RegisteredTool<any>[] = [
         if (args.branch) url += `&branch=${encodeURIComponent(args.branch)}`;
         if (args.status) url += `&status=${args.status}`;
 
-        const res = await fetch(url, {
-          headers: {
-            'Authorization': `token ${pat}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Truth-Platform',
-          },
-        });
+        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
 
         if (!res.ok) {
           const errText = await res.text();
@@ -371,6 +392,153 @@ export const githubTools: RegisteredTool<any>[] = [
         };
       } catch (err: any) {
         return { error: `Failed to list workflow runs: ${err.message}` };
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  READ FILE VIA GITHUB API
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_read_file",
+      description: "Read the exact source code of a file from a GitHub repository. Use this to inspect the codebase since you cannot access the local filesystem in production.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        path: z.string().describe("The file path inside the repository to read (e.g., 'src/tools/index.ts')"),
+        branch: z.string().optional().describe("The branch to read from. Defaults to the repository's default branch."),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        let url = `https://api.github.com/repos/${args.repoFullName}/contents/${args.path}`;
+        if (args.branch) url += `?ref=${encodeURIComponent(args.branch)}`;
+
+        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          const hint = githubErrorHint(res.status, args.repoFullName, args.path);
+          if (hint) return { error: hint };
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        if (data.type !== 'file' && data.type !== 'symlink') {
+          return { error: `Path ${args.path} is a ${data.type}, not a file.` };
+        }
+
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        return {
+          path: data.path,
+          sha: data.sha,
+          sizeBytes: data.size,
+          htmlUrl: data.html_url,
+          content: content,
+        };
+      } catch (err: any) {
+        return { error: `Failed to read file: ${err.message}` };
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  LIST DIRECTORY VIA GITHUB API
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_list_directory",
+      description: "List files and folders in a specific directory of a GitHub repository.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        path: z.string().optional().describe("The directory path to list (e.g., 'src/tools'). Omit to list the root directory."),
+        branch: z.string().optional().describe("The branch to read from. Defaults to the repository's default branch."),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        const dirPath = args.path ? args.path.replace(/^\/+/, '') : '';
+        let url = `https://api.github.com/repos/${args.repoFullName}/contents/${dirPath}`;
+        if (args.branch) url += `?ref=${encodeURIComponent(args.branch)}`;
+
+        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          const hint = githubErrorHint(res.status, args.repoFullName, dirPath || '/');
+          if (hint) return { error: hint };
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        if (!Array.isArray(data)) {
+          return { error: `Path ${dirPath} is a file, not a directory. Use github_read_file instead.` };
+        }
+
+        return {
+          path: dirPath || '/',
+          entries: data.map((item: any) => ({
+            name: item.name,
+            path: item.path,
+            type: item.type, // 'file' or 'dir'
+            size: item.size,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to list directory: ${err.message}` };
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  SEARCH CODE VIA GITHUB API
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    definition: {
+      name: "github_search_code",
+      description: "Search for specific code, text, or functions across a GitHub repository. Use this to find where things are defined.",
+      schema: z.object({
+        repoFullName: z.string().describe("The full name of the repository (e.g., 'Kfarkye/Final')"),
+        query: z.string().describe("The search query (e.g., 'function MlbGames' or 'import { toolRegistry }')"),
+        perPage: z.number().int().positive().default(10).describe("Number of results to return (max 30)"),
+      })
+    },
+    handler: async (args) => {
+      try {
+        const pat = await getGithubPat();
+        if (!pat) return { error: "GitHub PAT not configured. Set GITHUB_PERSONAL_ACCESS_TOKEN." };
+
+        // Ensure the query is restricted to the specific repo
+        const searchQuery = `${args.query} repo:${args.repoFullName}`;
+        const url = `https://api.github.com/search/code?q=${encodeURIComponent(searchQuery)}&per_page=${Math.min(args.perPage || 10, 30)}`;
+
+        const res = await fetch(url, { headers: githubAuthHeaders(pat) });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          const hint = githubErrorHint(res.status, args.repoFullName);
+          if (hint) return { error: hint };
+          return { error: `GitHub API ${res.status}: ${errText}` };
+        }
+
+        const data = await res.json() as any;
+        return {
+          totalCount: data.total_count,
+          results: (data.items || []).map((item: any) => ({
+            name: item.name,
+            path: item.path,
+            htmlUrl: item.html_url,
+            repository: item.repository?.full_name,
+          })),
+        };
+      } catch (err: any) {
+        return { error: `Failed to search code: ${err.message}` };
       }
     },
   },
