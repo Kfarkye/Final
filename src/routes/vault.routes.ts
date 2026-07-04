@@ -23,6 +23,16 @@ interface ActivationResult {
   testResult?: string;
   serviceBooted?: string;
   error?: string;
+  /** Operational metadata — makes credential state diagnosable, not just valid/invalid */
+  metadata?: {
+    authScheme?: string;        // e.g. 'Bearer' — the scheme the platform uses
+    tokenType?: string;         // 'fine-grained' | 'classic' | 'unknown'
+    authenticatedAs?: string;   // GitHub login (never the token itself)
+    reposVisible?: string[];    // repos confirmed accessible to this token
+    reposDenied?: string[];     // repos that returned 404/403 (not visible / no permission)
+    lastVerifiedAt?: string;    // ISO timestamp of successful verification
+    lastFailure?: string;       // human-readable last failure detail
+  };
 }
 
 async function activateSecret(key: string, value: string): Promise<ActivationResult> {
@@ -36,37 +46,56 @@ async function activateSecret(key: string, value: string): Promise<ActivationRes
   try {
     switch (key) {
       case 'GITHUB_PERSONAL_ACCESS_TOKEN': {
-        // Test: verify token can access the target repo (works for both classic and fine-grained PATs)
-        const userRes = await fetch('https://api.github.com/user', {
-          headers: { 'Authorization': `Bearer ${value}`, 'User-Agent': 'Truth-Platform' }
-        });
-        
+        // Canonical scheme: Bearer. Fine-grained PATs (github_pat_*) reject the
+        // legacy 'token' scheme with 401 even when valid — never use it.
+        const ghHeaders = {
+          'Authorization': `Bearer ${value}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'Truth-Platform',
+        };
+        const tokenType = value.startsWith('github_pat_') ? 'fine-grained'
+          : value.startsWith('ghp_') ? 'classic' : 'unknown';
+        result.metadata = { authScheme: 'Bearer', tokenType, reposVisible: [], reposDenied: [] };
+
+        const userRes = await fetch('https://api.github.com/user', { headers: ghHeaders });
+
         if (!userRes.ok) {
           result.tested = true;
-          result.testResult = `Token rejected by GitHub API: ${userRes.status} ${userRes.statusText}. Check that the token hasn't expired.`;
+          result.testResult = `Token rejected by GitHub API: ${userRes.status} ${userRes.statusText}. The credential itself is invalid or expired (401 = bad key, NOT a repo-visibility issue).`;
+          result.metadata.lastFailure = `${new Date().toISOString()} — /user returned ${userRes.status}`;
           break;
         }
-        
+
         const user = await userRes.json() as any;
-        
-        // Test repo access directly — this is what push_files actually needs
-        const repoRes = await fetch('https://api.github.com/repos/Kfarkye/Final', {
-          headers: { 'Authorization': `Bearer ${value}`, 'User-Agent': 'Truth-Platform' }
-        });
-        
-        if (repoRes.ok) {
-          const repo = await repoRes.json() as any;
-          const perms = repo.permissions || {};
-          if (perms.push) {
-            result.tested = true;
-            result.testResult = `Verified — authenticated as "${user.login}" with push access to Kfarkye/Final. Token is valid.`;
+        result.metadata.authenticatedAs = user.login;
+
+        // Probe repo visibility — this is what the GitHub tools actually need.
+        // 404 here means "repo not visible to token" (fine-grained PATs hide
+        // ungranted repos), NOT a bad credential.
+        const targetRepos = ['Kfarkye/Final'];
+        let pushOk = false;
+        for (const repoName of targetRepos) {
+          const repoRes = await fetch(`https://api.github.com/repos/${repoName}`, { headers: ghHeaders });
+          if (repoRes.ok) {
+            result.metadata.reposVisible!.push(repoName);
+            const repo = await repoRes.json() as any;
+            if (repo.permissions?.push) pushOk = true;
           } else {
-            result.tested = true;
-            result.testResult = `Authenticated as "${user.login}" but NO push permission on Kfarkye/Final. Grant "Contents: Read and write" in fine-grained PAT settings.`;
+            result.metadata.reposDenied!.push(`${repoName} (${repoRes.status})`);
           }
+        }
+
+        result.tested = true;
+        if (result.metadata.reposVisible!.length > 0 && pushOk) {
+          result.testResult = `Verified — authenticated as "${user.login}" (${tokenType} PAT, Bearer scheme) with push access to ${result.metadata.reposVisible!.join(', ')}.`;
+          result.metadata.lastVerifiedAt = new Date().toISOString();
+        } else if (result.metadata.reposVisible!.length > 0) {
+          result.testResult = `Authenticated as "${user.login}" but NO push permission on ${result.metadata.reposVisible!.join(', ')}. Grant "Contents: Read and write" in fine-grained PAT settings.`;
+          result.metadata.lastFailure = `${new Date().toISOString()} — no push permission`;
         } else {
-          result.tested = true;
-          result.testResult = `Authenticated as "${user.login}" but cannot access Kfarkye/Final (HTTP ${repoRes.status}). Ensure the repo is added to the fine-grained PAT.`;
+          result.testResult = `Authenticated as "${user.login}" but target repo(s) not visible to this token: ${result.metadata.reposDenied!.join(', ')}. Add the repository to the fine-grained PAT's access list — the key itself is valid.`;
+          result.metadata.lastFailure = `${new Date().toISOString()} — repo not visible: ${result.metadata.reposDenied!.join(', ')}`;
         }
 
         // Boot: try to connect the GitHub MCP now that the token is available

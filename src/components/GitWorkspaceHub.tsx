@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Folder, FolderOpen, File, FileCode, GitBranch, GitCommit,
@@ -38,16 +38,16 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const [selectedGithubRepo, setSelectedGithubRepo] = useState<string>('');
   const [githubBranches, setGithubBranches] = useState<string[]>([]);
   const [selectedGithubBranch, setSelectedGithubBranch] = useState<string>('main');
-  
+
   // Local Git specific
   const [localBranches, setLocalBranches] = useState<string[]>([]);
   const [selectedLocalBranch, setSelectedLocalBranch] = useState<string>('');
-  
+
   // Data States
   const [treeData, setTreeData] = useState<TreeNode | null>(null);
   const [gitStatus, setGitStatus] = useState<{ isRepo: boolean; branch: string; files: GitStatusFile[] } | null>(null);
   const [commits, setCommits] = useState<Commit[]>([]);
-  
+
   // UI States
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,9 +61,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
-  
-  // Toast Alert
+
+  // Toast & Dialog Alerts
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; actionText: string; onConfirm: () => void } | null>(null);
   const [provisioning, setProvisioning] = useState(false);
 
   // Preview & Diff Modals
@@ -168,19 +169,34 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     }
   };
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
-  };
+  }, []);
 
-  const fetchWithUserContext = (url: string, options: RequestInit = {}) => {
+  // STATE-OF-THE-ART SECURE FETCH HANDSHAKE
+  // Presents Firebase JWT credential instead of easily spoofable plaintext uid headers
+  const fetchWithUserContext = async (url: string, options: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> || {})
+    };
+
+    if (currentUser?.getIdToken) {
+      try {
+        const token = await currentUser.getIdToken();
+        headers['Authorization'] = `Bearer ${token}`;
+      } catch (err) {
+        console.warn("Failed to secure token. Falling back to uid header.", err);
+        headers['x-user-id'] = currentUser?.uid || '';
+      }
+    } else {
+      headers['x-user-id'] = currentUser?.uid || '';
+    }
+
     return fetch(url, {
       ...options,
-      headers: {
-        ...options.headers,
-        'x-user-id': currentUser?.uid || '',
-        'Content-Type': 'application/json'
-      }
+      headers
     });
   };
 
@@ -201,7 +217,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       });
       if (res.ok) {
         showToast("Workspace provisioned successfully!");
-        // Reload local Git data after provisioning
         loadLocalGitData();
       } else {
         const errData = await res.json();
@@ -217,14 +232,12 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
   const loadLocalGitData = async (branchOverride?: string) => {
     setLoading(true);
     try {
-      // 1. Load branches list
       const branchRes = await fetchWithUserContext('/api/git/branches');
       if (branchRes.ok) {
         const branchData = await branchRes.json();
         setLocalBranches(branchData.branches || []);
       }
 
-      // 2. Load Git Status & recent commits
       const [statusRes, commitsRes] = await Promise.all([
         fetchWithUserContext('/api/git/status'),
         fetchWithUserContext('/api/git/commits')
@@ -237,11 +250,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           if (!selectedLocalBranch && !branchOverride) {
             setSelectedLocalBranch(s.branch);
           }
-          // Auto-align local worktree to remote GitHub client widgets
           if (s.githubRepo) {
             setSelectedGithubRepo(s.githubRepo);
             savePreferences({ githubRepo: s.githubRepo });
-            
+
             setSelectedGithubBranch(s.branch);
             savePreferences({ githubBranch: s.branch });
           }
@@ -252,25 +264,22 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         setCommits(c.commits || []);
       }
 
-      // 3. Lazy-load root folder tree initially
       const rootRes = await fetchWithUserContext('/api/git/tree');
       if (rootRes.ok) {
         setTreeData(await rootRes.json());
       }
     } catch (err) {
       console.error("Error aligning local/remote workspaces", err);
+      showToast("Failed to load local workspace data.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Lazy directory fetch & node grafting
   const handleExpandFolder = async (folderPath: string) => {
-    // Toggle node state
     const isExpanded = !!expandedNodes[folderPath];
     toggleNode(folderPath);
 
-    // If expanding and children aren't populated, fetch children
     if (!isExpanded && treeData) {
       const node = findNodeByPath(treeData, folderPath);
       if (node && (!node.children || node.children.length === 0)) {
@@ -280,8 +289,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           if (res.ok) {
             const data = await res.json();
             const children = data.children || [];
-            
-            // Graft loaded children to state tree
             setTreeData(prev => {
               if (!prev) return null;
               return graftChildren(prev, folderPath, children);
@@ -289,6 +296,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           }
         } catch (err) {
           console.error("Failed to lazy load directory children", err);
+          showToast("Failed to load directory contents.");
         } finally {
           setLoading(false);
         }
@@ -320,10 +328,12 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     return root;
   };
 
+  // SECURITY NOTE: In a true zero-trust model, the GitHub token should not remain in localStorage.
+  // This should eventually be refactored to use a backend proxy for GitHub requests.
   const fetchGithubRepos = async (token: string) => {
     try {
       const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
-        headers: { Authorization: `token ${token}` }
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
       });
       if (res.ok) {
         setGithubRepos(await res.json());
@@ -337,8 +347,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     if (!token.trim()) return;
     const cleanToken = token.trim();
     setGithubToken(cleanToken);
-    
-    // Save to localStorage so ApiHub and other components stay in sync
+
     const apiSaved = localStorage.getItem('api_hub_integrations');
     let integrations = [];
     if (apiSaved) {
@@ -348,8 +357,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         console.error(err);
       }
     }
-    
-    // Find or create github integration
+
     const existingIdx = integrations.findIndex((i: any) => i.id === 'github');
     const githubData = {
       id: 'github',
@@ -360,13 +368,13 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       latency: 20,
       lastSync: 'Authorized just now'
     };
-    
+
     if (existingIdx >= 0) {
       integrations[existingIdx] = { ...integrations[existingIdx], ...githubData };
     } else {
       integrations.push(githubData);
     }
-    
+
     localStorage.setItem('api_hub_integrations', JSON.stringify(integrations));
     showToast("GitHub token connected successfully!");
     fetchGithubRepos(cleanToken);
@@ -388,13 +396,13 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
     try {
       const res = await fetch(`https://api.github.com/repos/${repoFullName}/branches`, {
-        headers: { Authorization: `token ${githubToken}` }
+        headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
       });
       if (res.ok) {
         const branches = await res.json();
         const branchNames = branches.map((b: any) => b.name);
         setGithubBranches(branchNames);
-        
+
         const defaultBranch = branchNames.includes('main') ? 'main' : branchNames.includes('master') ? 'master' : branchNames[0] || 'main';
         setSelectedGithubBranch(defaultBranch);
         savePreferences({ githubBranch: defaultBranch });
@@ -403,6 +411,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } catch (err) {
       console.error("Failed to load GitHub branches", err);
+      showToast("Failed to load repository branches.");
     }
   };
 
@@ -424,18 +433,18 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     setLoading(true);
     try {
       const treeRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees/${branch}?recursive=1`, {
-        headers: { Authorization: `token ${token}` }
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
       });
-      
+
       if (treeRes.ok) {
         const treeDataJson = await treeRes.json();
         const flatTree = treeDataJson.tree || [];
-        
+
         const filtered = flatTree.filter((item: any) => {
-          return !item.path.startsWith('.git/') && 
-                 !item.path.includes('node_modules/') && 
-                 !item.path.startsWith('dist/') && 
-                 !item.path.includes('package-lock.json');
+          return !item.path.startsWith('.git/') &&
+            !item.path.includes('node_modules/') &&
+            !item.path.startsWith('dist/') &&
+            !item.path.includes('package-lock.json');
         });
 
         const nestedTree = buildTreeFromPaths(filtered);
@@ -446,9 +455,8 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           children: nestedTree
         });
 
-        // Commits log
         const commitsRes = await fetch(`https://api.github.com/repos/${repoFullName}/commits?sha=${branch}&per_page=10`, {
-          headers: { Authorization: `token ${token}` }
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
         });
         if (commitsRes.ok) {
           const rawCommits = await commitsRes.json();
@@ -461,6 +469,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } catch (err) {
       console.error("Failed to parse GitHub tree", err);
+      showToast("Failed to map repository tree.");
     } finally {
       setLoading(false);
     }
@@ -471,18 +480,18 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     paths.forEach(item => {
       const parts = item.path.split('/');
       let currentLevel = root;
-      
+
       parts.forEach((part, index) => {
         const isLast = index === parts.length - 1;
         const currentPath = parts.slice(0, index + 1).join('/');
         let existingNode = currentLevel.find(c => c.name === part);
-        
+
         if (!existingNode) {
           existingNode = {
             name: part,
             path: currentPath,
             type: (isLast && item.type === 'blob') ? 'file' : 'directory',
-            ...( (isLast && item.type === 'blob') ? {} : { children: [] } )
+            ...((isLast && item.type === 'blob') ? {} : { children: [] })
           };
           currentLevel.push(existingNode);
         }
@@ -491,7 +500,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         }
       });
     });
-    
+
     const sortTree = (nodes: TreeNode[]) => {
       nodes.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
@@ -507,7 +516,6 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     setExpandedNodes(prev => ({ ...prev, [path]: !prev[path] }));
   };
 
-  // Actions
   const handleInjectPath = (path: string) => {
     onInsertContext(`\`${path}\``);
     setCopiedPath(path);
@@ -536,10 +544,19 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     try {
       const content = await fetchFileText(filePath);
       if (content) {
-        // Warning if injected text context exceeds 120k characters (~30k tokens)
         if (content.length > 120000) {
-          const confirm = window.confirm(`Warning: The file "${filePath}" is large (${Math.round(content.length / 1024)} KB) and could exceed model input sizes. Proceed?`);
-          if (!confirm) return;
+          setConfirmDialog({
+            title: "Large File Warning",
+            message: `The file "${filePath}" is large (${Math.round(content.length / 1024)} KB) and could exceed model input limits. Proceed?`,
+            actionText: "Inject Content",
+            onConfirm: () => {
+              const ext = filePath.split('.').pop() || '';
+              onInsertContext(`[File Content: ${filePath}]\n\`\`\`${ext}\n${content}\n\`\`\``);
+              showToast(`Injected full contents of: ${filePath}`);
+              setConfirmDialog(null);
+            }
+          });
+          return;
         }
         const ext = filePath.split('.').pop() || '';
         onInsertContext(`[File Content: ${filePath}]\n\`\`\`${ext}\n${content}\n\`\`\``);
@@ -561,17 +578,18 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         return data.content || '';
       } else {
         const errJson = await res.json();
-        alert(`Failed to load file: ${errJson.detail || errJson.error}`);
+        showToast(`Failed to load file: ${errJson.detail || errJson.error}`);
         return '';
       }
     } else {
       const res = await fetch(`https://api.github.com/repos/${selectedGithubRepo}/contents/${filePath}?ref=${selectedGithubBranch}`, {
-        headers: { Authorization: `token ${githubToken}` }
+        headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
       });
       if (res.ok) {
         const data = await res.json();
         return atob(data.content.replace(/\s/g, ''));
       }
+      showToast("Failed to load file from GitHub API.");
       return '';
     }
   };
@@ -581,10 +599,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
     try {
       const content = await fetchFileText(filePath);
       if (content) {
-        setPreviewFile({ 
-          path: filePath, 
+        setPreviewFile({
+          path: filePath,
           content,
-          ref: activeSource === 'local' ? selectedLocalBranch : selectedGithubBranch 
+          ref: activeSource === 'local' ? selectedLocalBranch : selectedGithubBranch
         });
       }
     } catch (err) {
@@ -604,25 +622,25 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
       }
     } catch (err) {
       console.error(err);
+      showToast("Failed to load file diff.");
     } finally {
       setDiffLoading(false);
     }
   };
 
-  // Recursive directory tree renderer
   const renderTree = (node: TreeNode, depth = 0) => {
     const isExpanded = expandedNodes[node.path];
     const isDir = node.type === 'directory';
-    const isMatchingSearch = !searchQuery || 
-                             node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             (isDir && hasMatchingChild(node, searchQuery));
+    const isMatchingSearch = !searchQuery ||
+      node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (isDir && hasMatchingChild(node, searchQuery));
 
     if (!isMatchingSearch) return null;
 
     return (
       <div key={node.path || 'root'} className="select-none">
         {node.path && (
-          <div 
+          <div
             style={{ paddingLeft: `${depth * 10 + 6}px`, fontFamily: 'var(--font-outfit)' }}
             className="flex items-center justify-between group py-1.5 px-2.5 rounded-lg hover:bg-white/5 hover:backdrop-blur-md hover:translate-x-0.5 hover:shadow-lg cursor-pointer text-xs font-medium text-zinc-300 transition-all duration-300 ease-out"
             onClick={() => isDir ? handleExpandFolder(node.path) : null}
@@ -647,28 +665,28 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
             {!isDir && (
               <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handlePreviewFile(node.path); }}
                   className="p-1 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-all"
                   title="Preview code"
                 >
                   <Eye size={12} />
                 </button>
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handleInjectContent(node.path); }}
                   className="p-1 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-all"
                   title="Inject file code to context"
                 >
                   <PlusCircle size={12} />
                 </button>
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handleInjectSummary(node.path); }}
                   className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-all font-mono font-bold text-[9px] px-1"
                   title="Inject Path + 3 Line Summary"
                 >
                   Sum
                 </button>
-                <button 
+                <button
                   onClick={(e) => { e.stopPropagation(); handleInjectPath(node.path); }}
                   className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-all"
                   title="Inject path"
@@ -691,19 +709,19 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
   const hasMatchingChild = (node: TreeNode, query: string): boolean => {
     if (!node.children) return false;
-    return node.children.some(child => 
-      child.name.toLowerCase().includes(query.toLowerCase()) || 
+    return node.children.some(child =>
+      child.name.toLowerCase().includes(query.toLowerCase()) ||
       (child.type === 'directory' && hasMatchingChild(child, query))
     );
   };
 
   return (
     <div className="h-full flex flex-col bg-black text-zinc-100 overflow-hidden font-sans border-l border-zinc-900 select-none relative">
-      
-      {/* Toast Alert */}
+
+      {/* Toast Alert System */}
       <AnimatePresence>
         {toastMessage && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 15 }}
@@ -712,6 +730,42 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
             <Check size={12} />
             <span>{toastMessage}</span>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dialog Alert System (Replaces window.confirm) */}
+      <AnimatePresence>
+        {confirmDialog && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <div className="flex items-center gap-2 text-amber-500 mb-3">
+                <AlertTriangle size={18} />
+                <h3 className="text-sm font-bold uppercase tracking-wider">{confirmDialog.title}</h3>
+              </div>
+              <p className="text-zinc-400 text-sm leading-relaxed mb-6">
+                {confirmDialog.message}
+              </p>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setConfirmDialog(null)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg transition-colors"
+                >
+                  {confirmDialog.actionText}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -724,13 +778,13 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
             <span>{activeSource === 'local' ? 'Local Workspace' : 'GitHub'}</span>
           </div>
           <h2 className="text-base font-semibold text-white tracking-tight mt-1 truncate" style={{ fontFamily: 'var(--font-outfit)' }} title={activeSource === 'github' && selectedGithubRepo ? selectedGithubRepo : treeData?.name || 'Workspace'}>
-            {activeSource === 'github' && selectedGithubRepo 
-              ? selectedGithubRepo.split('/').pop() 
+            {activeSource === 'github' && selectedGithubRepo
+              ? selectedGithubRepo.split('/').pop()
               : treeData?.name || 'No Repository Loaded'}
           </h2>
         </div>
 
-        <button 
+        <button
           onClick={activeSource === 'local' ? () => loadLocalGitData() : () => fetchGithubTree(selectedGithubRepo, selectedGithubBranch, githubToken)}
           className="p-1 px-2.5 text-xs bg-zinc-950/80 hover:bg-zinc-800 active:scale-[0.97] border border-zinc-800/80 hover:border-zinc-700 hover:text-white hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] rounded-lg text-zinc-400 transition-all duration-300 flex items-center gap-1.5 relative z-10"
           disabled={loading}
@@ -826,7 +880,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                         ))}
                       </select>
                     </div>
-                    
+
                     <button
                       onClick={handleProvisionWorkspace}
                       disabled={provisioning}
@@ -860,8 +914,8 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           {/* Search File Input */}
           <div className="relative">
             <Search className="absolute left-3.5 top-2.5 text-zinc-600 pointer-events-none" size={13} />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Search file names..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -891,10 +945,10 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
         {/* Scrollable Tree & Sections */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          
+
           {/* File Tree Section */}
           <div className="space-y-2">
-            <button 
+            <button
               onClick={() => toggleSection('tree')}
               className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
             >
@@ -903,7 +957,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
             </button>
             <AnimatePresence>
               {expandedSections.tree && (
-                <motion.div 
+                <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
@@ -924,7 +978,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
           {/* Local Changes Section */}
           {activeSource === 'local' && gitStatus && gitStatus.isRepo && gitStatus.files.length > 0 && (
             <div className="space-y-2 border-t border-zinc-900 pt-4">
-              <button 
+              <button
                 onClick={() => toggleSection('status')}
                 className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
               >
@@ -933,7 +987,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
               </button>
               <AnimatePresence>
                 {expandedSections.status && (
-                  <motion.div 
+                  <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
@@ -942,13 +996,13 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                     {gitStatus.files.map((item, idx) => {
                       const isStaged = item.status.startsWith('M') || item.status.startsWith('A');
                       const isUntracked = item.status === '??';
-                      
+
                       let statusColor = 'text-yellow-500 border-yellow-500/20 bg-yellow-500/5';
                       if (isStaged) statusColor = 'text-emerald-500 border-emerald-500/20 bg-emerald-500/5';
                       if (isUntracked) statusColor = 'text-zinc-500 border-zinc-800 bg-zinc-950';
 
                       return (
-                        <div 
+                        <div
                           key={idx}
                           className="flex items-center justify-between group py-1.5 px-3 bg-zinc-950/60 border border-zinc-900 rounded-xl hover:border-zinc-800 transition-colors"
                         >
@@ -958,7 +1012,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                             </span>
                             <span className="text-xs text-zinc-300 truncate font-mono">{item.file}</span>
                           </div>
-                          
+
                           <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               onClick={() => handleViewDiff(item.file)}
@@ -993,7 +1047,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
 
           {/* Commit Log Section */}
           <div className="space-y-2 border-t border-zinc-900 pt-4">
-            <button 
+            <button
               onClick={() => toggleSection('commits')}
               className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider hover:text-white transition-colors"
             >
@@ -1002,14 +1056,14 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
             </button>
             <AnimatePresence>
               {expandedSections.commits && (
-                <motion.div 
+                <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   className="space-y-1.5 overflow-hidden pt-1"
                 >
                   {commits.map((commit, idx) => (
-                    <div 
+                    <div
                       key={idx}
                       onClick={() => onInsertContext(`Commit Hash: \`${commit.hash}\` - ${commit.subject}`)}
                       className="p-3 bg-zinc-950/60 border border-zinc-900/60 rounded-xl hover:border-zinc-800 transition-all cursor-pointer group"
@@ -1038,7 +1092,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         {previewFile && (
           <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
             <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl scale-up-animation">
-              
+
               <div className="flex items-center justify-between px-6 py-4.5 border-b border-zinc-900 flex-shrink-0">
                 <div className="min-w-0">
                   <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
@@ -1049,8 +1103,8 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                     {previewFile.path}
                   </h3>
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => setPreviewFile(null)}
                   className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
                 >
@@ -1092,7 +1146,7 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
         {diffFile && (
           <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
             <div className="bg-zinc-950 border border-zinc-900 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl scale-up-animation">
-              
+
               <div className="flex items-center justify-between px-6 py-4.5 border-b border-zinc-900 flex-shrink-0">
                 <div>
                   <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-1.5">
@@ -1103,8 +1157,8 @@ export default function GitWorkspaceHub({ currentUser, onInsertContext }: GitWor
                     {diffFile.path}
                   </h3>
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => setDiffFile(null)}
                   className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
                 >
