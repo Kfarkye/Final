@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Unlock, CheckCircle2, ChevronRight, KeyRound, Loader2 } from 'lucide-react';
-import { ApiIntegration } from './CredentialVault';
+import { ApiIntegration, VaultOperationalMetadata } from '../types/vault.types';
 
 interface VaultCardProps {
   integration: ApiIntegration;
   isAuthorized: boolean;
   isSyncing?: boolean;
+  metadata?: VaultOperationalMetadata;
   onConnect: (id: string, keyValues: Record<string, string>) => Promise<void>;
 }
 
-const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSyncing, onConnect }) => {
+const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSyncing, metadata, onConnect }) => {
   const [expanded, setExpanded] = useState(false);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -42,10 +43,10 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
       onClick={handleClick}
       className={`relative overflow-hidden rounded-2xl border transition-all duration-300 ${
         isAuthorized 
-          ? 'bg-zinc-950/80 border-emerald-900/30 shadow-[0_0_15px_rgba(16,185,129,0.05)]' 
+          ? 'bg-[var(--s2)] border-emerald-900/30 shadow-[0_0_15px_rgba(16,185,129,0.05)]' 
           : expanded 
-            ? 'bg-zinc-900/40 border-zinc-700/50 cursor-default' 
-            : 'bg-black border-zinc-800/60 hover:bg-zinc-900/30 hover:border-zinc-700 cursor-pointer'
+            ? 'bg-[var(--s2)] border-[var(--b2)]/50 cursor-default' 
+            : 'bg-black border-[var(--b2)]/60 hover:bg-[var(--s2)]/30 hover:border-[var(--b2)] cursor-pointer'
       }`}
     >
       {/* Background glow for authorized state */}
@@ -63,11 +64,11 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
       <div className="relative p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className={`p-2.5 rounded-xl border ${isAuthorized ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+            <div className={`p-2.5 rounded-xl border ${isAuthorized ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-[var(--s2)] border-[var(--b2)] text-[var(--t2)]'}`}>
               <KeyRound size={20} strokeWidth={1.5} />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-white tracking-tight flex items-center gap-2">
+              <h3 className="text-sm font-medium text-[var(--t1)] tracking-tight flex items-center gap-2">
                 {integration.name}
                 {isAuthorized && (
                   <motion.span
@@ -77,23 +78,51 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
                   />
                 )}
               </h3>
-              <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{integration.description}</p>
+              <p className="text-xs text-[var(--t4)] mt-0.5 line-clamp-1">{integration.description}</p>
             </div>
           </div>
 
           <div className="flex items-center">
             {isSyncing ? (
-              <Loader2 size={16} className="text-zinc-600 animate-spin" />
+              <Loader2 size={16} className="text-[var(--t4)] animate-spin" />
             ) : isAuthorized ? (
               <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
                 <CheckCircle2 size={12} className="text-emerald-400" />
                 <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-400">Vaulted</span>
               </div>
             ) : (
-              <ChevronRight size={18} className={`text-zinc-600 transition-transform duration-300 ${expanded ? 'rotate-90' : ''}`} />
+              <ChevronRight size={18} className={`text-[var(--t4)] transition-transform duration-300 ${expanded ? 'rotate-90' : ''}`} />
             )}
           </div>
         </div>
+
+        {isAuthorized && metadata && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mt-4 rounded-xl border border-emerald-500/10 bg-black/40 p-3 text-[11px] text-[var(--t3)] space-y-2"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="uppercase tracking-widest font-semibold text-[var(--t4)]">Operational metadata</span>
+              <span className={`px-2 py-0.5 rounded-full border uppercase tracking-wider text-[10px] ${
+                metadata.status === 'valid'
+                  ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                  : metadata.status === 'invalid'
+                    ? 'border-red-500/20 bg-red-500/10 text-red-400'
+                    : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+              }`}>
+                {metadata.status || 'unknown'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-1.5 font-mono">
+              <div><span className="text-[var(--t4)]">Auth scheme:</span> {metadata.authScheme || 'Bearer'}</div>
+              {metadata.login && <div><span className="text-[var(--t4)]">Authenticated as:</span> {metadata.login}</div>}
+              <div><span className="text-[var(--t4)]">Visible repos:</span> {metadata.visibleRepos?.length ? metadata.visibleRepos.join(', ') : 'none verified'}</div>
+              {metadata.targetRepo && <div><span className="text-[var(--t4)]">Target repo:</span> {metadata.targetRepo}</div>}
+              {metadata.lastVerified && <div><span className="text-[var(--t4)]">Last verified:</span> {new Date(metadata.lastVerified).toLocaleString()}</div>}
+              {metadata.lastFailure && <div className="text-amber-300/90"><span className="text-[var(--t4)]">Last failure:</span> {metadata.lastFailure}</div>}
+            </div>
+          </div>
+        )}
 
         <AnimatePresence>
           {expanded && !isAuthorized && (
@@ -105,14 +134,14 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
               className="overflow-hidden"
             >
               <div className="pt-6 pb-2">
-                <div className="p-4 rounded-xl bg-black border border-zinc-800/80 mb-5 relative overflow-hidden">
+                <div className="p-4 rounded-xl bg-black border border-[var(--b2)]/80 mb-5 relative overflow-hidden">
                   <div className="absolute top-0 right-0 p-2 opacity-20 pointer-events-none">
                     <Lock size={64} strokeWidth={1} />
                   </div>
-                  <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-widest mb-1 relative z-10 flex items-center gap-1.5">
+                  <h4 className="text-xs font-semibold text-[var(--t3)] uppercase tracking-widest mb-1 relative z-10 flex items-center gap-1.5">
                     <Lock size={12} /> Secure Key Provisioning
                   </h4>
-                  <p className="text-[11px] text-zinc-500 leading-relaxed relative z-10">
+                  <p className="text-[11px] text-[var(--t4)] leading-relaxed relative z-10">
                     Keys are never stored in your browser. They are encrypted end-to-end and vaulted directly into Google Cloud Secret Manager.
                   </p>
                 </div>
@@ -120,7 +149,7 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
                 <form onSubmit={handleSubmit} className="space-y-4" onClick={(e) => e.stopPropagation()}>
                   {integration.keyFields.map((field) => (
                     <div key={field.key} className="space-y-1.5">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 ml-1">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--t2)] ml-1">
                         {field.label}
                       </label>
                       <div className="relative">
@@ -130,13 +159,13 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
                           placeholder={field.placeholder}
                           value={credentials[field.key] || ''}
                           onChange={(e) => setCredentials({ ...credentials, [field.key]: e.target.value })}
-                          className={`w-full bg-zinc-950/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-700 outline-none transition-all font-mono focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 ${
+                          className={`w-full bg-[var(--s2)]/50 border border-[var(--b2)] rounded-xl px-4 py-3 text-sm text-[var(--t1)] placeholder-[var(--t4)] outline-none transition-all font-mono focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 ${
                             field.isSecret && credentials[field.key]?.length > 0 ? 'tracking-[0.25em]' : ''
                           }`}
                         />
                         {field.isSecret && (
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-zinc-900 border border-zinc-800">
-                            <Unlock size={12} className="text-zinc-500" />
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-[var(--s2)] border border-[var(--b2)]">
+                            <Unlock size={12} className="text-[var(--t4)]" />
                           </div>
                         )}
                       </div>
@@ -153,7 +182,7 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="flex-1 bg-white text-black py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all hover:bg-zinc-200 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2"
+                      className="flex-1 bg-[var(--t1)] text-[var(--bg)] py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all hover:bg-[var(--t-text-secondary)] active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2"
                     >
                       {submitting ? (
                         <>
@@ -167,7 +196,7 @@ const VaultCard: React.FC<VaultCardProps> = ({ integration, isAuthorized, isSync
                     <button
                       type="button"
                       onClick={() => setExpanded(false)}
-                      className="px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+                      className="px-4 py-2.5 rounded-xl text-sm font-medium text-[var(--t2)] hover:text-[var(--t1)] transition-colors"
                     >
                       Cancel
                     </button>

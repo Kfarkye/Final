@@ -167,29 +167,20 @@ browserSessionRoutes.get("/sessions/:id/stream", async (req: Request, res: Respo
   if (!worker) return fail(res, 404, "WORKER_NOT_FOUND", sessionId);
 
   const connectionId = `bstream_${randomUUID()}`;
-  sseManager.addConnection(connectionId, res, { sessionId });
+  sseManager.addClient(connectionId, res, req);
 
   // Initial state frame.
-  sseManager.sendToConnection(connectionId, {
-    event: "state",
-    data: JSON.stringify({ session: view }),
-  });
+  sseManager.sendEvent(connectionId, "state", { session: view });
 
   // Live CDP screencast → push JPEG frames as SSE events.
   try {
     await worker.startScreencast((frameData: string, metadata: ScreencastMeta) => {
-      sseManager.sendToConnection(connectionId, {
-        event: "screencast",
-        data: JSON.stringify({ sessionId, data: frameData, metadata }),
-      });
+      sseManager.sendEvent(connectionId, "screencast", { sessionId, data: frameData, metadata });
     });
   } catch (err) {
-    sseManager.sendToConnection(connectionId, {
-      event: "error",
-      data: JSON.stringify({
-        code: "SCREENCAST_FAILED",
-        message: err instanceof Error ? err.message : String(err),
-      }),
+    sseManager.sendEvent(connectionId, "error", {
+      code: "SCREENCAST_FAILED",
+      message: err instanceof Error ? err.message : String(err),
     });
   }
 
@@ -197,10 +188,7 @@ browserSessionRoutes.get("/sessions/:id/stream", async (req: Request, res: Respo
   const stateTimer = setInterval(() => {
     const v = browserSessionService.get(sessionId);
     if (v) {
-      sseManager.sendToConnection(connectionId, {
-        event: "state",
-        data: JSON.stringify({ session: v }),
-      });
+      sseManager.sendEvent(connectionId, "state", { session: v });
     }
     browserSessionService.heartbeat(sessionId);
   }, 5000);
@@ -208,7 +196,7 @@ browserSessionRoutes.get("/sessions/:id/stream", async (req: Request, res: Respo
   req.on("close", () => {
     clearInterval(stateTimer);
     void worker.stopScreencast().catch(() => {});
-    sseManager.removeConnection(connectionId);
+    sseManager.removeClient(connectionId);
   });
 });
 

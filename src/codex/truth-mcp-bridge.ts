@@ -4,38 +4,82 @@
  * Codex natively speaks MCP. This bridge registers Truth's tools as MCP-compatible
  * endpoints that Codex can discover and invoke during autonomous turns.
  *
- * Security: Only user-safe tools are exposed. Admin, deploy, and destructive tools
- * are explicitly blocked.
+ * Security model:
+ *   - All tools are visible to Codex for discovery and planning.
+ *   - Sensitive tools require explicit human approval before execution.
+ *   - Approval is enforced in the Codex chat handler's tool-call loop.
  */
 
 import { toolRegistry } from '../tools/index.js';
 import type { ApprovalDecision, TenantContext } from './types.js';
 
-/* ── Tool Allowlist / Blocklist ──────────────────────────────────────────── */
-
-/**
- * Tools explicitly blocked from Codex access.
- * These are admin/destructive operations that require direct human action.
- */
-const BLOCKED_TOOLS = new Set<string>([]);
+/* ── Approval Policy ─────────────────────────────────────────────────────── */
 
 /**
  * Tools that require human approval before Codex can execute them.
- * These are safe but have side effects (writes, external API calls).
+ * Codex can see and plan with these, but the UI will prompt the user
+ * for confirmation before any side-effecting call is dispatched.
  */
-const APPROVAL_REQUIRED_TOOLS = new Set<string>([]);
+const APPROVAL_REQUIRED_TOOLS = new Set<string>([
+  // Deploy & infrastructure
+  'deploy_staged_mcp',
+  'deploy_platform',
+  'trigger_deploy',
+  // Admin operations
+  'rotate_odds_key',
+  'run_odds_ingestor_once',
+  'spanner_admin_execute',
+  // GitHub writes
+  'github_write_file',
+  'github_create_pr',
+  'github_merge_pr',
+  'github_create_branch',
+]);
+
+const CODEX_PRIORITY_TOOLS = [
+  // Browser-first web inspection surface. These must stay inside the
+  // Responses API function-tool cap so Codex can actually call them.
+  'browser_navigate',
+  'browser_read_dom',
+  'browser_evaluate',
+  'browser_screenshot',
+  'browser_extract_table',
+  'browser_click',
+  'browser_fill',
+  'browser_close',
+  'local_service_status',
+  'local_shell',
+  'local_file_write',
+  'local_file_delete',
+  'local_file_move',
+  'local_git',
+  'local_process',
+  'list_directory',
+  'read_file',
+  'grep',
+  'exec_command',
+  'run_git_status',
+  'get_git_diff',
+  'view_git_commits',
+];
+
+/* ── Discovery ───────────────────────────────────────────────────────────── */
 
 /**
- * Returns the filtered list of tool names Codex is allowed to see.
+ * Returns all tool names from the registry.
+ * Every tool is visible to Codex — approval is checked at execution time.
  */
 export function getCodexAllowedTools(): string[] {
-  const all = Object.keys(toolRegistry.getSchemas());
-  return all.filter(name => !BLOCKED_TOOLS.has(name));
+  const names = Object.keys(toolRegistry.getSchemas());
+  const priority = CODEX_PRIORITY_TOOLS.filter(name => names.includes(name));
+  return [
+    ...priority,
+    ...names.filter(name => !priority.includes(name)),
+  ];
 }
 
 /**
  * Returns MCP-compatible tool definitions for Codex discovery.
- * Codex calls `tools/list` and gets back these definitions.
  */
 export function getCodexToolDefinitions(): Array<{
   name: string;
@@ -43,9 +87,8 @@ export function getCodexToolDefinitions(): Array<{
   inputSchema: Record<string, unknown>;
 }> {
   const schemas = toolRegistry.getSchemas();
-  const allowed = getCodexAllowedTools();
 
-  return allowed.map(name => {
+  return getCodexAllowedTools().map(name => {
     const schema = schemas[name];
     return {
       name,
@@ -59,30 +102,41 @@ export function getCodexToolDefinitions(): Array<{
   });
 }
 
+/* ── Access Evaluation ───────────────────────────────────────────────────── */
+
 /**
- * Determines whether a tool call from Codex should be auto-approved,
- * requires human approval, or is blocked.
+ * Evaluates whether a tool call should be auto-approved or requires human approval.
  */
 export function evaluateToolAccess(
   toolName: string,
   _args: unknown,
   _tenant: TenantContext,
 ): ApprovalDecision | 'needs_human' {
-  if (BLOCKED_TOOLS.has(toolName)) {
-    return { allow: false, reason: `Tool "${toolName}" is blocked for Codex access.` };
-  }
-
   if (APPROVAL_REQUIRED_TOOLS.has(toolName)) {
     return 'needs_human';
   }
-
-  // All other tools are auto-approved (read-only / safe)
   return { allow: true };
 }
 
 /**
+ * Checks if a tool requires human approval.
+ */
+export function isToolApprovalRequired(toolName: string): boolean {
+  return APPROVAL_REQUIRED_TOOLS.has(toolName);
+}
+
+/**
+ * Checks if a tool is blocked. Currently always returns false —
+ * all tools use the approval model instead.
+ */
+export function isToolBlocked(_toolName: string): boolean {
+  return false;
+}
+
+/* ── Execution ───────────────────────────────────────────────────────────── */
+
+/**
  * Execute a tool call from Codex, routing through the Truth tool registry.
- * This is the bridge function called when Codex invokes an MCP tool.
  */
 export async function executeCodexToolCall(
   toolName: string,
@@ -93,32 +147,8 @@ export async function executeCodexToolCall(
     openai?: any;
     signal?: AbortSignal;
     userTimezone?: string;
+    workspaceRoot?: string;
   },
 ): Promise<unknown> {
-  if (BLOCKED_TOOLS.has(toolName)) {
-    throw new Error(`Tool "${toolName}" is not available in Codex autonomy mode.`);
-  }
-
-  return toolRegistry.execute(toolName, args, {
-    ...context,
-    connectionId: context.connectionId,
-    ai: context.ai,
-    openai: context.openai,
-    signal: context.signal,
-    userTimezone: context.userTimezone,
-  });
-}
-
-/**
- * Checks if a tool is in the blocked list.
- */
-export function isToolBlocked(toolName: string): boolean {
-  return BLOCKED_TOOLS.has(toolName);
-}
-
-/**
- * Checks if a tool requires human approval.
- */
-export function isToolApprovalRequired(toolName: string): boolean {
-  return APPROVAL_REQUIRED_TOOLS.has(toolName);
+  return toolRegistry.execute(toolName, args, context);
 }
