@@ -18,6 +18,9 @@ jobs:
   gate:
     name: Quality Gates
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      GCP_PROJECT: gen-lang-client-0281999829
     steps:
       - name: Checkout
         uses: actions/checkout@v4
