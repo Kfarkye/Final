@@ -50,6 +50,102 @@ export async function getGithubPat(): Promise<string | null> {
   return null;
 }
 
+
+const SEARCHABLE_CODE_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.md', '.yml', '.yaml',
+  '.css', '.scss', '.html', '.txt', '.sh', '.py', '.sql', '.xml', '.toml', '.env',
+]);
+
+function looksSearchablePath(path: string, size?: number): boolean {
+  if (size && size > 250_000) return false;
+  const lower = path.toLowerCase();
+  if (lower.includes('/node_modules/') || lower.includes('/dist/') || lower.includes('/build/') || lower.includes('/.git/')) return false;
+  const last = lower.split('/').pop() || lower;
+  if (['dockerfile', 'makefile', 'procfile'].includes(last)) return true;
+  const dot = last.lastIndexOf('.');
+  if (dot === -1) return false;
+  return SEARCHABLE_CODE_EXTENSIONS.has(last.slice(dot));
+}
+
+function normalizeCodeSearchTerms(query: string): string[] {
+  const terms = query
+    .split(/\s+/)
+    .map((term) => term.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((term) => !term.startsWith('repo:') && !term.startsWith('path:') && !term.startsWith('filename:') && term !== 'in:file');
+  return terms.length ? terms : [query.trim().toLowerCase()].filter(Boolean);
+}
+
+async function githubRecursiveCodeSearchFallback(
+  repoFullName: string,
+  query: string,
+  perPage: number,
+  pat: string,
+): Promise<{ totalCount: number; results: Array<{ name: string; path: string; htmlUrl: string; repository: string }>; scannedFiles: number }> {
+  const terms = normalizeCodeSearchTerms(query);
+  if (!terms.length) return { totalCount: 0, results: [], scannedFiles: 0 };
+
+  const repoRes = await fetch(`https://api.github.com/repos/${repoFullName}`, { headers: githubAuthHeaders(pat) });
+  if (!repoRes.ok) {
+    throw new Error(await githubApiErrorMessage(repoRes, { pat, repoFullName, resourceLabel: 'repository' }));
+  }
+  const repo = await repoRes.json() as any;
+  const branch = repo.default_branch || 'main';
+
+  const treeRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`, {
+    headers: githubAuthHeaders(pat),
+  });
+  if (!treeRes.ok) {
+    throw new Error(await githubApiErrorMessage(treeRes, { pat, repoFullName, resourceLabel: 'git tree' }));
+  }
+
+  const treeData = await treeRes.json() as any;
+  const tree = Array.isArray(treeData.tree) ? treeData.tree : [];
+  const candidateFiles = tree
+    .filter((item: any) => item.type === 'blob' && looksSearchablePath(item.path, item.size))
+    .slice(0, 500);
+
+  const results: Array<{ name: string; path: string; htmlUrl: string; repository: string }> = [];
+  let scannedFiles = 0;
+
+  for (const item of candidateFiles) {
+    if (results.length >= perPage) break;
+    const path = String(item.path || '');
+    const lowerPath = path.toLowerCase();
+    const pathMatches = terms.every((term) => lowerPath.includes(term));
+
+    if (pathMatches) {
+      results.push({
+        name: path.split('/').pop() || path,
+        path,
+        htmlUrl: `https://github.com/${repoFullName}/blob/${encodeURIComponent(branch)}/${path.split('/').map(encodeURIComponent).join('/')}`,
+        repository: repoFullName,
+      });
+      continue;
+    }
+
+    const contentRes = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${path}?ref=${encodeURIComponent(branch)}`, {
+      headers: githubAuthHeaders(pat),
+    });
+    if (!contentRes.ok) continue;
+    const contentData = await contentRes.json() as any;
+    if (!contentData.content || contentData.encoding !== 'base64') continue;
+    scannedFiles += 1;
+
+    const content = Buffer.from(contentData.content, 'base64').toString('utf8').toLowerCase();
+    if (terms.every((term) => content.includes(term))) {
+      results.push({
+        name: path.split('/').pop() || path,
+        path,
+        htmlUrl: contentData.html_url || `https://github.com/${repoFullName}/blob/${encodeURIComponent(branch)}/${path.split('/').map(encodeURIComponent).join('/')}`,
+        repository: repoFullName,
+      });
+    }
+  }
+
+  return { totalCount: results.length, results, scannedFiles };
+}
+
 export const githubTools: RegisteredTool<any>[] = [
   {
     definition: {
@@ -492,14 +588,35 @@ export const githubTools: RegisteredTool<any>[] = [
         }
 
         const data = await res.json() as any;
+        const apiResults = (data.items || []).map((item: any) => ({
+          name: item.name,
+          path: item.path,
+          htmlUrl: item.html_url,
+          repository: item.repository?.full_name,
+        }));
+
+        if (apiResults.length > 0 || data.incomplete_results !== true) {
+          return {
+            totalCount: data.total_count,
+            results: apiResults,
+            searchMode: 'github_code_search',
+            incompleteResults: data.incomplete_results === true,
+          };
+        }
+
+        const fallback = await githubRecursiveCodeSearchFallback(
+          args.repoFullName,
+          args.query,
+          Math.min(args.perPage || 10, 30),
+          pat,
+        );
+
         return {
-          totalCount: data.total_count,
-          results: (data.items || []).map((item: any) => ({
-            name: item.name,
-            path: item.path,
-            htmlUrl: item.html_url,
-            repository: item.repository?.full_name,
-          })),
+          totalCount: fallback.totalCount,
+          results: fallback.results,
+          searchMode: 'recursive_contents_fallback',
+          incompleteResults: true,
+          scannedFiles: fallback.scannedFiles,
         };
       } catch (err: any) {
         return { error: `Failed to search code: ${err.message}` };
