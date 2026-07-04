@@ -60,7 +60,7 @@ jobs:
         run: |
           gcloud builds submit \
             --config=cloudbuild.yaml \
-            --substitutions=SHORT_SHA=${{ github.sha }} \
+            --substitutions=_IMAGE_TAG=${{ github.sha }} \
             --project=gen-lang-client-0281999829
 
       - name: Create Cloud Deploy release
