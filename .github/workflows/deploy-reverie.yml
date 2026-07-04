@@ -64,6 +64,11 @@ jobs:
             --project=gen-lang-client-0281999829
 
       - name: Create Cloud Deploy release
+        # Cloud Build already builds and deploys to GKE via cloudbuild.yaml.
+        # Cloud Deploy release creation is currently disabled because the GitHub
+        # workload identity lacks clouddeploy.rollouts.create. Keep the step
+        # present for traceability, but do not fail production deploys on it.
+        if: ${{ false }}
         run: |
           gcloud deploy releases create release-${{ github.run_number }} \
             --delivery-pipeline=truth-pipeline \
@@ -71,6 +76,7 @@ jobs:
             --images=reverie=us-central1-docker.pkg.dev/gen-lang-client-0281999829/truth/reverie:${{ github.sha }}
 
       - name: Show release status
+        if: ${{ false }}
         run: |
           gcloud deploy releases describe release-${{ github.run_number }} \
             --delivery-pipeline=truth-pipeline \
