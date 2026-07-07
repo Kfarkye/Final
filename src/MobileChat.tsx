@@ -25,45 +25,20 @@
 import React, {
   useState, useEffect, useRef, useCallback, memo,
   type KeyboardEvent as ReactKeyboardEvent,
-  lazy,
-  Suspense,
 } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Square, PenLine, RotateCcw, Copy, Check, X, ArrowUp, ChevronDown, Wifi, WifiOff, Zap, Cloud, CloudOff, Moon, Sun } from 'lucide-react';
+import { Square, PenLine, RotateCcw, Copy, Check, X, ArrowUp, ChevronDown, Plus, Menu, MessageSquare } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import { renderCard, CARD_REGISTRY } from './DisplayCards';
-import { getAccessToken } from './lib/firebase';
+import { getAccessToken, db, auth } from './lib/firebase';
+import { collection, query, orderBy, limit, onSnapshot, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { PRELOADED_SERVERS } from './components/McpRegistry';
 import { MimeRenderer } from './components/MimeRenderer';
-import { useNetworkStatus, useOfflineQueue } from './hooks/useNetworkStatus';
-
-/**
- * Reads MCP servers + API integrations from localStorage and merges the
- * preloaded registry WITHOUT mutating the shared PRELOADED_SERVERS constant.
- * Single source of truth for both useChat.send() and the mount effect.
- */
-function readClientContext(): { servers: any[]; integrations: any[] } {
-  let servers: any[] = [];
-  const mcpSaved = localStorage.getItem('mcp_full_servers');
-  if (mcpSaved) {
-    try { servers = JSON.parse(mcpSaved); } catch (e) { console.error('Failed to parse local MCP servers', e); }
-  }
-  servers = servers.map(s => {
-    const pre = PRELOADED_SERVERS.find(p => p.id === s.id);
-    return pre && s.type === 'Official'
-      ? { ...s, tools: pre.tools, commandOrUrl: pre.commandOrUrl }
-      : s;
-  });
-  PRELOADED_SERVERS.forEach(pre => {
-    if (!servers.some(s => s.id === pre.id)) servers.push(pre);
-  });
-
-  let integrations: any[] = [];
-  const apiSaved = localStorage.getItem('api_hub_integrations');
-  if (apiSaved) {
-    try { integrations = JSON.parse(apiSaved); } catch (e) { console.error('Failed to parse local API integrations', e); }
-  }
-  return { servers, integrations };
-}
+import { useFileAttachment } from './components/attachments/useFileAttachment';
+import { FileChip } from './components/attachments/FileChip';
+import type { FileAttachmentError, FileAttachment } from './components/attachments/types';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants — no magic numbers
@@ -80,8 +55,6 @@ const HISTORY_WINDOW = 40;
 const API_ENDPOINT = '/api/truth/chat';
 const CODEX_ENDPOINT = '/api/truth/codex/chat';
 const IDLE_TIMEOUT_MS = 30_000;
-const SESSION_MSGS_KEY = 'mobile_chat_msgs_v1';
-const SESSION_MSGS_MAX = 60; // cap snapshot size to protect sessionStorage quota
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -103,6 +76,7 @@ interface ChatMessage {
   streaming?: boolean;
   cancelled?: boolean;
   ts: number;
+  attachments?: { name: string; size: number; type: string }[];
 }
 
 interface ToolRun {
@@ -171,48 +145,6 @@ function isTouchDevice(): boolean {
   return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 }
 
-// System theme detection
-function useSystemTheme(): 'light' | 'dark' {
-  const [theme, setTheme] = useState<'light' | 'dark'>(
-    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  );
-  
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      setTheme(e.matches ? 'dark' : 'light');
-    };
-    
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-  
-  return theme;
-}
-
-// Network indicator component
-const NetworkIndicator = memo(function NetworkIndicator({ status }: { status: any }) {
-  if (status.isOnline === false) {
-    return (
-      <div className="fixed top-4 right-4 z-50 px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded-full flex items-center gap-1.5 shadow-lg animate-pulse">
-        <WifiOff size={12} />
-        <span>Offline</span>
-      </div>
-    );
-  }
-  
-  if (status.effectiveType === 'slow-2g' || status.effectiveType === '2g') {
-    return (
-      <div className="fixed top-4 right-4 z-50 px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-full flex items-center gap-1.5 shadow-lg">
-        <Wifi size={12} />
-        <span>Slow Connection</span>
-      </div>
-    );
-  }
-  
-  return null;
-});
-
 function isValidSseData(d: unknown): d is Record<string, unknown> {
   return typeof d === 'object' && d !== null;
 }
@@ -237,7 +169,6 @@ function useAutoScroll() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
-  const [atBottom, setAtBottom] = useState(true);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const rafId = useRef<number | undefined>(undefined);
 
@@ -257,23 +188,7 @@ function useAutoScroll() {
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    nearBottom.current = near;
-    setAtBottom(near);
-  }, []);
-
-  // iOS Safari: when the keyboard opens, the visual viewport shrinks without a
-  // scroll event — re-pin to bottom if the user was already there.
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const onResize = () => {
-      if (nearBottom.current) {
-        endRef.current?.scrollIntoView({ block: 'end' });
-      }
-    };
-    vv.addEventListener('resize', onResize);
-    return () => vv.removeEventListener('resize', onResize);
+    nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }, []);
 
   useEffect(() => {
@@ -283,7 +198,7 @@ function useAutoScroll() {
     };
   }, []);
 
-  return { scrollRef, endRef, scrollToEndIfNear, scrollToEnd, onScroll, atBottom } as const;
+  return { scrollRef, endRef, scrollToEndIfNear, scrollToEnd, onScroll } as const;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -319,33 +234,9 @@ function useChat(config: ChatConfig = {}) {
     accessToken = null,
   } = config;
 
-  const [msgs, setMsgs] = useState<ChatMessage[]>(() => {
-    // Restore conversation across reloads (session-scoped, not persistent)
-    try {
-      const saved = sessionStorage.getItem(SESSION_MSGS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as ChatMessage[];
-        if (Array.isArray(parsed)) {
-          // Never restore a mid-stream placeholder
-          return parsed.map(m => ({ ...m, streaming: false }));
-        }
-      }
-    } catch { /* corrupt snapshot — start clean */ }
-    return [];
-  });
+  const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const msgsRef = useRef(msgs);
   useEffect(() => { msgsRef.current = msgs; }, [msgs]);
-
-  // Debounced session snapshot — avoids a sync write on every stream tick
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        if (msgs.length) sessionStorage.setItem(SESSION_MSGS_KEY, JSON.stringify(msgs.slice(-SESSION_MSGS_MAX)));
-        else sessionStorage.removeItem(SESSION_MSGS_KEY);
-      } catch { /* quota exceeded — skip snapshot */ }
-    }, 500);
-    return () => clearTimeout(t);
-  }, [msgs]);
 
   const [busy, setBusy] = useState(false);
   const [tools, setTools] = useState<ToolRun[]>([]);
@@ -358,7 +249,6 @@ function useChat(config: ChatConfig = {}) {
   const flushRafRef = useRef<number | undefined>(undefined);
   const toolCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const codexResponseIdRef = useRef<string | null>(null);
-  const tokenCacheRef = useRef<string | null>(null);
 
   // ── Flush buffer → state (sync) ──
   const flushBufferNow = useCallback(() => {
@@ -395,33 +285,15 @@ function useChat(config: ChatConfig = {}) {
   }, [flushBufferNow]);
 
   // ── Tool cleanup — remove lingered tools ──
-  // toolsRef mirrors tools synchronously so SSE handlers can resolve tool IDs
-  // without side effects inside setTools updaters (updaters must stay pure).
-  const toolsRef = useRef<ToolRun[]>([]);
-  useEffect(() => { toolsRef.current = tools; }, [tools]);
-
   const scheduleToolCleanup = useCallback((toolId: string) => {
     const existing = toolCleanupTimers.current.get(toolId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
-      toolsRef.current = toolsRef.current.filter(t => t.id !== toolId);
       setTools(prev => prev.filter(t => t.id !== toolId));
       toolCleanupTimers.current.delete(toolId);
     }, TOOL_LINGER_MS);
     toolCleanupTimers.current.set(toolId, timer);
   }, []);
-
-  const finishTool = useCallback((id: string | null, name: string, state: 'done' | 'error') => {
-    const target = id
-      ? toolsRef.current.find(t => t.id === id)
-      : toolsRef.current.find(t => t.name === name && t.state === 'active');
-    if (!target) return;
-    const targetId = target.id;
-    const end = Date.now();
-    toolsRef.current = toolsRef.current.map(t => t.id === targetId ? { ...t, state, end } : t);
-    setTools(prev => prev.map(t => t.id === targetId ? { ...t, state, end } : t));
-    scheduleToolCleanup(targetId);
-  }, [scheduleToolCleanup]);
 
   // ── Parse SSE event ──
   const processSseEvent = useCallback((event: string, raw: string) => {
@@ -450,16 +322,25 @@ function useChat(config: ChatConfig = {}) {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.id === 'string' ? d.id : crypto.randomUUID();
         if (!name) break;
-        const run: ToolRun = { id, name, state: 'active', start: Date.now() };
-        toolsRef.current = [...toolsRef.current, run];
-        setTools(prev => [...prev, run]);
+        setTools(prev => [...prev, { id, name, state: 'active', start: Date.now() }]);
         break;
       }
       case 'tool_result': {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.id === 'string' ? d.id : null;
         if (!name && !id) break;
-        finishTool(id, name, 'done');
+        let toolIdToCleanup: string | null = null;
+        setTools(prev => {
+          const idx = id 
+            ? prev.findIndex(t => t.id === id) 
+            : prev.findIndex(t => t.name === name && t.state === 'active');
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          toolIdToCleanup = updated[idx].id;
+          updated[idx] = { ...updated[idx], state: 'done', end: Date.now() };
+          return updated;
+        });
+        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
 
         // Inject card segment into the stream — preserves interleaving order
         // Legacy path: CARD_REGISTRY lookup by tool name
@@ -489,7 +370,18 @@ function useChat(config: ChatConfig = {}) {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.id === 'string' ? d.id : null;
         if (!name && !id) break;
-        finishTool(id, name, 'error');
+        let toolIdToCleanup: string | null = null;
+        setTools(prev => {
+          const idx = id 
+            ? prev.findIndex(t => t.id === id) 
+            : prev.findIndex(t => t.name === name && t.state === 'active');
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          toolIdToCleanup = updated[idx].id;
+          updated[idx] = { ...updated[idx], state: 'error', end: Date.now() };
+          return updated;
+        });
+        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
         break;
       }
       case 'error': {
@@ -515,16 +407,25 @@ function useChat(config: ChatConfig = {}) {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.callId === 'string' ? d.callId : crypto.randomUUID();
         if (!name) break;
-        const run: ToolRun = { id, name, state: 'active', start: Date.now() };
-        toolsRef.current = [...toolsRef.current, run];
-        setTools(prev => [...prev, run]);
+        setTools(prev => [...prev, { id, name, state: 'active', start: Date.now() }]);
         break;
       }
       case 'tool_call_completed': {
         const name = typeof d.tool === 'string' ? d.tool : '';
         const id = typeof d.callId === 'string' ? d.callId : null;
         if (!name && !id) break;
-        finishTool(id, name, 'done');
+        let toolIdToCleanup: string | null = null;
+        setTools(prev => {
+          const idx = id
+            ? prev.findIndex(t => t.id === id)
+            : prev.findIndex(t => t.name === name && t.state === 'active');
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          toolIdToCleanup = updated[idx].id;
+          updated[idx] = { ...updated[idx], state: 'done', end: Date.now() };
+          return updated;
+        });
+        if (toolIdToCleanup) scheduleToolCleanup(toolIdToCleanup);
         break;
       }
       case 'tool_progress': {
@@ -550,7 +451,7 @@ function useChat(config: ChatConfig = {}) {
       default:
         break;
     }
-  }, [flushBuffer, finishTool]);
+  }, [flushBuffer, scheduleToolCleanup]);
 
   // ── Parse SSE stream ──
   const parseStream = useCallback(async (
@@ -619,18 +520,26 @@ function useChat(config: ChatConfig = {}) {
   }, [processSseEvent]);
 
   // ── Send ──
-  const send = useCallback(async (override?: string, rawInput?: string) => {
+  const send = useCallback(async (override?: string, rawInput?: string, attachments: FileAttachment[] = []) => {
     const text = sanitizeInput(override ?? rawInput ?? '');
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
 
     setLastQuery(text);
     setError(null);
+
+    const filesPayload = attachments.map(att => ({
+      name: att.name,
+      size: att.size,
+      type: att.type,
+      dataUrl: att.dataUrl,
+    }));
 
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
       segments: [{ kind: 'text', content: text }],
+      attachments: filesPayload.map(f => ({ name: f.name, size: f.size, type: f.type })),
       ts: Date.now(),
     };
     const aId = crypto.randomUUID();
@@ -649,7 +558,6 @@ function useChat(config: ChatConfig = {}) {
 
     setMsgs(prev => [...prev, userMsg, placeholder]);
     setBusy(true);
-    toolsRef.current = [];
     setTools([]);
 
     // Cap history window to prevent oversized payloads
@@ -661,28 +569,56 @@ function useChat(config: ChatConfig = {}) {
     abortRef.current = ctrl;
     
     let idleTimer: ReturnType<typeof setTimeout>;
-    let idleTimedOut = false;
     const resetIdle = () => {
       clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => { idleTimedOut = true; ctrl.abort(); }, IDLE_TIMEOUT_MS);
+      idleTimer = setTimeout(() => ctrl.abort(), IDLE_TIMEOUT_MS);
     };
     resetIdle();
 
     try {
-      // Single source of truth for client context (also used by mount effect)
-      let { servers: parsedMcpServers, integrations: parsedIntegrations } = readClientContext();
+      console.log('[MobileChat] fetch API_ENDPOINT:', apiEndpoint);
+      
+      let parsedMcpServers: any[] = [];
+      const mcpSaved = localStorage.getItem('mcp_full_servers');
+      if (mcpSaved) {
+        try {
+          parsedMcpServers = JSON.parse(mcpSaved);
+        } catch (e) {
+          console.error("Failed to parse local MCP servers", e);
+        }
+      }
+      // Merge missing preloaded servers into parsedMcpServers
+      PRELOADED_SERVERS.forEach(pre => {
+        const existing = parsedMcpServers.find(p => p.id === pre.id);
+        if (!existing) {
+          parsedMcpServers.push(pre);
+        } else if (existing.type === 'Official') {
+          existing.tools = pre.tools;
+          existing.commandOrUrl = pre.commandOrUrl;
+        }
+      });
+      // Fallback to config provided servers if local storage is empty
       if (!parsedMcpServers.length && mcpServers && mcpServers.length > 0) {
         parsedMcpServers = mcpServers;
+      }
+
+      let parsedIntegrations: any[] = [];
+      const apiSaved = localStorage.getItem('api_hub_integrations');
+      if (apiSaved) {
+        try {
+          parsedIntegrations = JSON.parse(apiSaved);
+        } catch (e) {
+          console.error("Failed to parse local API integrations", e);
+        }
       }
       if (!parsedIntegrations.length && apiIntegrations && apiIntegrations.length > 0) {
         parsedIntegrations = apiIntegrations;
       }
 
-      let finalAccessToken = accessToken || tokenCacheRef.current;
+      let finalAccessToken = accessToken;
       if (!finalAccessToken) {
         try {
           finalAccessToken = await getAccessToken();
-          tokenCacheRef.current = finalAccessToken;
         } catch (e) {
           console.warn('Failed to fetch access token', e);
         }
@@ -698,6 +634,7 @@ function useChat(config: ChatConfig = {}) {
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             modelVersion: modelConfig || 'gpt-5.3-codex',
             ...(codexResponseIdRef.current ? { previousResponseId: codexResponseIdRef.current } : {}),
+            attachments: filesPayload,
           }
         : {
             prompt: text,
@@ -711,6 +648,7 @@ function useChat(config: ChatConfig = {}) {
             mcpServers: parsedMcpServers,
             apiIntegrations: parsedIntegrations,
             googleAccessToken: finalAccessToken,
+            attachments: filesPayload,
           };
 
       const res = await fetch(endpoint, {
@@ -719,6 +657,8 @@ function useChat(config: ChatConfig = {}) {
         body: JSON.stringify(requestBody),
         signal: ctrl.signal,
       });
+
+      console.log('[MobileChat] fetch response status:', res.status, 'Content-Type:', res.headers.get('Content-Type'));
 
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -753,17 +693,9 @@ function useChat(config: ChatConfig = {}) {
       }));
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') {
-        if (idleTimedOut) {
-          // Stalled stream, not a user cancel — surface a retryable error.
-          setError({ message: 'Connection stalled — no data received for 30s.', code: 'IDLE_TIMEOUT', retryable: true });
-          setMsgs(prev => prev.map(m =>
-            m.id === aId ? { ...m, streaming: false, content: m.content || '' } : m
-          ));
-        } else {
-          setMsgs(prev => prev.map(m =>
-            m.id === aId ? { ...m, streaming: false, cancelled: true, content: m.content || '' } : m
-          ));
-        }
+        setMsgs(prev => prev.map(m =>
+          m.id === aId ? { ...m, streaming: false, cancelled: true, content: m.content || '' } : m
+        ));
         return;
       }
       const message = e instanceof Error ? e.message : 'Unknown error';
@@ -788,24 +720,20 @@ function useChat(config: ChatConfig = {}) {
 
   const retry = useCallback(() => {
     if (!lastQuery || busy) return;
-    // Prune synchronously: send() reads msgsRef.current for history, and the
-    // ref only syncs in a post-render effect — after queueMicrotask would fire.
-    let pruned = [...msgsRef.current];
-    if (pruned.at(-1)?.role === 'assistant') pruned = pruned.slice(0, -1);
-    if (pruned.at(-1)?.role === 'user') pruned = pruned.slice(0, -1);
-    msgsRef.current = pruned;
-    setMsgs(pruned);
-    send(lastQuery);
+    setMsgs(prev => {
+      let next = [...prev];
+      if (next.at(-1)?.role === 'assistant') next = next.slice(0, -1);
+      if (next.at(-1)?.role === 'user') next = next.slice(0, -1);
+      return next;
+    });
+    queueMicrotask(() => send(lastQuery));
   }, [lastQuery, busy, send]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setMsgs([]); setError(null); setTools([]); setLastQuery(''); setBusy(false);
-    toolsRef.current = [];
     activeIdRef.current = null;
     streamBufferRef.current = '';
-    codexResponseIdRef.current = null; // new conversation must not continue the old Codex response chain
-    try { sessionStorage.removeItem(SESSION_MSGS_KEY); } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
@@ -820,7 +748,6 @@ function useChat(config: ChatConfig = {}) {
   return {
     msgs, busy, tools, error, lastQuery,
     send, cancel, retry, reset,
-    notify: setError,
     clearError: useCallback(() => setError(null), []),
   } as const;
 }
@@ -867,7 +794,7 @@ const ToolPill = memo(function ToolPill({ run, index }: { run: ToolRun; index: n
     >
       {run.state === 'active' && (
         <motion.span
-          className="size-1.5 rounded-full bg-[var(--t2)]"
+          className="size-1.5 rounded-full bg-[var(--s1)]0"
           animate={{ opacity: [0.3, 1, 0.3] }}
           transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -927,7 +854,7 @@ const ThinkingDots = memo(function ThinkingDots() {
 const StreamingCursor = memo(function StreamingCursor() {
   return (
     <motion.span
-      className="inline-block w-[2px] h-[1em] bg-[var(--t1)] rounded-full ml-0.5 align-text-bottom"
+      className="inline-block w-[2px] h-[1em] bg-[var(--s1)]0 rounded-full ml-0.5 align-text-bottom"
       animate={{ opacity: [1, 0] }}
       transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
       aria-hidden
@@ -967,9 +894,20 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
         transition={spring.gentle}
         className="flex justify-end w-full"
       >
-        <div className="max-w-[85%] bg-[var(--s1)] rounded-[20px] rounded-br-[6px] px-5 py-3.5">
-          <span className="text-[15px] text-[var(--t1)] whitespace-pre-wrap leading-relaxed break-words"
-            style={{ fontFamily: FONT_STACK }}>{msg.content}</span>
+        <div className="max-w-[85%] flex flex-col items-end gap-1.5">
+          {msg.attachments && msg.attachments.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1.5 mb-1 w-full">
+              {msg.attachments.map((att, i) => (
+                <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[var(--s2)] border border-[var(--b1)] text-[11px] text-[var(--t2)] max-w-full">
+                  <span className="truncate max-w-[150px] font-medium">{att.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="bg-[var(--s1)] rounded-[20px] rounded-br-[6px] px-5 py-3.5 inline-block text-left">
+            <span className="text-[15px] text-[var(--t1)] whitespace-pre-wrap leading-relaxed break-words"
+              style={{ fontFamily: FONT_STACK }}>{msg.content}</span>
+          </div>
         </div>
       </motion.div>
     );
@@ -1043,7 +981,6 @@ const Bubble = memo(function Bubble({ msg, isLast, onRetry }: {
   if (prev.msg.content !== next.msg.content) return false;
   if (prev.msg.streaming !== next.msg.streaming) return false;
   if (prev.msg.segments !== next.msg.segments) return false;
-  if (prev.msg.cancelled !== next.msg.cancelled) return false;
   if (prev.isLast !== next.isLast) return false;
   if (prev.onRetry !== next.onRetry) return false;
   return true;
@@ -1085,20 +1022,40 @@ const ErrorBar = memo(function ErrorBar({ error, onRetry, onDismiss }: {
 // InputBar — isolated from message state to prevent full-tree re-render
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
-  busy: boolean; onSend: (text: string) => void; onCancel: () => void;
+const InputBar = memo(function InputBar({ busy, onSend, onCancel, onError }: {
+  busy: boolean; onSend: (text: string, attachments: FileAttachment[]) => void; onCancel: () => void; onError?: (err: string) => void;
 }) {
   const [input, setInput] = useState('');
   const [focused, setFocused] = useState(false);
   const inputRef = useTextareaResize(input);
+  
+  const {
+    attachments,
+    isDragging,
+    removeAttachment,
+    clearAttachments,
+    dragProps,
+    pasteProps,
+    fileInputProps,
+  } = useFileAttachment({
+    maxFileSize: 5 * 1024 * 1024,
+    maxFiles: 5,
+    acceptedTypes: ['image/*', 'application/pdf', '.csv', '.xlsx', '.js', '.ts', '.json'],
+    onError: (err) => {
+      if (onError) onError(err.message);
+    },
+  });
+
   const hasText = input.trim().length > 0;
+  const hasAttachments = attachments.length > 0;
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || busy) return;
-    onSend(text);
+    if ((!text && !hasAttachments) || busy) return;
+    onSend(text, attachments);
     setInput('');
-  }, [input, busy, onSend]);
+    clearAttachments();
+  }, [input, busy, onSend, attachments, clearAttachments, hasAttachments]);
 
   const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !isTouchDevice()) {
@@ -1113,15 +1070,52 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
 
   return (
     <div className="px-4 pt-3 pb-3 flex-shrink-0 z-20 border-t border-[var(--b1)] bg-[var(--bg)] backdrop-blur"
-      style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 12px)' }}>
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 12px)' }}
+      {...dragProps}
+    >
       <div className="mx-auto max-w-chat w-full">
+        {/* Render Attachments */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2 px-1" aria-label="File attachments">
+            {attachments.map((file) => (
+              <FileChip
+                key={file.id}
+                id={file.id}
+                name={file.name}
+                size={file.size}
+                type={file.type}
+                onRemove={removeAttachment}
+              />
+            ))}
+          </div>
+        )}
+        
         <div className={cn(
           'relative flex items-end gap-2 bg-[var(--s1)] rounded-[26px]',
           'border transition-all duration-300 ease-out',
           focused
             ? 'border-[var(--b2)] shadow-[var(--t-shadow-md)]'
             : 'border-[var(--b1)]',
+          isDragging && 'border-[var(--blue)] shadow-[0_0_0_1px_var(--blue)] bg-[var(--s2)]'
         )}>
+          {/* Plus / Attach Button */}
+          <div className="pl-3 pb-2 flex-shrink-0">
+            <button
+              onClick={() => document.getElementById('mobile-file-upload')?.click()}
+              className="p-1.5 text-[var(--t4)] hover:text-[var(--t1)] hover:bg-[var(--s2)] rounded-full transition-colors active:scale-95"
+              aria-label="Attach file"
+              disabled={busy}
+            >
+              <Plus className="size-5" />
+            </button>
+            <input
+              id="mobile-file-upload"
+              type="file"
+              className="hidden"
+              {...fileInputProps}
+            />
+          </div>
+
         <textarea
           ref={inputRef}
           value={input}
@@ -1129,10 +1123,11 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onKeyDown={handleKeyDown}
-          placeholder="Message"
+          {...pasteProps}
+          placeholder="Message Truth..."
           rows={1}
           aria-label="Chat input"
-          className="flex-1 bg-transparent text-[16px] text-[var(--t1)] placeholder:text-[var(--t4)] leading-[1.4] resize-none outline-none pl-5 pr-2 py-3 scrollbar-none"
+          className="flex-1 bg-transparent text-[15px] text-[var(--t1)] placeholder:text-[var(--t4)] leading-[1.4] resize-none outline-none pl-1 pr-2 py-3.5 scrollbar-none"
           style={{ fontFamily: FONT_STACK, maxHeight: MAX_TEXTAREA_HEIGHT, transition: 'height 120ms ease-out' }}
         />
         <div className="pr-2 pb-2 flex-shrink-0">
@@ -1140,12 +1135,12 @@ const InputBar = memo(function InputBar({ busy, onSend, onCancel }: {
             whileTap={{ scale: 0.82 }}
             transition={spring.micro}
             onClick={busy ? onCancel : handleSend}
-            disabled={!busy && !hasText}
+            disabled={!busy && !hasText && !hasAttachments}
             aria-label={busy ? 'Stop generating' : 'Send message'}
             className="relative size-[32px] rounded-full flex items-center justify-center transition-all duration-200 disabled:pointer-events-none"
             style={{
-              background: busy || hasText ? 'white' : 'rgba(255,255,255,0.06)',
-              color: busy || hasText ? 'black' : 'rgba(255,255,255,0.15)',
+              background: busy || hasText || hasAttachments ? 'white' : 'rgba(255,255,255,0.06)',
+              color: busy || hasText || hasAttachments ? 'black' : 'rgba(255,255,255,0.15)',
             }}
           >
             <AnimatePresence mode="wait" initial={false}>
@@ -1180,26 +1175,36 @@ export default function MobileChat() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [parsedMcpServers, setParsedMcpServers] = useState<any[]>([]);
   const [parsedIntegrations, setParsedIntegrations] = useState<any[]>([]);
-  
-  // Network status and offline queue
-  const networkStatus = useNetworkStatus();
-  const {
-    queue: offlineQueue,
-    addToQueue,
-    clearQueue,
-    processQueue,
-    hasQueuedItems
-  } = useOfflineQueue<{ text: string; model: string }>();
 
   const [model, setModel] = useState('gemini');
   const [modelConfig, setModelConfig] = useState('gemini-3.1-pro-preview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     // Dynamic refresh of token and settings on mount
     getAccessToken().then(setAccessToken).catch(console.error);
 
-    const { servers, integrations } = readClientContext();
+    let servers: any[] = [];
+    const mcpSaved = localStorage.getItem('mcp_full_servers');
+    if (mcpSaved) {
+      try { servers = JSON.parse(mcpSaved); } catch (e) {}
+    }
+    PRELOADED_SERVERS.forEach(pre => {
+      const existing = servers.find(p => p.id === pre.id);
+      if (!existing) {
+        servers.push(pre);
+      } else if (existing.type === 'Official') {
+        existing.tools = pre.tools;
+        existing.commandOrUrl = pre.commandOrUrl;
+      }
+    });
     setParsedMcpServers(servers);
+
+    let integrations: any[] = [];
+    const apiSaved = localStorage.getItem('api_hub_integrations');
+    if (apiSaved) {
+      try { integrations = JSON.parse(apiSaved); } catch (e) {}
+    }
     setParsedIntegrations(integrations);
   }, []);
 
@@ -1217,94 +1222,52 @@ export default function MobileChat() {
 
   useEffect(() => { scroll.scrollToEndIfNear(); }, [msgCount, lastContent, lastSegmentCount, scroll.scrollToEndIfNear]);
 
-  // Stable identity wrappers: `chat` is a fresh object every render, so any
-  // callback depending on it would invalidate InputBar/Bubble memoization on
-  // every stream tick. chatRef keeps identities stable across renders.
-  const chatRef = useRef(chat);
-  useEffect(() => { chatRef.current = chat; });
-
-  const handleSend = useCallback((text: string) => {
-    if (!navigator.onLine) {
-      addToQueue({ text, model });
-      chatRef.current.notify({ message: 'Message queued for offline delivery', retryable: false });
-      return;
-    }
-    chatRef.current.send(text);
-  }, [addToQueue, model]);
-
-  const handleRetry = useCallback(() => { chatRef.current.retry(); }, []);
-  const handleCancel = useCallback(() => { chatRef.current.cancel(); }, []);
-  
-  // Process offline queue when coming back online
-  useEffect(() => {
-    if (networkStatus.isOnline && hasQueuedItems) {
-      processQueue(async (items) => {
-        for (const item of items) {
-          try {
-            // Send queued messages
-            chatRef.current.send(item.text);
-          } catch (error) {
-            console.error('Failed to send queued message:', error);
-          }
-        }
-      });
-    }
-  }, [networkStatus.isOnline, hasQueuedItems, processQueue]);
+  const handleSend = useCallback((text: string) => { chat.send(text); }, [chat]);
 
   return (
-    <div className="relative flex flex-col h-dvh w-full bg-[var(--bg)] text-[var(--t1)] antialiased overflow-hidden">
-      {/* ── Network indicator ── */}
-      <NetworkIndicator status={networkStatus} />
-      
-      {/* ── Offline queue indicator ── */}
-      {hasQueuedItems && (
-        <div className="fixed top-14 right-4 z-50 px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-full flex items-center gap-1.5 shadow-lg animate-pulse">
-          <CloudOff size={12} />
-          <span>{offlineQueue.length} queued</span>
-        </div>
-      )}
-      
+    <div className="flex flex-col h-dvh w-full bg-[var(--bg)] text-[var(--t1)] antialiased overflow-hidden">
       {/* ── Header ── */}
       <div className="sticky top-0 z-10 border-b border-[var(--b1)] bg-[var(--bg)] px-4 py-3 backdrop-blur flex-shrink-0"
            style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}>
         <div className="mx-auto max-w-chat flex items-center justify-between w-full">
-          <div className="text-sm text-[var(--t2)] flex items-center" style={{ fontFamily: FONT_STACK }}>
-            <span className="font-semibold text-[var(--t1)] tracking-tight">Truth</span>
-            <span className="mx-2 opacity-30">•</span>
-            <select
-              value={`${model}:${modelConfig}`}
-              onChange={(e) => {
-                const [m, mc] = e.target.value.split(':');
-                setModel(m);
-                setModelConfig(mc);
-              }}
-              className="bg-transparent text-[var(--t2)] appearance-none outline-none cursor-pointer hover:text-[var(--t1)] transition-colors"
-            >
-              <option value="gemini:gemini-3.1-pro-preview" className="text-[var(--bg)]">Gemini 3.1 Pro</option>
-              <option value="gemini:gemini-3.5-flash" className="text-[var(--bg)]">Gemini 3.5 Flash</option>
-              <option value="chatgpt:gpt-5.5" className="text-[var(--bg)]">GPT 5.5</option>
-              <option value="claude:claude-fable-5" className="text-[var(--bg)]">Claude 5 Fable</option>
-              <option value="claude:claude-sonnet-5" className="text-[var(--bg)]">Claude 5 Sonnet</option>
-              <option value="claude:claude-sonnet-4-6" className="text-[var(--bg)]">Claude 4.6 Sonnet</option>
-              <option value="claude:claude-opus-4-8" className="text-[var(--bg)]">Claude 4.8 Opus</option>
-              <option value="grok:grok-4.3" className="text-[var(--bg)]">Grok 4.3</option>
-              <option value="codex:gpt-5.3-codex" className="text-[var(--bg)]">Codex GPT-5.3</option>
-              <option value="codex:gpt-5.5" className="text-[var(--bg)]">Codex GPT-5.5</option>
-              <option value="codex:gpt-5.4" className="text-[var(--bg)]">Codex GPT-5.4</option>
-            </select>
-            <ChevronDown className="size-3 ml-1 opacity-50" />
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="p-1.5 -ml-1.5 rounded-md text-[var(--t2)] hover:bg-[var(--s1)] active:scale-95 transition-all" aria-label="Menu">
+              <Menu className="size-5" />
+            </button>
+            <div className="text-sm text-[var(--t2)] flex items-center" style={{ fontFamily: FONT_STACK }}>
+              <span className="font-semibold text-[var(--t1)] tracking-tight">Truth</span>
+              <span className="mx-2 opacity-30">•</span>
+              <select
+                value={`${model}:${modelConfig}`}
+                onChange={(e) => {
+                  const [m, mc] = e.target.value.split(':');
+                  setModel(m);
+                  setModelConfig(mc);
+                }}
+                className="bg-transparent text-[var(--t2)] font-medium appearance-none outline-none cursor-pointer hover:text-[var(--t1)] transition-colors"
+              >
+                <option value="gemini:gemini-3.1-pro-preview" className="text-[var(--bg)]">Gemini 3.1 Pro</option>
+                <option value="gemini:gemini-3.5-flash" className="text-[var(--bg)]">Gemini 3.5 Flash</option>
+                <option value="chatgpt:gpt-5.5" className="text-[var(--bg)]">GPT 5.5</option>
+                <option value="claude:claude-opus-4-8" className="text-[var(--bg)]">Claude 4.8 Opus</option>
+                <option value="grok:grok-4.3" className="text-[var(--bg)]">Grok 4.3</option>
+                <option value="deepseek:deepseek-v3.2-maas" className="text-[var(--bg)]">DeepSeek V3.2</option>
+                <option value="codex:gpt-5.3-codex" className="text-[var(--bg)]">Codex GPT-5.3</option>
+              </select>
+              <ChevronDown className="size-3 ml-1 opacity-50" />
+            </div>
           </div>
           <button onClick={chat.reset}
-            className="p-1.5 rounded-full text-[var(--t4)] hover:text-[var(--t2)] active:scale-90 transition-all duration-150"
+            className="p-1.5 rounded-full text-[var(--t4)] hover:text-[var(--t1)] hover:bg-[var(--s1)] active:scale-90 transition-all duration-150"
             aria-label="New conversation">
-            <PenLine className="size-4" strokeWidth={1.8} />
+            <PenLine className="size-5" strokeWidth={1.8} />
           </button>
         </div>
       </div>
 
       {/* ── Messages ── */}
       <div ref={scroll.scrollRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none overscroll-contain"
+        className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none"
         onScroll={scroll.onScroll}
         style={{ WebkitOverflowScrolling: 'touch' }}>
         {msgCount === 0 ? (
@@ -1323,30 +1286,13 @@ export default function MobileChat() {
           <div className="px-5 pt-8 pb-4 mx-auto max-w-chat w-full flex flex-col space-y-6">
             <AnimatePresence mode="popLayout">
               {chat.msgs.map((msg, i) => (
-                <Bubble key={msg.id} msg={msg} isLast={i === msgCount - 1} onRetry={handleRetry} />
+                <Bubble key={msg.id} msg={msg} isLast={i === msgCount - 1} onRetry={chat.retry} />
               ))}
             </AnimatePresence>
           </div>
         )}
         <div ref={scroll.endRef} className="h-px" aria-hidden />
       </div>
-
-      {/* ── Scroll to bottom ── */}
-      <AnimatePresence>
-        {!scroll.atBottom && msgCount > 0 && (
-          <motion.button
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.15 }}
-            onClick={scroll.scrollToEnd}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center justify-center size-9 rounded-full bg-[var(--s2)] text-[var(--t2)] shadow-[0_2px_12px_rgba(0,0,0,0.4),inset_0_0_0_1px_var(--b1)] active:scale-95 transition-transform"
-            aria-label="Scroll to bottom"
-          >
-            <ChevronDown className="size-4" strokeWidth={2} />
-          </motion.button>
-        )}
-      </AnimatePresence>
 
       {/* ── Tools ── */}
       <AnimatePresence>
@@ -1356,12 +1302,58 @@ export default function MobileChat() {
       {/* ── Error ── */}
       <AnimatePresence>
         {chat.error && (
-          <ErrorBar error={chat.error} onRetry={handleRetry} onDismiss={chat.clearError} />
+          <ErrorBar error={chat.error} onRetry={chat.retry} onDismiss={chat.clearError} />
         )}
       </AnimatePresence>
 
       {/* ── Input ── */}
-      <InputBar busy={chat.busy} onSend={handleSend} onCancel={handleCancel} />
+      <InputBar 
+        busy={chat.busy} 
+        onSend={(text, attachments) => chat.send(text, undefined, attachments)} 
+        onCancel={chat.cancel}
+        onError={(err) => alert(err)}
+      />
+
+      {/* ── Sidebar Overlay ── */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+              className="fixed inset-y-0 left-0 z-50 w-3/4 max-w-[300px] bg-[var(--bg)] border-r border-[var(--b1)] shadow-2xl flex flex-col"
+            >
+              <div className="p-4 border-b border-[var(--b1)] flex items-center justify-between" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 16px)' }}>
+                <span className="font-semibold text-[var(--t1)]">Truth History</span>
+                <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-md text-[var(--t4)] hover:text-[var(--t1)] active:scale-95">
+                  <X className="size-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="text-[13px] text-[var(--t4)] font-medium mb-3 px-2 uppercase tracking-wider">Recent</div>
+                {/* Visual placeholder for chat history */}
+                <button className="w-full text-left p-3 rounded-xl bg-[var(--s1)] border border-[var(--b1)] flex items-center gap-3 text-[14px] text-[var(--t2)] active:scale-[0.98] transition-all">
+                  <MessageSquare className="size-4 opacity-50" />
+                  <span className="truncate flex-1">Current Session</span>
+                </button>
+                <div className="text-center text-[12px] text-[var(--t4)] mt-6">
+                  Chat history sync coming soon.
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
