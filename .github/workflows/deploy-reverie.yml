@@ -1,9 +1,8 @@
 name: Deploy Truth to GKE
 
+# GKE auto-deploy disabled 2026-07-10 — Cloud Run (service: reverie) is the SSOT.
+# Deploy lane: scripts/ship-run.sh (Cloud Build -> gcloud run deploy).
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
