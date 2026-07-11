@@ -214,9 +214,19 @@ function buildClaudeMessagesForRequest(messages: any[], promptCacheEnabled: bool
 }
 
 function supportsClaudePromptCache(selectedModel: string): boolean {
-  // Prompt caching for this integration has been validated on Claude 4-series models.
-  // Newer/aliased models (e.g. fable/sonnet-5 routes) may reject `betas` in some endpoints.
-  return /(claude-(opus|sonnet)-4|claude-opus-4|claude-sonnet-4)/i.test(selectedModel);
+  const configuredModels = (process.env.CLAUDE_PROMPT_CACHE_MODELS || '')
+    .split(',')
+    .map((modelId) => modelId.trim())
+    .filter(Boolean);
+  if (configuredModels.length > 0) {
+    return configuredModels.includes(selectedModel);
+  }
+
+  // Prompt caching is intentionally allowlisted. Aliased/newer models such as
+  // claude-opus-4-8, claude-fable-5, and claude-sonnet-5 reject `betas` on the
+  // currently deployed Anthropic endpoint, so do not pay a guaranteed 400 before
+  // every normal request.
+  return /^(claude-opus-4-6|claude-sonnet-4-6)$/i.test(selectedModel);
 }
 
 function isClaudePromptCacheRejectedError(err: any): boolean {
@@ -1259,12 +1269,6 @@ CRITICAL TOOL USE INSTRUCTIONS:
 
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
           const selectedClaudeModel = modelConfigs.claude || "claude-opus-4-8";
-          const promptCacheEnabledForModel =
-            CLAUDE_PROMPT_CACHE_ENABLED &&
-            supportsClaudePromptCache(selectedClaudeModel) &&
-            !claudePromptCacheDisabledModels.has(selectedClaudeModel);
-          const claudeSystemPrompt = buildClaudeSystemPrompt(systemPrompt, promptCacheEnabledForModel);
-          const claudeToolsForRequest = buildClaudeToolsWithCacheControl(claudeTools, promptCacheEnabledForModel);
 
           // Opus 4 supports up to 128k output tokens.
           // 16384 was causing Opus 4.6 to hit max_tokens on long specs/analysis.
@@ -1276,7 +1280,13 @@ CRITICAL TOOL USE INSTRUCTIONS:
           let fatalStreamError: any = null;
 
           for (let streamAttempt = 1; streamAttempt <= CLAUDE_STREAM_RETRY_ATTEMPTS && !signal.aborted; streamAttempt++) {
-            const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages, promptCacheEnabledForModel);
+            const promptCacheEnabledForAttempt =
+              CLAUDE_PROMPT_CACHE_ENABLED &&
+              supportsClaudePromptCache(selectedClaudeModel) &&
+              !claudePromptCacheDisabledModels.has(selectedClaudeModel);
+            const claudeSystemPrompt = buildClaudeSystemPrompt(systemPrompt, promptCacheEnabledForAttempt);
+            const claudeToolsForRequest = buildClaudeToolsWithCacheControl(claudeTools, promptCacheEnabledForAttempt);
+            const claudeMessagesForRequest = buildClaudeMessagesForRequest(currentMessages, promptCacheEnabledForAttempt);
             let currentToolUse: any = null;
             assistantContentBlocks = [];
             hasToolUse = false;
@@ -1289,7 +1299,7 @@ CRITICAL TOOL USE INSTRUCTIONS:
                 messages: claudeMessagesForRequest,
                 tools: claudeToolsForRequest,
               };
-              if (promptCacheEnabledForModel) {
+              if (promptCacheEnabledForAttempt) {
                 claudeRequest.betas = [CLAUDE_PROMPT_CACHE_BETA];
               }
 
@@ -1347,10 +1357,6 @@ CRITICAL TOOL USE INSTRUCTIONS:
                   connectionId,
                   model: selectedClaudeModel,
                   reason: streamErr?.message || 'prompt cache unsupported',
-                });
-                sendSse('message', {
-                  model: 'claude',
-                  chunk: '\n\n[Claude endpoint rejected beta/cache inputs for this model. Continuing with standard request shape.]',
                 });
                 continue;
               }
