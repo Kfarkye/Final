@@ -144,6 +144,45 @@ function isValidSseData(d: unknown): d is Record<string, unknown> {
   return typeof d === 'object' && d !== null;
 }
 
+function parseStreamErrorPayload(payload: unknown): string {
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    if (!trimmed) return 'The stream closed before returning data.';
+    try {
+      return parseStreamErrorPayload(JSON.parse(trimmed));
+    } catch {
+      return trimmed;
+    }
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return 'The stream closed before returning data.';
+  }
+
+  const record = payload as Record<string, unknown>;
+  const direct =
+    typeof record.message === 'string' ? record.message :
+    typeof record.error === 'string' ? record.error :
+    typeof record.reason === 'string' ? record.reason :
+    typeof record.code === 'string' ? record.code :
+    null;
+  if (direct && direct.trim()) return direct.trim();
+
+  if (record.error && typeof record.error === 'object') {
+    return parseStreamErrorPayload(record.error);
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return 'The stream closed before returning data.';
+  }
+}
+
+function formatStreamFailure(payload: unknown): string {
+  return `\n\nModel stopped: ${parseStreamErrorPayload(payload)}`;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Springs — tuned for web, not faking native
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -385,6 +424,13 @@ function useChat(config: ChatConfig = {}) {
           : 'Something went wrong';
         const code = typeof d.code === 'string' ? d.code : undefined;
         setError({ message, code, retryable: code !== 'RATE_LIMITED' && code !== 'AUTH_FAILED' });
+        streamBufferRef.current += formatStreamFailure(d);
+        flushBuffer();
+        break;
+      }
+      case 'provider_degraded': {
+        streamBufferRef.current += formatStreamFailure(d);
+        flushBuffer();
         break;
       }
 
@@ -686,7 +732,12 @@ function useChat(config: ChatConfig = {}) {
       const message = e instanceof Error ? e.message : 'Unknown error';
       setError({ message, retryable: !message.includes('Session expired') });
       setMsgs(prev => prev.map(m =>
-        m.id === aId ? { ...m, streaming: false, content: m.content || '' } : m
+        m.id === aId ? {
+          ...m,
+          streaming: false,
+          content: m.content || message,
+          segments: m.content ? m.segments : [{ kind: 'text', content: message }],
+        } : m
       ));
     } finally {
       clearTimeout(idleTimer!);

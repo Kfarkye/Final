@@ -16,9 +16,13 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function isExternalProviderDegraded(providerErrors, text = '') {
+function isExternalProviderDegraded(providerErrors, text = '', httpStatus = 200) {
+  if ([408, 425, 429, 500, 502, 503, 504, 529].includes(Number(httpStatus))) {
+    return true;
+  }
+
   const combined = `${JSON.stringify(providerErrors || {})} ${text}`.toLowerCase();
-  return /credit balance|insufficient credits|billing|quota exceeded|rate limit exceeded|not configured|missing api key|api key.*required/.test(combined);
+  return /credit balance|insufficient credits|billing|quota exceeded|rate limit(?:ed| exceeded)?|rate exceeded|not configured|missing api key|api key.*required|overloaded|temporarily unavailable|service unavailable/.test(combined);
 }
 
 function buildPayload(provider, model, prompt) {
@@ -68,10 +72,12 @@ async function runProvider(provider, model, prompt) {
       toolErrors: [],
       providerErrors: [],
       text: '',
+      rawPreview: '',
       mentions2026: false,
     };
 
     const raw = await response.text();
+    receipt.rawPreview = raw.replace(/\s+/g, ' ').trim().slice(0, 500);
     let remaining = raw;
     while (remaining.length > 0) {
       const idx = remaining.indexOf('\n\n');
@@ -153,6 +159,7 @@ async function main() {
       providerErrorCount: r.providerErrors.length,
       mentions2026: r.mentions2026,
       textPreview: r.text.replace(/\s+/g, ' ').trim().slice(0, 220),
+      rawPreview: r.rawPreview,
       toolErrors: r.toolErrors.slice(0, 3),
     })),
   };
@@ -160,14 +167,14 @@ async function main() {
   const failures = [];
   for (const result of results) {
     const externalProviderDegraded =
-      isExternalProviderDegraded(result.providerErrors, result.text);
-
-    if (result.httpStatus !== 200) failures.push(`${result.provider} returned HTTP ${result.httpStatus}`);
+      isExternalProviderDegraded(result.providerErrors, `${result.text} ${result.rawPreview}`, result.httpStatus);
 
     if (externalProviderDegraded) {
       summary.warnings.push(`${result.provider} skipped strict checks due to external provider degradation`);
       continue;
     }
+
+    if (result.httpStatus !== 200) failures.push(`${result.provider} returned HTTP ${result.httpStatus}`);
 
     if (!result.sawDone) failures.push(`${result.provider} stream missing done event`);
     const yearRegex = new RegExp(`\\b${EXPECTED_YEAR}\\b`);

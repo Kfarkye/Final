@@ -928,7 +928,14 @@ CRITICAL TOOL USE INSTRUCTIONS:
           return;
         }
         ChatLogger.error(`model_error_${modelName}`, err);
-        sendSse('message', { model: modelName, chunk: `\n\n[Error: ${err.message}]` });
+        const message = err?.message || 'Unknown provider stream error';
+        sendSse('message', { model: modelName, chunk: `\n\n[Error: ${message}]` });
+        sendSse('provider_degraded', {
+          model: modelName,
+          reason: 'stream_error',
+          error: message,
+          status: err?.status ?? err?.statusCode ?? err?.response?.status,
+        });
       }
     };
 
@@ -1125,14 +1132,21 @@ CRITICAL TOOL USE INSTRUCTIONS:
 
         let currentMessages = [...msgs];
         let runCount = 0;
+        const selectedOpenAIModel = modelConfigs.chatgpt || "gpt-5.5";
 
         while (runCount < MAX_PROVIDER_TOOL_TURNS && !signal.aborted) {
-          const stream = await deps.openai.chat.completions.create({
-            model: modelConfigs.chatgpt || "gpt-5.5-2026-04-23",
+          const openaiCreateParams: any = {
+            model: selectedOpenAIModel,
             messages: currentMessages,
             tools: openaiTools.length > 0 ? openaiTools : undefined,
-            stream: true
-          }, { signal });
+            stream: true,
+          };
+
+          if (openaiTools.length > 0 && /^gpt-5/i.test(selectedOpenAIModel)) {
+            openaiCreateParams.reasoning_effort = 'none';
+          }
+
+          const stream = await deps.openai.chat.completions.create(openaiCreateParams, { signal });
 
           let toolCalls: any = {};
 

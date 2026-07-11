@@ -111,10 +111,10 @@ export function useModelConfig(initial?: Partial<ModelState>) {
   const [modelConfigs, setModelConfigs] = useState<Record<string, string>>(
     initial?.modelConfigs || {
       gemini: 'gemini-3.5-flash',
-      chatgpt: 'gpt-5.5-2026-04-23',
+      chatgpt: 'gpt-5.5',
       claude: 'claude-opus-4-8',
       grok: 'grok-4.3',
-      deepseek: 'deepseek-v4-pro',
+      deepseek: 'deepseek-v3.2-maas',
       codex: 'gpt-5.3-codex',
     }
   );

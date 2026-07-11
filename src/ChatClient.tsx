@@ -116,6 +116,44 @@ const createEmptyResponses = (): Responses => ({
   codex: null,
 });
 
+const parseStreamErrorPayload = (payload: unknown): string => {
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    if (!trimmed) return 'The stream closed before returning data.';
+    try {
+      return parseStreamErrorPayload(JSON.parse(trimmed));
+    } catch {
+      return trimmed;
+    }
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return 'The stream closed before returning data.';
+  }
+
+  const record = payload as Record<string, unknown>;
+  const direct =
+    typeof record.message === 'string' ? record.message :
+    typeof record.error === 'string' ? record.error :
+    typeof record.reason === 'string' ? record.reason :
+    typeof record.code === 'string' ? record.code :
+    null;
+  if (direct && direct.trim()) return direct.trim();
+
+  if (record.error && typeof record.error === 'object') {
+    return parseStreamErrorPayload(record.error);
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return 'The stream closed before returning data.';
+  }
+};
+
+const formatSharedStreamFailure = (payload: unknown): string =>
+  `\n\n**Model stopped:** ${parseStreamErrorPayload(payload)}`;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Approval Notification Utilities (v3)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -652,6 +690,16 @@ export default function ChatClient() {
         appendResponseText('codex', formatCodexStreamError(payload));
       };
 
+      const appendSharedStreamError = (payload: unknown, model?: string) => {
+        const message = formatSharedStreamFailure(payload);
+        const target = model && targetModels.includes(model) ? [model] : targetModels;
+        target.forEach((provider) => {
+          const existing = finalResponses[provider] || '';
+          if (existing.includes('[Error:') || existing.includes('Model stopped:')) return;
+          appendResponseText(provider, message);
+        });
+      };
+
       // If Codex is the only target, route to the Codex handler.
       // If mixed (codex + other models), send to default handler AND codex handler.
       // The default handler ignores 'codex' in targetModels (it doesn't know that provider).
@@ -776,7 +824,8 @@ export default function ChatClient() {
       }
 
       if (!res.ok || !res.body) {
-        throw new Error(`HTTP error! status: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        throw new Error(`HTTP error ${res.status}${body ? `: ${body.slice(0, 300)}` : ''}`);
       }
 
       // Initialize responses state with empty strings for targeted models to show typing UI immediately
@@ -927,11 +976,19 @@ export default function ChatClient() {
                 appendResponseText(data.model, data.chunk);
               }
             } catch (e) { }
+          } else if (eventName === 'provider_degraded') {
+            try {
+              const data = JSON.parse(dataStr);
+              appendSharedStreamError(data, typeof data.model === 'string' ? data.model : undefined);
+            } catch {
+              appendSharedStreamError(dataStr);
+            }
           } else if (eventName === 'error') {
             if (codexOnly) {
               appendCodexStreamError(dataStr);
             } else {
               console.error("SSE Error:", dataStr);
+              appendSharedStreamError(dataStr);
             }
           } else if (eventName === 'tool_approval_required') {
             try {
@@ -1052,6 +1109,16 @@ export default function ChatClient() {
             } catch (e) { }
           }
         }
+      }
+
+      if (!hasFinalResponses) {
+        const emptyResponses = createEmptyResponses();
+        targetModels.forEach(model => {
+          emptyResponses[model] = 'No response received. The stream closed without model output.';
+        });
+        setTurns(prev => prev.map(t =>
+          t.id === turnId ? { ...t, responses: emptyResponses } : t
+        ));
       }
 
       // Wait for React state to settle or just use tracked finalResponses
