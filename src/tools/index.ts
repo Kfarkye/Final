@@ -11,6 +11,7 @@ import { bettingTools } from './betting.tools';
 import { espnTools } from './espn.tools';
 import { mlbTools } from './mlb.tools';
 import { nbaTools } from './nba.tools';
+import { nbaSummerLeagueTools } from './nba-summer-league.tools';
 import { nflTools } from './nfl.tools';
 import { nhlTools } from './nhl.tools';
 import { modelRegistryTools } from './modelRegistry.tools';
@@ -46,6 +47,17 @@ import { youtubeMediaTools } from './youtube-media/index';
 import { pubsubTools } from './pubsub.tools';
 import { visionTools } from './vision.tools';
 import { platformTools } from './platform.tools';
+import { statmuseTools } from './statmuse.tools';
+import { mlbTablesTools } from './mlb-tables.tools';
+import { bigqueryTools } from './bigquery.tools';
+import { firestoreTools } from './firestore.tools';
+import { iamTools } from './iam.tools';
+import { traceTools } from './trace.tools';
+import { localExecutionTools } from './local-execution.tools';
+import { deploymentTools } from './deployment.tools.js';
+import { kalshiTools } from './kalshi.tools.js';
+import { firecrawlTools } from './firecrawl.tools';
+import { serpapiTools } from './serpapi.tools';
 
 // Initialize the registry
 toolRegistry.registerMany([
@@ -62,6 +74,7 @@ toolRegistry.registerMany([
   ...espnTools,
   ...mlbTools,
   ...nbaTools,
+  ...nbaSummerLeagueTools,
   ...nflTools,
   ...nhlTools,
   ...modelRegistryTools,
@@ -96,6 +109,17 @@ toolRegistry.registerMany([
   ...pubsubTools,
   ...visionTools,
   ...platformTools,
+  ...statmuseTools,
+  ...mlbTablesTools,
+  ...bigqueryTools,
+  ...firestoreTools,
+  ...iamTools,
+  ...traceTools,
+  ...localExecutionTools,
+  ...deploymentTools,
+  ...kalshiTools,
+  ...firecrawlTools,
+  ...serpapiTools,
 ]);
 
 // Lock the built-in tool set before any runtime tools are restored.
