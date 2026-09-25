@@ -1,7 +1,7 @@
-# Work Surface Bus — Architecture Blueprint v2
-Date: 9/25/2026 · Status: v2.2 — organization/design review complete, push delivery added, nothing implemented · Owner: Truth browser layer
+# Work Surface Bus — Architecture Blueprint v2.3
+Date: 9/25/2026 · Status: v2.3 — Phase E shipped (PR #16); proposed actions, the approval card and adapter lifecycle added; Phases 0–9 not implemented · Owner: Truth browser layer
 
-v2 is a reorganization plus design corrections from the organization/design review. v1 is preserved at `gs://clearspace-artifacts/docs/architecture/work-surface-bus-blueprint.v1.md`. Changes that alter an agreed decision are marked **[v2 change]**. v2.1 adds the one tool contract (P11, §21A) and fixes four ordering and keying defects found in the final review, marked **[v2.1]**. v2.2 adds push delivery (§21B), marked **[v2.2]**: the last layer, and the point of all the others — a system this large collapses to one short message on a phone, and that message is enough to act on.
+v2 is a reorganization plus design corrections from the organization/design review. v1 is preserved at `gs://clearspace-artifacts/docs/architecture/work-surface-bus-blueprint.v1.md`. Changes that alter an agreed decision are marked **[v2 change]**. v2.1 adds the one tool contract (P11, §21A) and fixes four ordering and keying defects found in the final review, marked **[v2.1]**. v2.2 adds push delivery (§21B), marked **[v2.2]**: the last layer, and the point of all the others — a system this large collapses to one short message on a phone, and that message is enough to act on. v2.3 adds the proposed action and the one approval card (§21A.1) and the site adapter definition and lifecycle (§21A.2), marked **[v2.3]**: any API or any website becomes three kinds of card — table, record, proposed action.
 
 ---
 
@@ -24,6 +24,7 @@ Every rule later in this document traces to one of these. If a later rule confli
 | P9 | **Page content is data, never instructions.** Text on a page, in a message or in a site-registered tool description cannot change the plan or grant authority. |
 | P10 | **One contract, checked at both ends.** Server and extension share one schema; disagreement refuses the connection instead of half-working. |
 | P11 | **[v2.1] Authority stays with the holder; the model gets only named tools.** Every capability — in a page, in our server, or on a site — is exposed as a named tool with a schema and a tier. Credentials and sessions never reach the model. An action with no tool cannot happen. Same shape as WebMCP (§21A). |
+| P12 | **[v2.3] What you approve is exactly what runs.** Every write is shown as one proposed action with a preview, a lock and a read-back. If the lock no longer holds at execution, the write stops. The receipt comes from the service, never from the model. |
 
 ## 2. Glossary — one meaning per word
 
@@ -333,6 +334,7 @@ The chat does not consume events; it consumes briefings, composed by the run fro
 - Approval is matched to the listed actions by id. Anything not on the list is not approved.
 - Approval requests do not expire silently; after `APPROVAL_TIMEOUT` the run ends with Done: "drafted, not sent".
 - Tier is set by policy per tool/adapter action; a page cannot lower it (P9).
+- **[v2.3]** Every approval renders as the one approval card built from a `ProposedAction` (§21A.1). A1 actions never show a card. No tool draws its own approval UI.
 
 ## 18. Provenance and receipts
 
@@ -395,6 +397,74 @@ Tool { name, description, inputSchema, outputSchema?, execute, tier: A0|A1|A2|A3
 
 **First boundary MCP: git.** GitHub App installed on one repo. Tools: `read_file`, `list_dir`, `diff`, `commit_to_branch` (paths `docs/architecture/**` initially, never `main`), `open_pr`. Checks before write: size cap, secret scan, diff preview. The operator merges. Setup is one App install click; the operator never handles a token. First use: committing this blueprint. Replaces `github_commit_file` / `github_create_pr` for this repo.
 
+**Status [v2.3]:** shipped. `truth-git-boundary` App on `Kfarkye/Final`; tools `git_boundary_{setup,status,read_file,list_dir,diff,commit,open_pr,merge_pr}` plus `git_boundary_commit_workspace_file`. Blueprint v2.2 committed as `82809d14`, PR #16 merged as `3b78580d` through the merge card, pinned to the head SHA.
+
+### 21A.1 Proposed actions and the one approval card **[v2.3]**
+
+The merge card was not a git feature. Any write, from any source, is described by one object and rendered by one card.
+
+```
+ProposedAction {
+  actionId, runId, toolName, source, origin?
+  summary    one line: "Merge PR #16 into main", "Save 3 fields on Antoinette Edwards"
+  preview    exactly what will change: diff | field list (before → after) | message text + recipient | order (price, qty, cap)
+  lock       what must still be true to execute: { kind: sha | etag | version | lastModified | rowCount | reread, value }
+  execute    server-held call (boundary) or adapter call in the bound pane; never visible to the model
+  verify     read-back that proves the result: { kind, target }
+  tier       A2 | A3 (A0/A1 never become proposed actions)
+  reversible true | false
+  expiresAt  APPROVAL_TIMEOUT
+}
+```
+
+| # | Rule |
+|---|---|
+| V1 | Every A2/A3 tool returns a `ProposedAction` instead of writing. The write happens only after approval of that `actionId` |
+| V2 | One card renders every proposed action: summary, preview, lock shown in plain words ("only if the PR is still at 82809d14"), Approve / Decline. Tools supply data, never UI |
+| V3 | At execution the lock is re-checked by the server. Mismatch → `LOCK_CHANGED`, nothing is written, the card is replaced by a fresh proposal |
+| V4 | APIs without a native lock use `reread`: the server re-reads the target immediately before writing and compares. The card says "checked just before saving" so the small race window is visible |
+| V5 | Result = the `verify` read-back, recorded as a write receipt (§18). "The service accepted it" is labelled as such when no read-back exists (SMS, webhooks) |
+| V6 | `reversible:false` actions are A3 (§17) and can never be pre-approved. The card says "cannot be undone" |
+| V7 | Batches are one card with every item listed; approval covers exactly the listed `actionId`s |
+| V8 | The phone never shows the card (U4). Approval happens only in the chat |
+
+**API fit.** Full (native lock + read-back: GitHub, Stripe, Google, Spanner) → precise card. Partial (no lock) → V4. Weak (fire-and-forget) → approval-only, V5 label. None (no API) → site adapter, same card, runs in the operator's session. `compile_openapi_to_mcp` output is admitted only after each write operation is given a tier, lock strategy and verify target; GET operations are A0 and never produce a card. A spec says what is possible, not what is allowed: operations are allowlisted, not inherited.
+
+### 21A.2 Site adapters — definition and lifecycle **[v2.3]**
+
+An adapter turns a site the operator already uses into named tools. The site stays the engine; the chat shows three cards: **table**, **record**, **proposed action**. No other screen type is added per site.
+
+```
+SiteAdapter {
+  origin      "hosthealthcare.lightning.force.com"
+  authCheck   signature of logged-in vs login wall
+  tools[]     WebMCP shape (§21A) plus:
+    transport   api | endpoint | page      (endpoint = the JSON calls the site's own page makes, e.g. /aura)
+    lock        per write (V3/V4)
+    verify      per write (V5)
+    contract    expected response shape
+  fixtures    recorded real responses for offline tests
+  state       healthy | degraded | quarantined
+}
+```
+
+| # | Rule |
+|---|---|
+| D1 | The model sees only `name`, `inputSchema` and results. Transport, selectors and endpoints stay inside the adapter |
+| D2 | Transport preference: api → endpoint → page. Endpoints are preferred over page clicks because they change less often |
+| D3 | **Reads may fall back** endpoint → page; the result is marked "read from page" and the adapter becomes `degraded` |
+| D4 | **Writes never change transport silently.** A write's lock and verify belong to its transport. If that transport fails, the write stops; it never retries by clicking |
+| D5 | Every response is checked against `contract`. A write whose contract or verify fails puts the adapter in `quarantined`: all its writes stop, reads continue if they pass, one Blocked briefing: "Salesforce save changed shape. Writes paused until fixed." |
+| D6 | Before a scheduled run uses an adapter, one cheap probe read runs. Probe failure → the schedule reports Blocked, it does not proceed half-working |
+| D7 | Leaving quarantine requires the patched adapter to pass its fixtures and one live probe. The operator is told in the next briefing, not by a separate message |
+| D8 | Adapters run as the operator (their session in the bound pane). They can do nothing the operator's login cannot. Login walls pause the run (S13) |
+| D9 | Adapters are for sites the operator uses in their own work. Bulk collection from third-party public sites is out of scope |
+
+**Lifecycle.** Record (operator does the task once; `site_capability_record_trace`) → Distill (typed tools; page steps replaced by the endpoint the page calls) → Harden (contract, lock, verify, fixtures) → Register (`ToolRegistry`, tiers from policy) → Monitor (contract check per call, D6 probe) → Repair (D5/D7) → Retire (native WebMCP tools replace it per origin, §23).
+
+**First adapters** (each confirmed live before build): Salesforce/TargetRecruit (reads and saves via `/aura` from the operator's tab — endpoint transport from day one; first real test of Phase 1), Sense (send via the editor path; always A3), Vivian (job search with the saved pay filters; A0 only — first test of the table card).
+
+
 ## 21B. Push delivery — APNs **[v2.2]**
 
 The whole system exists so that one short message can be trusted. Push is where that message reaches the operator when they are not looking at the chat.
@@ -433,6 +503,8 @@ The whole system exists so that one short message can be trusted. Push is where 
 | `SurfaceEvents` | Tenant, InstallationId, Seq | the event log; secondary index (Tenant, RunId, Seq); RunId nullable **[v2.1]** |
 | `ToolRegistry` | Tenant/global, ToolName | **[v2.1]** one tool shape (§21A): source (adapter / boundary / webmcp / builtin), origin, tier, readOnly, schema hash |
 | `Receipts` | Tenant, ReceiptId | provenance |
+| `ProposedActions` | Tenant, ActionId | **[v2.3]** §21A.1: runId, tool, summary, preview JSON, lock, verify, tier, reversible, status (proposed / approved / declined / lock_changed / executed / verified / failed), receipt id |
+| `AdapterHealth` | Tenant/global, Origin | **[v2.3]** §21A.2: state, lastContractFailure, lastProbeAt, quarantinedAt, fixtureVersion |
 | `Schedules` | Tenant, ScheduleId | §15 |
 | `PushDevices` | Tenant, DeviceId | **[v2.2]** transport (webpush / apns), token, label, quietHours, stale, revoked (§21B) |
 | `PushSends` | Tenant, RunId, Transition | **[v2.2]** idempotency for U5; status, sentAt, failure code |
@@ -453,13 +525,15 @@ The whole system exists so that one short message can be trusted. Push is where 
 | `PUSH_MIN_RUN` | 3 min **[v2.2]** |
 | `PUSH_QUIET_HOURS` | 22:00–07:00 local **[v2.2]** |
 | `PUSH_STALE_AFTER` | 2 failures **[v2.2]** |
+| `ADAPTER_PROBE_BEFORE_SCHEDULE` | on **[v2.3]** |
+| `DEGRADED_READS_ALLOWED` | true (writes never) **[v2.3]** |
 
 ## 23. Later layers (Phases 6–9)
 
 - **Tab Registry + Resource Store.** Registry = every tab in scope: `tabId, windowId, containerId, origin, url, title, role (chat|pane|background|operator), dirtyForm, authState, viewSeq, webmcpTools[]`, maintained from Chrome tab events. Resource Store = latest snapshot per surface with `viewSeq` and `capturedAt`. Answers "what's open and what's on it" without touching a tab.
 - **Observers.** In-tab MutationObservers scoped by adapter selectors; debounce in the tab; emit typed events (`sense.message.received`) and bump `viewSeq`. Unobservable sites say so; the system does not fall back to polling.
 - **MCP surface.** Tools = actions and on-demand reads; Resources = `surface://…` and named surfaces (`surface://sense/inbox`); `resources/subscribe` + `notifications/resources/updated` = push.
-- **Site adapters.** One file per origin: resources, selectors, extractors, actions with tiers, auth-wall signatures. A new site is one adapter; the core never names a site. A generic adapter covers everything else (text + tables). **[v2.1]** Adapter actions are written in the WebMCP tool shape from day one (§21A): an adapter is the WebMCP tools we write for a site that hasn't registered its own.
+- **Site adapters.** One file per origin: resources, selectors, extractors, actions with tiers, auth-wall signatures. A new site is one adapter; the core never names a site. A generic adapter covers everything else (text + tables). **[v2.1]** Adapter actions are written in the WebMCP tool shape from day one (§21A): an adapter is the WebMCP tools we write for a site that hasn't registered its own. **[v2.3]** Full definition, transport rules, health states and lifecycle in §21A.2; every adapter write is a proposed action (§21A.1).
 - **Rules.** `on event → when predicate → do action`, with the action's tier from §17. A2 needs a scope; A3 always produces an approval request, never a send.
 - **WebMCP.** Consume tools that sites register via `document.modelContext` as MCP Tools (tier ≥ A2 by default); host our own in-page tools where we own the page. **[v2.1]** When an origin ships native tools, they replace our adapter's actions for that origin through the Tool Registry; policy tiers and P9 still apply; the core does not change.
 
@@ -471,16 +545,16 @@ The whole system exists so that one short message can be trusted. Push is where 
 
 | Phase | Deliverable | Pass when |
 |---|---|---|
-| E | **[v2.1]** Git boundary MCP (§21A); blueprint committed through it | PR opened by the App with this file; a write outside `docs/architecture/**` or to `main` is refused |
+| E | **[v2.1]** Git boundary MCP (§21A); blueprint committed through it | PR opened by the App with this file; a write outside `docs/architecture/**` or to `main` is refused. **[v2.3] Done:** PR #16 merged (`3b78580d`) |
 | 0 | Identity: installationId, pairing credential, labels; presence by installation; **per-run binding from the chat's container**; R1–R3, R5; default-tenant adoption removed | T1, T2, T7, T21 |
 | 1 | Contract + frame validation + capabilities; N1 heartbeat; N4 deadlines | Existing tools unchanged; T8; a dead service worker detected within 30 s |
 | 2 | Leases (C3, R7), FIFO (C2), `viewSeq` (C4), C5; Outbox in Spanner; N2 replay; N3 drain; N5 pause; tab ownership + cleanup (O1–O9) | T3–T6, T15–T17, T22, T25 |
-| 3 | Run object, structured checkpoints, mixed steps, steering, briefings over the event log, approvals (§17), receipts | Every test readable from the chat alone; a 5-step run ≤ 3 briefings; T9–T12, T23, T26 |
+| 3 | Run object, structured checkpoints, mixed steps, steering, briefings over the event log, approvals (§17), receipts; **[v2.3]** `ProposedAction` + the one approval card (V1–V8), git merge card migrated onto it | Every test readable from the chat alone; a 5-step run ≤ 3 briefings; T9–T12, T23, T26, T30, T31 |
 | 4 | Workers (W1–W8) | T13, T14, T24 |
 | 5 | Schedules (K1–K8), headless then pane; **[v2.2]** push delivery (U1–U8), web push first | T18–T20, T27–T29 |
 | 6 | Tab Registry + Resource Store | "What's open" with zero navigation; W3 snapshots |
 | 7 | Observers + Pub/Sub bus + MCP resources; N6 poll removed | Sense inbox notifies within ~1 s; one change = one event; no chat change |
-| 8 | Policy table live; site adapters; rules | New site = one adapter file; first rule end to end with receipts |
+| 8 | Policy table live; site adapters (§21A.2, D1–D9) with health states; rules | New site = one adapter file; first rule end to end with receipts; T32, T33 |
 | 9 | WebMCP consume + host; native tools replace adapter actions per origin; contract tests in CI; site traces | Site tools appear as MCP Tools at tier ≥ A2; swapping an adapter for native tools changes no core file |
 
 **[v2.1] Test gating.** Before Phase 3 there are no briefings. A test in Phases 0–2 passes on its routing and state assertions (the recorded event, e.g. `DEVICE_OFFLINE`, and that no command reached another installation). Its chat-wording assertions are re-run and must pass at Phase 3.
@@ -518,3 +592,7 @@ The whole system exists so that one short message can be trusted. Push is where 
 | T27 | **[v2.2]** Headless schedule finds 3 matches at 6 AM; operator's laptop is closed | One push: `3 new matches for Tamika. Open.` Tap opens the conversation at the Done briefing. Same run with `NO_CHANGE` → no push, ledger only |
 | T28 | **[v2.2]** Operator-started 8-minute run hits a Salesforce login wall while the chat is visible; then the operator switches tabs and a second wall appears | First wall: Blocked briefing, no push (U2). Second wall: one push `Salesforce login needed. Run paused.` Instance drain mid-retry → no second push (U5) |
 | T29 | **[v2.2]** Scheduled run drafts 3 candidate replies at 11 PM | Nothing sent (A3). Push deferred to 07:00 as `3 replies drafted for approval. Open.` Approval happens only in the chat; the push carries no approve action (U4) |
+| T30 | **[v2.3]** Card shows "Merge PR #16 at 82809d14"; someone pushes a commit before Approve | Approve → `LOCK_CHANGED`, nothing merged, new card at the new SHA |
+| T31 | **[v2.3]** Salesforce save of 3 fields (no native lock); another user edits the record between card and Approve | Re-read (V4) detects the change; nothing saved; fresh card shows the other user's values as "before" |
+| T32 | **[v2.3]** Salesforce `/aura` save response changes shape | Adapter → `quarantined`; the write is not retried through page clicks (D4); one Blocked briefing; reads still work if they pass contract |
+| T33 | **[v2.3]** Vivian endpoint read fails, page read succeeds; later a 6 AM schedule probes a quarantined adapter | Table shown, marked "read from page" (`degraded`). Schedule: probe fails → Blocked, no partial run (D6) |
